@@ -139,6 +139,9 @@ def build(source, ci, output, env):
         # disable_legacy_signing is supported by the pinned rules_apple submodule.
         # Do not disable extensions: preserve Swiftgram's application functionality.
         rc_path.write_bytes(original_rc + b'\n# Temporary AyuGram unsigned CI settings\n'
+                            # Make.py clears PATH before invoking Bazel. Genrules
+                            # need Homebrew's ccache for TDLib's CMake launchers.
+                            b'build --action_env=PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\n'
                             b'build --//Telegram:disableProvisioningProfiles=true\n'
                             b'build --features=disable_legacy_signing\n'
                             b'build --jobs=2\n'
