@@ -1,0 +1,216 @@
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+new file mode 100644
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+@@ -0,0 +1,61 @@
++import Foundation
++import Postbox
++import SwiftSignalKit
++import SGSimpleSettings
++
++public struct AyuGramHistoryEntry: Codable, Equatable {
++    public let peerId: Int64
++    public let messageId: Int32
++    public let peerTitle: String
++    public let author: String
++    public let text: String
++    public let event: String
++    public let timestamp: Int32
++}
++
++private struct AyuGramHistory: Codable {
++    var entries: [AyuGramHistoryEntry]
++}
++
++// Reserved application preference key, distinct from Telegram's built-in keys.
++private let ayuGramHistoryKey = applicationSpecificPreferencesKey(0x415955)
++
++func ayuGramRecordHistory(transaction: Transaction, ids: [MessageId], event: String) {
++    guard AyuGramSettings.shared.snapshot.messageHistory else { return }
++    var history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self) ?? AyuGramHistory(entries: [])
++    let now = Int32(Date().timeIntervalSince1970)
++    history.entries.removeAll { $0.timestamp < now - 30 * 24 * 60 * 60 }
++    for id in ids {
++        guard id.namespace == Namespaces.Message.Cloud,
++              id.peerId.namespace != Namespaces.Peer.SecretChat,
++              let message = transaction.getMessage(id), !message.text.isEmpty,
++              !message.containsSecretMedia,
++              !message.attributes.contains(where: { $0 is AutoremoveTimeoutMessageAttribute || $0 is AutoclearTimeoutMessageAttribute }) else { continue }
++        let entry = AyuGramHistoryEntry(peerId: id.peerId.toInt64(), messageId: id.id, peerTitle: String((transaction.getPeer(id.peerId)?.debugDisplayTitle ?? "Chat").prefix(256)), author: String((message.author?.debugDisplayTitle ?? "").prefix(256)), text: String(message.text.prefix(4096)), event: event, timestamp: now)
++        // Deduplicate replayed updates, but preserve distinct revisions.
++        if history.entries.last(where: { $0.peerId == entry.peerId && $0.messageId == entry.messageId && $0.event == entry.event })?.text != entry.text {
++            history.entries.append(entry)
++            if history.entries.count > 200 { history.entries.removeFirst(history.entries.count - 200) }
++        }
++    }
++    history.entries = Array(history.entries.suffix(200))
++    transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
++}
++
++public extension TelegramEngine {
++    func ayuGramMessageHistory() -> Signal<[AyuGramHistoryEntry], NoError> {
++        return self.account.postbox.transaction { transaction in
++            var history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self) ?? AyuGramHistory(entries: [])
++            let now = Int32(Date().timeIntervalSince1970)
++            history.entries.removeAll { $0.timestamp < now - 30 * 24 * 60 * 60 }
++            transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
++            return Array(history.entries.reversed())
++        }
++    }
++
++    func ayuGramClearMessageHistory() -> Signal<Void, NoError> {
++        return self.account.postbox.transaction { transaction in
++            transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: nil)
++        }
++    }
++}
+diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+--- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
++++ b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+@@ -4440,6 +4440,7 @@
+                     }
+                 }
+             case let .DeleteMessagesWithGlobalIds(ids):
++                ayuGramRecordHistory(transaction: transaction, ids: transaction.messageIdsForGlobalIds(ids), event: "deleted")
+                 var resourceIds: [MediaResourceId] = []
+                 transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in
+                     addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
+@@ -4449,6 +4450,7 @@
+                 }
+                 deletedMessageIds.append(contentsOf: ids.map { .global($0) })
+             case let .DeleteMessages(ids):
++                ayuGramRecordHistory(transaction: transaction, ids: ids, event: "deleted")
+                 _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
+                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+                 })
+@@ -4486,6 +4488,9 @@
+                     invalidateGroupStats.insert(Namespaces.PeerGroup.archive)
+                 }
+             case let .EditMessage(id, message):
++                if let previous = transaction.getMessage(id), previous.text != message.text {
++                    ayuGramRecordHistory(transaction: transaction, ids: [id], event: "edited")
++                }
+                 var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
+                 transaction.updateMessage(id, update: { previousMessage in
+                     var updatedFlags = message.flags
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+@@ -2,6 +2,7 @@
+ import Display
+ import SwiftSignalKit
+ import AccountContext
++import TelegramCore
+ import TelegramPresentationData
+ import PresentationDataUtils
+ import ItemListUI
+@@ -9,11 +10,12 @@
+ import SGSimpleSettings
+ 
+ private enum AyuSection: Int32, SGItemListSection { case privacy, history, limits }
+-private enum AyuToggle: Hashable { case ghost, read, online, typing, recording, uploading, stories }
++private enum AyuToggle: Hashable { case ghost, read, online, typing, recording, uploading, stories, history }
+ private enum AyuUnused: Hashable { case unused }
+ private typealias AyuEntry = SGItemListUIEntry<AyuSection, AyuToggle, AyuUnused, AyuUnused, AyuUnused, AyuUnused>
+ 
+ public func ayuGramSettingsController(context: AccountContext) -> ViewController {
++    var openHistory: (() -> Void)?
+     let changed = ValuePromise<Int>(0, ignoreRepeated: false)
+     let arguments = SGItemListArguments<AyuToggle, AyuUnused, AyuUnused, AyuUnused, AyuUnused>(context: context, setBoolValue: { key, enabled in
+         AyuGramSettings.shared.update { settings in
+@@ -25,10 +27,11 @@
+             case .recording: settings.antiRecording = enabled
+             case .uploading: settings.antiUploading = enabled
+             case .stories: settings.storyPrivacy = enabled
++            case .history: settings.messageHistory = enabled
+             }
+         }
+         changed.set(0)
+-    })
++    }, openDisclosureLink: { _ in openHistory?() })
+     let signal = combineLatest(context.sharedContext.presentationData, changed.get())
+     |> deliverOnMainQueue
+     |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<AyuToggle, AyuUnused, AyuUnused, AyuUnused, AyuUnused>)) in
+@@ -44,6 +47,10 @@
+             .toggle(id: 6, section: .privacy, settingName: .uploading, value: settings.suppressUploading, text: "Anti Uploading", enabled: !settings.ghostMode),
+             .toggle(id: 7, section: .privacy, settingName: .stories, value: settings.suppressStoryViews, text: "Story Privacy", enabled: !settings.ghostMode),
+             .notice(id: 8, section: .privacy, text: ru ? "Для всех аккаунтов на этом устройстве. Ghost Mode включает ограничения выше, сохраняя ваши отдельные настройки. Уже отправленные запросы отменить нельзя." : "Applies to every account on this device. Ghost Mode overrides the switches above and preserves their individual values. Requests already sent cannot be recalled."),
++            .header(id: 10, section: .history, text: "Message History", badge: nil),
++            .toggle(id: 11, section: .history, settingName: .history, value: settings.messageHistory, text: ru ? "Сохранять предыдущий текст" : "Keep previous message text", enabled: true),
++            .disclosure(id: 12, section: .history, link: .unused, text: ru ? "Открыть историю этого аккаунта" : "Open this account’s history"),
++            .notice(id: 13, section: .history, text: ru ? "Сохраняется только уже загруженный текст при получении правки или удаления, до 200 записей. Вложения, секретные и исчезающие сообщения не сохраняются. Выключение останавливает сбор; удалить записи можно внутри истории." : "Keeps already downloaded text when an edit or deletion arrives, up to 200 entries. Excludes attachments, secret and disappearing messages. Disabling stops collection; clear existing entries inside History."),
+             .header(id: 20, section: .limits, text: ru ? "Как это работает" : "How it works", badge: nil),
+             .notice(id: 21, section: .limits, text: ru ? "Anti Read подавляет исходящие отметки чтения и прослушивания. Счётчики могут оставаться непрочитанными. После выключения следующее чтение может подтвердить предыдущие сообщения. Story Privacy оставляет истории непросмотренными." : "Anti Read suppresses outgoing read and playback receipts. Unread counters may remain. After disabling it, later reading can acknowledge earlier messages. Story Privacy leaves stories unseen."),
+             .notice(id: 22, section: .limits, text: ru ? "Anti Online скрывает явные обновления статуса. Отправка сообщений, другие устройства и действия на сервере могут раскрыть активность. Звонки не скрываются. Anti Uploading скрывает индикатор, а не передачу файла." : "Anti Online suppresses explicit presence updates. Sending messages, other devices and server behavior may reveal activity. Calls are not hidden. Anti Uploading hides the indicator, not the file transfer.")
+@@ -51,5 +58,9 @@
+         let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("AyuGram / Privacy"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+         return (state, (ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks), arguments))
+     }
+-    return ItemListController(context: context, state: signal)
++    let controller = ItemListController(context: context, state: signal)
++    openHistory = { [weak controller] in
++        (controller?.navigationController as? NavigationController)?.pushViewController(ayuGramHistoryController(context: context))
++    }
++    return controller
+ }
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+new file mode 100644
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+@@ -0,0 +1,56 @@
++import Foundation
++import Display
++import SwiftSignalKit
++import TelegramCore
++import AccountContext
++import TelegramPresentationData
++import PresentationDataUtils
++import ItemListUI
++import SGItemListUI
++
++private enum HistorySection: Int32, SGItemListSection { case actions, entries }
++private enum HistoryAction: Hashable { case clear }
++private typealias HistoryEntry = SGItemListUIEntry<HistorySection, Int, Int, Int, Int, HistoryAction>
++
++func ayuGramHistoryController(context: AccountContext) -> ViewController {
++    let records = Promise<[AyuGramHistoryEntry]>()
++    records.set(context.engine.ayuGramMessageHistory())
++    var presentClear: (() -> Void)?
++    let arguments = SGItemListArguments<Int, Int, Int, Int, HistoryAction>(context: context, action: { _ in presentClear?() })
++    let signal = combineLatest(context.sharedContext.presentationData, records.get())
++    |> deliverOnMainQueue
++    |> map { presentationData, records -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<Int, Int, Int, Int, HistoryAction>)) in
++        let ru = ["ru", "uk"].contains(presentationData.strings.baseLanguageCode)
++        var entries: [HistoryEntry] = [
++            .action(id: 0, section: .actions, actionType: .clear, text: ru ? "Очистить историю" : "Clear history", kind: .destructive),
++            .notice(id: 1, section: .actions, text: ru ? "Локальная история текущего аккаунта. Записи старше 30 дней удаляются при открытии или добавлении новых. Это текстовые снимки, а не восстановление сообщений с сервера." : "Local to this account. Entries older than 30 days are removed when opened or updated. These are text snapshots, not server message recovery.")
++        ]
++        let formatter = DateFormatter()
++        formatter.dateStyle = .short
++        formatter.timeStyle = .medium
++        if records.isEmpty {
++            entries.append(.notice(id: 2, section: .entries, text: ru ? "История пуста" : "No history yet"))
++        }
++        for (index, record) in records.enumerated() {
++            let event = record.event == "edited" ? (ru ? "До правки" : "Before edit") : (ru ? "Удалено" : "Deleted")
++            let date = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(record.timestamp)))
++            entries.append(.notice(id: index + 3, section: .entries, text: "\(record.peerTitle) · \(record.author)\n\(event) · \(date)\n\(record.text)"))
++        }
++        let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Message History"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        return (state, (ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks), arguments))
++    }
++    let controller = ItemListController(context: context, state: signal)
++    presentClear = { [weak controller] in
++        let data = context.sharedContext.currentPresentationData.with { $0 }
++        let sheet = ActionSheetController(presentationData: data)
++        sheet.setItemGroups([
++            ActionSheetItemGroup(items: [ActionSheetButtonItem(title: data.strings.Common_Delete, color: .destructive, action: { [weak sheet] in
++                sheet?.dismissAnimated()
++                records.set(context.engine.ayuGramClearMessageHistory() |> mapToSignal { _ in context.engine.ayuGramMessageHistory() })
++            })]),
++            ActionSheetItemGroup(items: [ActionSheetButtonItem(title: data.strings.Common_Cancel, color: .accent, action: { [weak sheet] in sheet?.dismissAnimated() })])
++        ])
++        controller?.present(sheet, in: .window(.root))
++    }
++    return controller
++}

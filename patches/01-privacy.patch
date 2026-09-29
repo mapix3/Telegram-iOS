@@ -1,0 +1,517 @@
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
+new file mode 100644
+--- /dev/null
++++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
+@@ -0,0 +1,61 @@
++import Foundation
++
++public struct AyuGramPrivacySettings: Codable, Equatable {
++    public var ghostMode = false
++    public var antiRead = false
++    public var antiOnline = false
++    public var antiTyping = false
++    public var antiRecording = false
++    public var antiUploading = false
++    public var storyPrivacy = false
++    public var messageHistory = false
++
++    public init() {}
++
++    public var suppressRead: Bool { ghostMode || antiRead }
++    public var suppressOnline: Bool { ghostMode || antiOnline }
++    public var suppressTyping: Bool { ghostMode || antiTyping }
++    public var suppressRecording: Bool { ghostMode || antiRecording }
++    public var suppressUploading: Bool { ghostMode || antiUploading }
++    public var suppressStoryViews: Bool { ghostMode || storyPrivacy }
++}
++
++/// Device-wide preferences, owned by Swiftgram's existing settings store.
++/// A single encoded snapshot makes updates atomic across networking queues.
++public final class AyuGramSettings {
++    public static var shared: AyuGramSettings { SGSimpleSettings.shared.ayuGram }
++    public static let didChange = Notification.Name("Swiftgram.AyuGramSettings.didChange")
++    private let defaults: UserDefaults
++    private let lock = NSLock()
++    private let key = "swiftgram.ayuGram.privacy.v1"
++
++    public init(defaults: UserDefaults = .standard) {
++        self.defaults = defaults
++    }
++
++    public var snapshot: AyuGramPrivacySettings {
++        lock.lock()
++        defer { lock.unlock() }
++        return readSnapshot()
++    }
++
++    private func readSnapshot() -> AyuGramPrivacySettings {
++        guard let data = defaults.data(forKey: key),
++              let value = try? JSONDecoder().decode(AyuGramPrivacySettings.self, from: data) else {
++            return AyuGramPrivacySettings()
++        }
++        return value
++    }
++
++    public func update(_ transform: (inout AyuGramPrivacySettings) -> Void) {
++        lock.lock()
++        var value = readSnapshot()
++        transform(&value)
++        if let data = try? JSONEncoder().encode(value) {
++            defaults.set(data, forKey: key)
++        }
++        lock.unlock()
++        // Notify outside the lock: observers are allowed to read the snapshot.
++        NotificationCenter.default.post(name: Self.didChange, object: self)
++    }
++}
+diff --git a/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift b/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift
+--- a/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift
++++ b/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift
+@@ -7,6 +7,7 @@
+ public class SGSimpleSettings {
+     
+     public static let shared = SGSimpleSettings()
++    public let ayuGram = AyuGramSettings()
+     
+     private init() {
+         setDefaultValues()
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+new file mode 100644
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+@@ -0,0 +1,55 @@
++import Foundation
++import Display
++import SwiftSignalKit
++import AccountContext
++import TelegramPresentationData
++import PresentationDataUtils
++import ItemListUI
++import SGItemListUI
++import SGSimpleSettings
++
++private enum AyuSection: Int32, SGItemListSection { case privacy, history, limits }
++private enum AyuToggle: Hashable { case ghost, read, online, typing, recording, uploading, stories }
++private enum AyuUnused: Hashable { case unused }
++private typealias AyuEntry = SGItemListUIEntry<AyuSection, AyuToggle, AyuUnused, AyuUnused, AyuUnused, AyuUnused>
++
++public func ayuGramSettingsController(context: AccountContext) -> ViewController {
++    let changed = ValuePromise<Int>(0, ignoreRepeated: false)
++    let arguments = SGItemListArguments<AyuToggle, AyuUnused, AyuUnused, AyuUnused, AyuUnused>(context: context, setBoolValue: { key, enabled in
++        AyuGramSettings.shared.update { settings in
++            switch key {
++            case .ghost: settings.ghostMode = enabled
++            case .read: settings.antiRead = enabled
++            case .online: settings.antiOnline = enabled
++            case .typing: settings.antiTyping = enabled
++            case .recording: settings.antiRecording = enabled
++            case .uploading: settings.antiUploading = enabled
++            case .stories: settings.storyPrivacy = enabled
++            }
++        }
++        changed.set(0)
++    })
++    let signal = combineLatest(context.sharedContext.presentationData, changed.get())
++    |> deliverOnMainQueue
++    |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<AyuToggle, AyuUnused, AyuUnused, AyuUnused, AyuUnused>)) in
++        let settings = AyuGramSettings.shared.snapshot
++        let ru = ["ru", "uk"].contains(presentationData.strings.baseLanguageCode)
++        let entries: [AyuEntry] = [
++            .header(id: 0, section: .privacy, text: "AyuGram / Privacy", badge: nil),
++            .toggle(id: 1, section: .privacy, settingName: .ghost, value: settings.ghostMode, text: "Ghost Mode", enabled: true),
++            .toggle(id: 2, section: .privacy, settingName: .read, value: settings.suppressRead, text: "Anti Read", enabled: !settings.ghostMode),
++            .toggle(id: 3, section: .privacy, settingName: .online, value: settings.suppressOnline, text: "Anti Online", enabled: !settings.ghostMode),
++            .toggle(id: 4, section: .privacy, settingName: .typing, value: settings.suppressTyping, text: "Anti Typing", enabled: !settings.ghostMode),
++            .toggle(id: 5, section: .privacy, settingName: .recording, value: settings.suppressRecording, text: "Anti Recording", enabled: !settings.ghostMode),
++            .toggle(id: 6, section: .privacy, settingName: .uploading, value: settings.suppressUploading, text: "Anti Uploading", enabled: !settings.ghostMode),
++            .toggle(id: 7, section: .privacy, settingName: .stories, value: settings.suppressStoryViews, text: "Story Privacy", enabled: !settings.ghostMode),
++            .notice(id: 8, section: .privacy, text: ru ? "Для всех аккаунтов на этом устройстве. Ghost Mode включает ограничения выше, сохраняя ваши отдельные настройки. Уже отправленные запросы отменить нельзя." : "Applies to every account on this device. Ghost Mode overrides the switches above and preserves their individual values. Requests already sent cannot be recalled."),
++            .header(id: 20, section: .limits, text: ru ? "Как это работает" : "How it works", badge: nil),
++            .notice(id: 21, section: .limits, text: ru ? "Anti Read подавляет исходящие отметки чтения и прослушивания. Счётчики могут оставаться непрочитанными. После выключения следующее чтение может подтвердить предыдущие сообщения. Story Privacy оставляет истории непросмотренными." : "Anti Read suppresses outgoing read and playback receipts. Unread counters may remain. After disabling it, later reading can acknowledge earlier messages. Story Privacy leaves stories unseen."),
++            .notice(id: 22, section: .limits, text: ru ? "Anti Online скрывает явные обновления статуса. Отправка сообщений, другие устройства и действия на сервере могут раскрыть активность. Звонки не скрываются. Anti Uploading скрывает индикатор, а не передачу файла." : "Anti Online suppresses explicit presence updates. Sending messages, other devices and server behavior may reveal activity. Calls are not hidden. Anti Uploading hides the indicator, not the file transfer.")
++        ]
++        let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("AyuGram / Privacy"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        return (state, (ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks), arguments))
++    }
++    return ItemListController(context: context, state: signal)
++}
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
+@@ -161,6 +161,7 @@
+ }
+ 
+ enum PeerInfoSettingsSection {
++    case ayuGramPrivacy
+     case swiftgram
+     case swiftgramPro
+     case avatar
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+@@ -46,6 +46,8 @@
+             }
+         }
+         switch section {
++        case .ayuGramPrivacy:
++            self.controller?.push(ayuGramSettingsController(context: self.context))
+         case .swiftgram:
+             self.controller?.push(sgSettingsController(context: self.context))
+         case .swiftgramPro:
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+@@ -230,6 +230,10 @@
+         interaction.openSettings(.swiftgram)
+     }))
+ 
++    items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 2, text: "AyuGram / Privacy", icon: PresentationResourcesSettings.security, action: {
++        interaction.openSettings(.ayuGramPrivacy)
++    }))
++
+     var appIndex = 1000
+     if let settings = data.globalSettings {
+         for bot in settings.bots {
+diff --git a/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift b/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
+--- a/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import Postbox
+ import SwiftSignalKit
+@@ -143,6 +144,19 @@
+ 
+ private func requestActivity(postbox: Postbox, network: Network, accountPeerId: PeerId, peerId: PeerId, threadId: Int64?, activity: PeerInputActivity?) -> Signal<Void, NoError> {
+     return postbox.transaction { transaction -> Signal<Void, NoError> in
++        let privacy = AyuGramSettings.shared.snapshot
++        if let activity = activity {
++            switch activity {
++            case .typingText, .choosingSticker, .playingGame, .interactingWithEmoji, .seeingEmojiInteraction:
++                if privacy.suppressTyping { return .complete() }
++            case .recordingVoice, .recordingInstantVideo:
++                if privacy.suppressRecording { return .complete() }
++            case .uploadingFile, .uploadingPhoto, .uploadingVideo, .uploadingInstantVideo:
++                if privacy.suppressUploading { return .complete() }
++            case .speakingInGroupCall:
++                break
++            }
++        }
+         if let peer = transaction.getPeer(peerId) {
+             if peerId == accountPeerId {
+                 return .complete()
+diff --git a/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift b/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
+--- a/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import TelegramApi
+ import Postbox
+@@ -17,10 +18,18 @@
+     private var onlineTimer: SignalKitTimer?
+     
+     private var wasOnline: Bool = false
++    private var requestedOnline: Bool = false
++    private var ayuSettingsObserver: NSObjectProtocol?
+     
+     init(queue: Queue, shouldKeepOnlinePresence: Signal<Bool, NoError>, network: Network) {
+         self.queue = queue
+         self.network = network
++        self.ayuSettingsObserver = NotificationCenter.default.addObserver(forName: AyuGramSettings.didChange, object: nil, queue: nil) { [weak self] _ in
++            self?.queue.async { [weak self] in
++                guard let self = self else { return }
++                self.applyRequestedPresence()
++            }
++        }
+         
+         self.shouldKeepOnlinePresenceDisposable = (shouldKeepOnlinePresence
+         |> distinctUntilChanged
+@@ -28,21 +37,32 @@
+             guard let `self` = self else {
+                 return
+             }
+-            if self.wasOnline != value {
+-                self.wasOnline = value
+-                self.updatePresence(value)
+-            }
++            self.requestedOnline = value
++            self.applyRequestedPresence()
+         })
+     }
+     
+     deinit {
+         assert(self.queue.isCurrent())
++        if let observer = self.ayuSettingsObserver {
++            NotificationCenter.default.removeObserver(observer)
++        }
+         self.shouldKeepOnlinePresenceDisposable?.dispose()
+         self.currentRequestDisposable.dispose()
+         self.onlineTimer?.invalidate()
+     }
+     
+-    private func updatePresence(_ isOnline: Bool) {
++    private func applyRequestedPresence() {
++        let value = self.requestedOnline && !AyuGramSettings.shared.snapshot.suppressOnline
++        if self.wasOnline != value {
++            self.wasOnline = value
++            self.updatePresence(value)
++        }
++    }
++
++    private func updatePresence(_ requestedOnline: Bool) {
++        let isOnline = requestedOnline && !AyuGramSettings.shared.snapshot.suppressOnline
++        self.onlineTimer?.invalidate()
+         let request: Signal<Api.Bool, MTRpcError>
+         if isOnline {
+             let timer = SignalKitTimer(timeout: 30.0, repeat: false, completion: { [weak self] in
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import Postbox
+ import TelegramApi
+@@ -11,6 +12,7 @@
+ }
+     
+ func _internal_applyMaxReadIndexInteractively(transaction: Transaction, stateManager: AccountStateManager, index: MessageIndex) {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+     let messageIds = transaction.applyInteractiveReadMaxIndex(index)
+     
+     if let peer = transaction.getPeer(index.id.peerId), peer.isForumOrMonoForum {
+@@ -140,6 +142,7 @@
+ }
+ 
+ func _internal_toggleForumThreadUnreadMarkInteractively(transaction: Transaction, network: Network, viewTracker: AccountViewTracker, peerId: PeerId, threadId: Int64, setToValue: Bool?) {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+     guard let peer = transaction.getPeer(peerId) else {
+         return
+     }
+@@ -192,6 +195,7 @@
+ }
+ 
+ func _internal_markForumThreadAsReadInteractively(transaction: Transaction, network: Network, viewTracker: AccountViewTracker, peerId: PeerId, threadId: Int64) {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+     guard let peer = transaction.getPeer(peerId) else {
+         return
+     }
+@@ -227,6 +231,7 @@
+ }
+ 
+ func _internal_togglePeerUnreadMarkInteractively(transaction: Transaction, network: Network, viewTracker: AccountViewTracker, peerId: PeerId, setToValue: Bool? = nil) {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+     guard let peer = transaction.getPeer(peerId) else {
+         return
+     }
+@@ -330,6 +335,7 @@
+ }
+ 
+ func _internal_markAllChatsAsReadInteractively(transaction: Transaction, network: Network, viewTracker: AccountViewTracker, groupId: PeerGroupId, filterPredicate: ChatListFilterPredicate?) {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+     for peerId in transaction.getUnreadChatListPeerIds(groupId: groupId, filterPredicate: filterPredicate, additionalFilter: nil, stopOnFirstMatch: false) {
+         _internal_togglePeerUnreadMarkInteractively(transaction: transaction, network: network, viewTracker: viewTracker, peerId: peerId, setToValue: false)
+     }
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/MarkAllChatsAsRead.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/MarkAllChatsAsRead.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/MarkAllChatsAsRead.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/MarkAllChatsAsRead.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import TelegramApi
+ import Postbox
+@@ -6,6 +7,7 @@
+ 
+ 
+ func _internal_markAllChatsAsRead(postbox: Postbox, network: Network, stateManager: AccountStateManager) -> Signal<Void, NoError> {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return .complete() }
+     return network.request(Api.functions.messages.getDialogUnreadMarks(flags: 0, parentPeer: nil))
+     |> map(Optional.init)
+     |> `catch` { _ -> Signal<[Api.DialogPeer]?, NoError> in
+@@ -17,6 +19,7 @@
+         }
+         
+         return postbox.transaction { transaction -> Signal<Void, NoError> in
++            guard !AyuGramSettings.shared.snapshot.suppressRead else { return .complete() }
+             var signals: [Signal<Void, NoError>] = []
+             for peer in result {
+                 switch peer {
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import Postbox
+ import SwiftSignalKit
+@@ -315,6 +316,7 @@
+     }
+     
+     func applyMaxReadIndex(messageIndex: MessageIndex) {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+         let peerId = self.peerId
+         let threadId = self.threadId
+         
+@@ -476,6 +478,7 @@
+                 }
+             }
+ 
++            guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+             if let subPeerId {
+                 let signal = strongSelf.account.network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeerId, maxId: messageIndex.id.id))
+                 |> `catch` { _ -> Signal<Api.Bool, NoError> in
+@@ -596,6 +599,7 @@
+     }
+     
+     public func applyMaxReadIndex(messageIndex: MessageIndex) {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+         self.impl.with { impl in
+             impl.applyMaxReadIndex(messageIndex: messageIndex)
+         }
+diff --git a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
+--- a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
++++ b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import Postbox
+ import TelegramApi
+@@ -227,6 +228,9 @@
+ }
+ 
+ private func pushPeerReadState(network: Network, postbox: Postbox, stateManager: AccountStateManager, peerId: PeerId, readState: PeerReadState) -> Signal<PeerReadState, PeerReadStateValidationError> {
++    // Consume unsent local sync work while privacy is active. Do not fabricate pts
++    // or a server response, and do not retain a queue that flushes on disable.
++    if AyuGramSettings.shared.snapshot.suppressRead { return .single(readState) }
+     if peerId.namespace == Namespaces.Peer.SecretChat {
+         return inputSecretChat(postbox: postbox, peerId: peerId)
+         |> mapToSignal { inputPeer -> Signal<PeerReadState, PeerReadStateValidationError> in
+diff --git a/submodules/TelegramCore/Sources/State/ManagedConsumePersonalMessagesActions.swift b/submodules/TelegramCore/Sources/State/ManagedConsumePersonalMessagesActions.swift
+--- a/submodules/TelegramCore/Sources/State/ManagedConsumePersonalMessagesActions.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedConsumePersonalMessagesActions.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import Postbox
+ import SwiftSignalKit
+@@ -252,6 +253,7 @@
+ }
+ 
+ private func synchronizeConsumeMessageContents(transaction: Transaction, postbox: Postbox, network: Network, stateManager: AccountStateManager, id: MessageId) -> Signal<Void, NoError> {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return .complete() }
+     if id.peerId.namespace == Namespaces.Peer.CloudUser || id.peerId.namespace == Namespaces.Peer.CloudGroup {
+         return network.request(Api.functions.messages.readMessageContents(id: [id.id]))
+             |> map(Optional.init)
+@@ -321,6 +323,7 @@
+ }
+ 
+ private func synchronizeReadMessageReactionsOrPollVotes(transaction: Transaction, postbox: Postbox, network: Network, stateManager: AccountStateManager, id: MessageId) -> Signal<Void, NoError> {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return .complete() }
+     if id.peerId.namespace == Namespaces.Peer.CloudUser || id.peerId.namespace == Namespaces.Peer.CloudGroup {
+         return network.request(Api.functions.messages.readMessageContents(id: [id.id]))
+         |> map(Optional.init)
+diff --git a/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift b/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift
+--- a/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import Postbox
+ import SwiftSignalKit
+@@ -110,6 +111,7 @@
+ }
+ 
+ private func synchronizeConsumeMessageContents(transaction: Transaction, network: Network, stateManager: AccountStateManager, peerId: PeerId, operation: SynchronizeConsumeMessageContentsOperation) -> Signal<Void, NoError> {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return .complete() }
+     if peerId.namespace == Namespaces.Peer.CloudUser || peerId.namespace == Namespaces.Peer.CloudGroup {
+         return network.request(Api.functions.messages.readMessageContents(id: operation.messageIds.map { $0.id }))
+         |> map(Optional.init)
+diff --git a/submodules/TelegramCore/Sources/State/ManagedSynchronizeMarkAllUnseenPersonalMessagesOperations.swift b/submodules/TelegramCore/Sources/State/ManagedSynchronizeMarkAllUnseenPersonalMessagesOperations.swift
+--- a/submodules/TelegramCore/Sources/State/ManagedSynchronizeMarkAllUnseenPersonalMessagesOperations.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedSynchronizeMarkAllUnseenPersonalMessagesOperations.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import TelegramApi
+ import Postbox
+@@ -117,6 +118,7 @@
+ }
+ 
+ private func synchronizeMarkAllUnseen(transaction: Transaction, postbox: Postbox, network: Network, stateManager: AccountStateManager, peerId: PeerId, operation: SynchronizeMarkAllUnseenPersonalMessagesOperation) -> Signal<Void, NoError> {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return .complete() }
+     guard let inputPeer = transaction.getPeer(peerId).flatMap(apiInputPeer) else {
+         return .complete()
+     }
+@@ -284,6 +286,7 @@
+ }
+ 
+ private func synchronizeMarkAllUnseenReactions(transaction: Transaction, postbox: Postbox, network: Network, stateManager: AccountStateManager, peerId: PeerId, operation: SynchronizeMarkAllUnseenReactionsOperation) -> Signal<Void, NoError> {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return .complete() }
+     guard let peer = transaction.getPeer(peerId) else {
+         return .complete()
+     }
+@@ -380,6 +383,7 @@
+ }
+ 
+ private func synchronizeMarkAllUnseenPollVotes(transaction: Transaction, postbox: Postbox, network: Network, stateManager: AccountStateManager, peerId: PeerId, operation: SynchronizeMarkAllUnseenReactionsOperation) -> Signal<Void, NoError> {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return .complete() }
+     guard let peer = transaction.getPeer(peerId) else {
+         return .complete()
+     }
+diff --git a/submodules/TelegramCore/Sources/State/AccountViewTracker.swift b/submodules/TelegramCore/Sources/State/AccountViewTracker.swift
+--- a/submodules/TelegramCore/Sources/State/AccountViewTracker.swift
++++ b/submodules/TelegramCore/Sources/State/AccountViewTracker.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import Postbox
+ import SwiftSignalKit
+@@ -943,6 +944,7 @@
+     }
+     
+     public func updateSeenLiveLocationForMessageIds(messageIds: Set<MessageId>) {
++    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+         self.queue.async {
+             var addedMessageIds: [MessageId] = []
+             let timestamp = Int32(CFAbsoluteTimeGetCurrent())
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import SwiftSignalKit
+ import Postbox
+@@ -2071,6 +2072,7 @@
+ }
+ 
+ func _internal_markStoryAsSeen(account: Account, peerId: PeerId, id: Int32, asPinned: Bool) -> Signal<Never, NoError> {
++    guard !AyuGramSettings.shared.snapshot.suppressStoryViews else { return .complete() }
+     if asPinned {
+         return account.postbox.transaction { transaction -> Api.InputPeer? in
+             return transaction.getPeer(peerId).flatMap(apiInputPeer)
+@@ -2086,6 +2088,7 @@
+             }
+             #endif
+             
++            guard !AyuGramSettings.shared.snapshot.suppressStoryViews else { return .complete() }
+             return account.network.request(Api.functions.stories.incrementStoryViews(peer: inputPeer, id: [id]))
+             |> `catch` { _ -> Signal<Api.Bool, NoError> in
+                 return .single(.boolFalse)
+diff --git a/submodules/TelegramCore/Sources/State/ManagedSynchronizeViewStoriesOperations.swift b/submodules/TelegramCore/Sources/State/ManagedSynchronizeViewStoriesOperations.swift
+--- a/submodules/TelegramCore/Sources/State/ManagedSynchronizeViewStoriesOperations.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedSynchronizeViewStoriesOperations.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import Postbox
+ import SwiftSignalKit
+@@ -119,6 +120,7 @@
+ }
+ 
+ private func pushStoriesAreSeen(postbox: Postbox, network: Network, stateManager: AccountStateManager, peer: Peer, operation: SynchronizeViewStoriesOperation) -> Signal<Void, NoError> {
++    guard !AyuGramSettings.shared.snapshot.suppressStoryViews else { return .complete() }
+     guard let inputPeer = apiInputPeer(peer) else {
+         return .complete()
+     }
