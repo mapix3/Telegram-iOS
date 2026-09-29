@@ -107,6 +107,12 @@ def build(source, ci, output, env):
     config_path = build_input / 'ayugram-ci-configuration.json'
     rc_path = source / '.bazelrc'
     original_rc = rc_path.read_bytes()
+    # This pinned rules_apple revision checks profile embedding independently
+    # of disable_legacy_signing. Gate only that partial for unsigned CI.
+    rules_path = source / 'build-system/bazel-rules/rules_apple/apple/internal/ios_rules.bzl'
+    original_rules = rules_path.read_bytes()
+    if hashlib.sha256(original_rules).hexdigest() != '900fe828aa2d5f9ac236aec3555cf4f01944a012273ea03a12f9b52e8b601540':
+        raise ValueError('Unexpected rules_apple iOS rules revision')
     number = 100000 + int(env.get('GITHUB_RUN_NUMBER', '1')) * 100 + int(env.get('GITHUB_RUN_ATTEMPT', '1'))
     manifest = {'source_repository': 'Swiftgram/Telegram-iOS', 'source_commit': head,
                 'ci_commit': env.get('GITHUB_SHA'), 'requested_stage': stage,
@@ -116,6 +122,16 @@ def build(source, ci, output, env):
     manifest_path = output / 'build-manifest.json'
     save_manifest(manifest_path, manifest)
     try:
+        rules_text = original_rules.decode('utf-8')
+        profile_guard = ('    if platform_prerequisites.platform.is_device:\n'
+                         '        processor_partials.append(\n'
+                         '            partials.provisioning_profile_partial(')
+        if profile_guard not in rules_text:
+            raise ValueError('Pinned rules_apple profile guard changed')
+        rules_text = rules_text.replace(profile_guard, profile_guard.replace(
+            'platform.is_device:',
+            'platform.is_device and "disable_legacy_signing" not in features:'))
+        rules_path.write_text(rules_text, encoding='utf-8')
         config_path.write_text(json.dumps(config), encoding='utf-8')
         config_path.chmod(0o600)
         # Make.py's --bazelArguments is parsed but unused at the audited revision.
@@ -189,6 +205,7 @@ def build(source, ci, output, env):
             manifest['stages'][-1]['status'] = 'failed'
         raise
     finally:
+        rules_path.write_bytes(original_rules)
         rc_path.write_bytes(original_rc)
         cleanup(source)
         save_manifest(manifest_path, manifest)
