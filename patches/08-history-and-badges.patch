@@ -13,7 +13,7 @@ diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMess
  }
  
  private struct AyuGramHistory: Codable { var entries: [AyuGramHistoryEntry] }
-@@ -34,10 +39,15 @@
+@@ -34,10 +39,18 @@
      return archiveDirectory(mediaBox).appendingPathComponent(name)
  }
  
@@ -27,10 +27,13 @@ diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMess
 +    let expired = Set(previous.filter { $0.event == "deleted" }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) }).subtracting(retained)
 +    let tombstones = expired.filter { transaction.getMessage($0)?.ayuHistory?.deletedAt != nil }
 +    transaction.deleteMessages(Array(tombstones), forEachMedia: { _ in })
++    let editedBefore = Set(previous.filter { $0.event == "edited" }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) })
++    let editedKept = Set(history.entries.filter { $0.event == "edited" }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) })
++    ayuGramClearLocalEditMarker(transaction: transaction, ids: editedBefore.subtracting(editedKept))
      let keep = Set(history.entries.compactMap { $0.photoFileName })
      let directory = archiveDirectory(mediaBox)
      var total: Int64 = 0
-@@ -55,19 +65,28 @@
+@@ -55,19 +68,28 @@
      }
  }
  
@@ -62,7 +65,7 @@ diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMess
          var source: String?
          var resourceId: String?
          if policy.savePhotos {
-@@ -81,13 +100,26 @@
+@@ -81,13 +103,26 @@
                  }
                  if source != nil { break }
              }
@@ -91,17 +94,18 @@ diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMess
              let directory = archiveDirectory(mediaBox)
              do {
                  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-@@ -102,9 +134,18 @@
+@@ -102,10 +137,35 @@
              } catch { fileName = nil }
          }
          guard !text.isEmpty || fileName != nil else { continue }
 -        history.entries.append(AyuGramHistoryEntry(peerId: id.peerId.toInt64(), messageId: id.id, peerTitle: String((transaction.getPeer(id.peerId)?.debugDisplayTitle ?? "").prefix(256)), author: String((message.author?.debugDisplayTitle ?? "").prefix(256)), text: text, event: event, timestamp: now, photoFileName: fileName, photoResourceId: resourceId))
+-    }
+-    pruneHistory(&history, mediaBox: mediaBox)
 +        history.entries.append(AyuGramHistoryEntry(peerId: id.peerId.toInt64(), messageId: id.id, peerTitle: String((transaction.getPeer(id.peerId)?.debugDisplayTitle ?? "").prefix(256)), author: String((message.author?.debugDisplayTitle ?? "").prefix(256)), text: text, event: event, timestamp: now, photoFileName: fileName, photoResourceId: resourceId, authorId: message.author?.id.toInt64(), messageTimestamp: message.timestamp, mediaKind: kind, mediaTitle: mediaTitle))
 +        recorded.insert(id)
-     }
--    pruneHistory(&history, mediaBox: mediaBox)
++    }
 +    pruneHistory(&history, transaction: transaction, mediaBox: mediaBox)
-+    transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
+     transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
 +    let kept = Set(history.entries.filter { $0.event == event }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) })
 +    return recorded.intersection(kept)
 +}
@@ -109,19 +113,43 @@ diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMess
 +func ayuGramCompleteEditSnapshot(transaction: Transaction, id: MessageId, updatedText: String) {
 +    guard var history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self), let index = history.entries.lastIndex(where: { $0.peerId == id.peerId.toInt64() && $0.messageId == id.id && $0.event == "edited" }) else { return }
 +    history.entries[index].updatedText = String(updatedText.prefix(4096))
-     transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
++    transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
++}
++
++func ayuGramRetainedMedia(transaction: Transaction, mediaBox: MediaBox, message: Message) -> [Media] {
++    guard let history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self), let entry = history.entries.last(where: { $0.peerId == message.id.peerId.toInt64() && $0.messageId == message.id.id && $0.event == "deleted" }), let name = entry.photoFileName, let sourceId = entry.photoResourceId, let url = archiveFile(mediaBox, name: name), let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber else { return message.media }
++    let randomId = Int64.random(in: Int64.min ... Int64.max)
++    let resource = LocalFileReferenceMediaResource(localFilePath: url.path, randomId: randomId, size: size.int64Value)
++    return message.media.map { media in
++        if let image = media as? TelegramMediaImage, let representation = image.representations.first(where: { $0.resource.id.stringRepresentation == sourceId }) {
++            let local = TelegramMediaImageRepresentation(dimensions: representation.dimensions, resource: resource, progressiveSizes: [], immediateThumbnailData: representation.immediateThumbnailData)
++            return TelegramMediaImage(imageId: MediaId(namespace: Namespaces.Media.LocalImage, id: randomId), representations: [local], immediateThumbnailData: image.immediateThumbnailData, emojiMarkup: image.emojiMarkup, reference: nil, partialReference: nil, flags: image.flags)
++        }
++        if let file = media as? TelegramMediaFile, file.resource.id.stringRepresentation == sourceId {
++            return TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: randomId), partialReference: nil, resource: resource, previewRepresentations: file.previewRepresentations, videoThumbnails: file.videoThumbnails, videoCover: file.videoCover, immediateThumbnailData: file.immediateThumbnailData, mimeType: file.mimeType, size: file.size, attributes: file.attributes, alternativeRepresentations: [])
++        }
++        return media
++    }
  }
  
-@@ -126,7 +167,7 @@
+ public extension TelegramEngine {
+@@ -124,17 +184,26 @@
+     }
+     func ayuGramArchivedPhotoURL(_ name: String) -> URL? { archiveFile(self.account.postbox.mediaBox, name: name) }
      func ayuGramMessageHistory() -> Signal<[AyuGramHistoryEntry], NoError> {
-         return self.account.postbox.transaction { transaction in
+-        return self.account.postbox.transaction { transaction in
++        return self.account.postbox.transaction { transaction -> Void in
              var history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self) ?? AyuGramHistory(entries: [])
 -            pruneHistory(&history, mediaBox: self.account.postbox.mediaBox)
 +            pruneHistory(&history, transaction: transaction, mediaBox: self.account.postbox.mediaBox)
              transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
-             return Array(history.entries.reversed())
+-            return Array(history.entries.reversed())
++        }
++        |> mapToSignal { _ in
++            self.account.postbox.preferencesView(keys: [ayuGramHistoryKey])
++            |> map { view in Array((view.values[ayuGramHistoryKey]?.get(AyuGramHistory.self)?.entries ?? []).reversed()) }
          }
-@@ -134,7 +175,11 @@
+     }
      func ayuGramClearMessageHistory() -> Signal<Void, NoError> {
          return self.account.postbox.transaction { transaction in
              var empty = AyuGramHistory(entries: [])
@@ -129,6 +157,8 @@ diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMess
 +            var old = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self) ?? empty
 +            let ids = Set(old.entries.filter { $0.event == "deleted" }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) })
 +            transaction.deleteMessages(Array(ids.filter { transaction.getMessage($0)?.ayuHistory?.deletedAt != nil }), forEachMedia: { _ in })
++            let edits = Set(old.entries.filter { $0.event == "edited" }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) })
++            ayuGramClearLocalEditMarker(transaction: transaction, ids: edits)
 +            old.entries.removeAll()
 +            pruneHistory(&empty, transaction: transaction, mediaBox: self.account.postbox.mediaBox)
              transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: nil)
@@ -138,7 +168,7 @@ diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_AyuHistoryMessage
 new file mode 100644
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_AyuHistoryMessageAttribute.swift
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,31 @@
 +import Foundation
 +import Postbox
 +
@@ -166,7 +196,8 @@ new file mode 100644
 +
 +public extension Message {
 +    var ayuHistory: AyuHistoryMessageAttribute? {
-+        return self.attributes.first(where: { $0 is AyuHistoryMessageAttribute }) as? AyuHistoryMessageAttribute
++        guard let marker = self.attributes.first(where: { $0 is AyuHistoryMessageAttribute }) as? AyuHistoryMessageAttribute, marker.editedAt != nil || marker.deletedAt != nil else { return nil }
++        return marker
 +    }
 +}
 diff --git a/submodules/TelegramCore/Sources/Account/AccountManager.swift b/submodules/TelegramCore/Sources/Account/AccountManager.swift
@@ -361,7 +392,7 @@ diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramReta
 new file mode 100644
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,42 @@
 +import Foundation
 +import Postbox
 +
@@ -379,7 +410,7 @@ new file mode 100644
 +        flags.insert(.AyuLocallyDeleted)
 +        flags.remove(.TopIndexable)
 +        flags.remove(.ReactionsArePossible)
-+        retained.append(StoreMessage(id: .Id(id), customStableId: message.stableId, globallyUniqueId: message.globallyUniqueId, groupingKey: message.groupingKey, threadId: message.threadId, timestamp: message.timestamp, flags: flags, tags: [], globalTags: [], localTags: [], forwardInfo: message.forwardInfo.map(StoreMessageForwardInfo.init), authorId: message.author?.id, text: message.text, attributes: attributes, media: policy.savePhotos ? message.media : []))
++        retained.append(StoreMessage(id: .Id(id), customStableId: message.stableId, globallyUniqueId: message.globallyUniqueId, groupingKey: message.groupingKey, threadId: message.threadId, timestamp: message.timestamp, flags: flags, tags: [], globalTags: [], localTags: [], forwardInfo: message.forwardInfo.map(StoreMessageForwardInfo.init), authorId: message.author?.id, text: message.text, attributes: attributes, media: policy.savePhotos ? ayuGramRetainedMedia(transaction: transaction, mediaBox: mediaBox, message: message) : []))
 +    }
 +    _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: manualAddMessageThreadStatsDifference)
 +    let _ = transaction.addMessages(retained, location: .Random)
@@ -393,6 +424,16 @@ new file mode 100644
 +    guard saved.contains(id) else { return previous.ayuHistory }
 +    ayuGramCompleteEditSnapshot(transaction: transaction, id: id, updatedText: updated.text)
 +    return AyuHistoryMessageAttribute(originalText: previous.ayuHistory?.originalText ?? previous.text, editedAt: Int32(Date().timeIntervalSince1970), deletedAt: nil)
++}
++
++func ayuGramClearLocalEditMarker(transaction: Transaction, ids: Set<MessageId>) {
++    for id in ids {
++        guard let message = transaction.getMessage(id), let marker = message.ayuHistory, marker.deletedAt == nil else { continue }
++        let attributes = message.attributes.filter { !($0 is AyuHistoryMessageAttribute) } + [AyuHistoryMessageAttribute(originalText: "", editedAt: nil, deletedAt: nil)]
++        transaction.updateMessage(id) { _ in
++            return .update(StoreMessage(id: .Id(id), customStableId: nil, globallyUniqueId: message.globallyUniqueId, groupingKey: message.groupingKey, threadId: message.threadId, timestamp: message.timestamp, flags: StoreMessageFlags(message.flags), tags: message.tags, globalTags: message.globalTags, localTags: message.localTags, forwardInfo: message.forwardInfo.map(StoreMessageForwardInfo.init), authorId: message.author?.id, text: message.text, attributes: attributes, media: message.media))
++        }
++    }
 +}
 diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
 --- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
@@ -522,9 +563,10 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift b/Swift
 new file mode 100644
 --- /dev/null
 +++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,180 @@
 +import Foundation
 +import UIKit
++import ImageIO
 +import AsyncDisplayKit
 +import Display
 +import SwiftSignalKit
@@ -533,6 +575,18 @@ new file mode 100644
 +import AccountContext
 +import ItemListUI
 +import SGStrings
++
++func ayuGramArchivedImage(_ url: URL, maximumPixels: Int) -> UIImage? {
++    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
++    let options: [String: Any] = [
++        kCGImageSourceCreateThumbnailFromImageAlways as String: true,
++        kCGImageSourceCreateThumbnailWithTransform as String: true,
++        kCGImageSourceThumbnailMaxPixelSize as String: max(1, maximumPixels),
++        kCGImageSourceShouldCacheImmediately as String: true
++    ]
++    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
++    return UIImage(cgImage: image)
++}
 +
 +final class AyuGramHistoryCardItem: ListViewItem, ItemListItem {
 +    let context: AccountContext
@@ -653,7 +707,7 @@ new file mode 100644
 +        media.isHidden = true
 +        if let name = record.photoFileName, let url = item.context.engine.ayuGramArchivedPhotoURL(name), FileManager.default.fileExists(atPath: url.path) {
 +            let kind = record.mediaKind ?? "photo"
-+            if kind == "photo", let image = UIImage(contentsOfFile: url.path) {
++            if kind == "photo", let image = ayuGramArchivedImage(url, maximumPixels: min(1024, Int(contentWidth * UIScreen.main.scale))) {
 +                thumbnail.image = image
 +                thumbnail.isHidden = false
 +                let ratio = image.size.width > 0 ? image.size.height / image.size.width : 1
@@ -860,7 +914,7 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift b/Swi
 +                controller.present(video, animated: true) { video.player?.play() }
 +                return
 +            }
-+            guard let image = UIImage(contentsOfFile: url.path) else {
++            guard let image = ayuGramArchivedImage(url, maximumPixels: min(4096, Int(max(UIScreen.main.bounds.width, UIScreen.main.bounds.height) * UIScreen.main.scale))) else {
 +                controller.present(UINavigationController(rootViewController: AyuArchiveDocumentController(url: url, strings: data.strings)), animated: true)
 +                return
 +            }
