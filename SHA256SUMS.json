@@ -4,7 +4,7 @@
   "docs/AYUGRAM-CLIENT-EXTRAS.md": "8cddef7ec3653265fe8976f158351c2088df0ffed40f673c163392d4882565f3",
   "docs/AYUGRAM-FOLLOWUP.md": "b5bc1c071c5bc4c877280674d988a41d09380e6f8e25c4346d1f355ac07cad80",
   "docs/AYUGRAM-VALIDATION.md": "d972592570d4c81eb02a75299cfddf6f98a8ee4c524ebde4f3d118c504a4916d",
-  "docs/REFINEMENTS.md": "8e228f11cbc7b5f01e2de38fd20d46e89abe953e8ddc601faf4bebe8798cbaf8",
+  "docs/REFINEMENTS.md": "2031c18036166daaf679d587e302ef3ff6da8bed622e9a2d63fe892f5189729d",
   "patches/01-privacy.patch": "40052ab7abc609ae5f6b4e6e6477baf703b25562ad2b071d5ac35e1a74df8723",
   "patches/02-history.patch": "f4b1c0ee9dad85b8f6a8129a5c20916b0be3266e46012221ccc2e9dc534f6687",
   "patches/03-local-read-media.patch": "8efc20e6b83d855cc8fd0184b22e44bce9cff480eaf8ec815043193ef317158c",
@@ -12,11 +12,13 @@
   "patches/05-refinements.patch": "e78f8060dc397e6f0152d547174e3e6ad80a721ed71c6527027904bbed3685db",
   "patches/06-customization.patch": "34cc83640b85eb2eb65fbeb9c77566ec77de933d1ec2681a6be01650983c966c",
   "patches/07-ayugram-branding.patch": "5f3fd8855673cce9131ba1eea2c352d31d2dd3b30072d2a1deb82e4ee212b36b",
+  "patches/08-history-and-badges.patch": "59781d8c85b8e419b70563218208460bda262131848eca8ba24c8e8fbeafb51c",
   "scripts/ayugram-tests/AyuGramSettingsTests.swift": "c38ae5e72b9aa0a7bd5923c3cd8d91a3a3cda2bcad6067644de369c613bea05a",
   "scripts/ayugram-tests/test_branding.py": "a33098ce1a3dac9bc80eb6ae5622bb463e336925dd3e50e9e50f7f8f8a133afa",
   "scripts/ayugram-tests/test_ci.py": "260c3041a68be10030b15f65618d0b7e1092d3bfb1c6826b17e87b7caaa70005",
   "scripts/ayugram_branding.py": "77508b7c55f09d91191e0e92d682101c80e85e7719075f1c42be1a1776dc6c95",
-  "scripts/ayugram_ci.py": "1c0a086f3e9233ce72feaaf24fc14af01aac4a9d7893160fc8261f22bbce84d3",
+  "scripts/ayugram_ci.py": "8d33f64bbb16825f866967ef5ac1b8d6ebc660a7107f1e3af28c6f788d4a5eac",
   "scripts/ayugram_compatibility.py": "3b8299305f6f249f6ff870f4176ce15c64973a088ee618b67cf41826b7918337",
+  "scripts/ayugram_history_checks.py": "bf442d4be2c196052443a698a992dafcb652aee96840e0453c30354224d4f71d",
   "START-HERE.md": "f383a40ea910f40d82bdef8d38da56afaa53da7bf0389be89c9c1feb32cd0331"
 }
