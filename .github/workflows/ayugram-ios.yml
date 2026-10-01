@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: 'Build baseline first, then each patch up to this stage'
+        description: 'Apply patches up to this stage and build the full app'
         type: choice
         options: [history, privacy, baseline]
         default: history
@@ -13,6 +13,10 @@ on:
         type: choice
         options: [release_arm64, debug_arm64]
         default: release_arm64
+      build_intermediate:
+        description: 'Also build baseline/privacy comparison IPAs (slower)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -91,6 +95,7 @@ jobs:
           APP_BUNDLE_ID: ${{ secrets.APP_BUNDLE_ID }}
           AYUGRAM_STAGE: ${{ inputs.stage }}
           AYUGRAM_CONFIGURATION: ${{ inputs.configuration }}
+          AYUGRAM_BUILD_INTERMEDIATE: ${{ inputs.build_intermediate }}
         run: python -u ci/scripts/ayugram_ci.py --source source --ci ci --output artifacts
 
       - name: Upload successful IPA stages and build manifest
