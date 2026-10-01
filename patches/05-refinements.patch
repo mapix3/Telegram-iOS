@@ -1,0 +1,2067 @@
+diff --git a/submodules/Postbox/Sources/Postbox.swift b/submodules/Postbox/Sources/Postbox.swift
+--- a/submodules/Postbox/Sources/Postbox.swift
++++ b/submodules/Postbox/Sources/Postbox.swift
+@@ -877,18 +877,18 @@
+     
+     public static let ayuLocalRootPinsKey = ValueBoxKey("ayu.local-root-pins.v1")
+     public var ayuHasLocalRootPins: Bool {
+-        getPreferencesEntry(key: Self.ayuLocalRootPinsKey)?.get([Int64].self) != nil
++        getPreferencesEntry(key: Self.ayuLocalRootPinsKey)?.get(AyuLocalPinnedChats.self)?.ids != nil
+     }
+     public func ayuEnableLocalRootPins() {
+         if !ayuHasLocalRootPins {
+             let ids = getPinnedItemIds(groupId: .root).map { item -> Int64 in
+                 switch item { case let .peer(peerId): return peerId.toInt64() }
+             }
+-            setPreferencesEntry(key: Self.ayuLocalRootPinsKey, value: PreferencesEntry(ids))
++            setPreferencesEntry(key: Self.ayuLocalRootPinsKey, value: PreferencesEntry(AyuLocalPinnedChats(ids: ids)))
+         }
+     }
+     public func getPinnedItemIds(groupId: PeerGroupId) -> [PinnedItemId] {
+-        if groupId == .root, let ids = getPreferencesEntry(key: Self.ayuLocalRootPinsKey)?.get([Int64].self) {
++        if groupId == .root, let ids = getPreferencesEntry(key: Self.ayuLocalRootPinsKey)?.get(AyuLocalPinnedChats.self)?.ids {
+             return ids.map { .peer(PeerId($0)) }
+         }
+         assert(!self.disposed)
+@@ -905,7 +905,7 @@
+             let ids = itemIds.map { item -> Int64 in
+                 switch item { case let .peer(peerId): return peerId.toInt64() }
+             }
+-            setPreferencesEntry(key: Self.ayuLocalRootPinsKey, value: PreferencesEntry(ids))
++            setPreferencesEntry(key: Self.ayuLocalRootPinsKey, value: PreferencesEntry(AyuLocalPinnedChats(ids: ids)))
+         }
+         assert(!self.disposed)
+         if let postbox = self.postbox {
+@@ -2628,11 +2628,11 @@
+     }
+     
+     private func beforeCommit(currentTransaction: Transaction) -> (updatedTransactionStateVersion: Int64?, updatedMasterClientId: Int64?) {
+-        if let ids = self.getPreferencesEntry(key: Transaction.ayuLocalRootPinsKey)?.get([Int64].self) {
++        if let ids = self.getPreferencesEntry(key: Transaction.ayuLocalRootPinsKey)?.get(AyuLocalPinnedChats.self)?.ids {
+             // Prune deleted/archived chats and restore local ranks after server updates.
+             let activeIds = ids.filter { self.getPeerChatListInclusion(PeerId($0)).groupId == .root }
+             if activeIds != ids {
+-                self.setPreferencesEntry(key: Transaction.ayuLocalRootPinsKey, value: PreferencesEntry(activeIds))
++                self.setPreferencesEntry(key: Transaction.ayuLocalRootPinsKey, value: PreferencesEntry(AyuLocalPinnedChats(ids: activeIds)))
+             }
+             self.setPinnedItemIds(groupId: .root, itemIds: activeIds.map { .peer(PeerId($0)) })
+         }
+diff --git a/submodules/Postbox/Sources/AyuLocalPinnedChats.swift b/submodules/Postbox/Sources/AyuLocalPinnedChats.swift
+new file mode 100644
+--- /dev/null
++++ b/submodules/Postbox/Sources/AyuLocalPinnedChats.swift
+@@ -0,0 +1,6 @@
++import Foundation
++
++// Keyed container is required by PreferencesEntry's Postbox Codable adapter.
++struct AyuLocalPinnedChats: Codable {
++    var ids: [Int64]
++}
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Peers/TogglePeerChatPinned.swift b/submodules/TelegramCore/Sources/TelegramEngine/Peers/TogglePeerChatPinned.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Peers/TogglePeerChatPinned.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Peers/TogglePeerChatPinned.swift
+@@ -62,7 +62,7 @@
+             
+             let count = (groupId == .root && transaction.ayuHasLocalRootPins ? itemIds.count : sameKind.count) + additionalCount
+             if count > limitCount, itemIds.firstIndex(of: itemId) == nil {
+-                return .limitExceeded(count: sameKind.count, limit: limitCount)
++                return .limitExceeded(count: itemIds.count, limit: limitCount)
+             } else {
+                 if let index = itemIds.firstIndex(of: itemId) {
+                     itemIds.remove(at: index)
+diff --git a/submodules/ChatListUI/Sources/ChatContextMenus.swift b/submodules/ChatListUI/Sources/ChatContextMenus.swift
+--- a/submodules/ChatListUI/Sources/ChatContextMenus.swift
++++ b/submodules/ChatListUI/Sources/ChatContextMenus.swift
+@@ -412,8 +412,12 @@
+                                         switch result {
+                                         case .done:
+                                             f(.default)
+-                                        case let .limitExceeded(count, _):
++                                        case let .limitExceeded(count, limit):
+                                             f(.default)
++                                            if case .group(.root) = location, limit > 10 {
++                                                chatListController?.present(textAlertController(context: context, title: nil, text: strings.DialogList_PinLimitError(String(limit)).string, actions: [TextAlertAction(type: .defaultAction, title: strings.Common_OK, action: {})]), in: .window(.root))
++                                                return
++                                            }
+                                             
+                                             let isPremium = limitsData.0?.isPremium ?? false
+                                             if isPremium {
+diff --git a/submodules/ChatListUI/Sources/Node/ChatListNode.swift b/submodules/ChatListUI/Sources/Node/ChatListNode.swift
+--- a/submodules/ChatListUI/Sources/Node/ChatListNode.swift
++++ b/submodules/ChatListUI/Sources/Node/ChatListNode.swift
+@@ -1623,7 +1623,12 @@
+                             switch result {
+                             case .done:
+                                 break
+-                            case let .limitExceeded(count, _):
++                            case let .limitExceeded(count, limit):
++                                if case .group(.root) = location, limit > 10 {
++                                    let strings = context.sharedContext.currentPresentationData.with { $0 }.strings
++                                    strongSelf.presentAlert?(strings.DialogList_PinLimitError(String(limit)).string)
++                                    return
++                                }
+                                 if isPremium {
+                                     if case .filter = location {
+                                         let controller = PremiumLimitScreen(context: context, subject: .chatsPerFolder, count: Int32(count), action: {
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift
+@@ -17,6 +17,16 @@
+ func ayuPrepareEmojiLinks(account: Account, peerId: PeerId, messages: [(Bool, EnqueueMessage)]) -> Signal<[(Bool, EnqueueMessage)], NoError> {
+     guard AyuGramSettings.shared.client.localPremium,
+           peerId.namespace != Namespaces.Peer.SecretChat else { return .single(messages) }
++    return account.postbox.transaction { transaction -> Bool in
++        transaction.getPeer(account.peerId)?.isPremium ?? false
++    }
++    |> mapToSignal { isPremium -> Signal<[(Bool, EnqueueMessage)], NoError> in
++        if isPremium { return .single(messages) }
++        return ayuPrepareFreeEmojiLinks(account: account, messages: messages)
++    }
++}
++
++private func ayuPrepareFreeEmojiLinks(account: Account, messages: [(Bool, EnqueueMessage)]) -> Signal<[(Bool, EnqueueMessage)], NoError> {
+     var ids = Set<Int64>()
+     for (_, message) in messages {
+         if case .message = message {
+@@ -54,19 +64,43 @@
+             return messages.map { transformed, message in
+                 guard case .message = message else { return (transformed, message) }
+                 return (transformed, message.withUpdatedAttributes { attributes in
+-                    attributes.map { attribute -> MessageAttribute in
++                    var converted = false
++                    var result = attributes.map { attribute -> MessageAttribute in
+                         guard let attribute = attribute as? TextEntitiesMessageAttribute else { return attribute }
+                         let entities = attribute.ayuWireEntities.compactMap { entity -> MessageTextEntity? in
+                             guard case let .CustomEmoji(_, fileId) = entity.type else { return entity }
+                             // Offline/unavailable pack: retain ordinary alt emoji,
+                             // never send a premium entity or invent a broken URL.
+                             guard let name = names[fileId] else { return nil }
++                            converted = true
+                             return MessageTextEntity(range: entity.range, type: .TextUrl(url: "https://t.me/addemoji/" + name + "#ayuemoji_" + String(fileId)))
+                         }
+                         return TextEntitiesMessageAttribute(entities: entities)
+                     }
++                    if converted {
++                        if let index = result.firstIndex(where: { $0 is OutgoingContentInfoMessageAttribute }), let info = result[index] as? OutgoingContentInfoMessageAttribute {
++                            result[index] = info.withUpdatedFlags(info.flags.union(.disableLinkPreviews))
++                        } else {
++                            result.append(OutgoingContentInfoMessageAttribute(flags: .disableLinkPreviews))
++                        }
++                    }
++                    return result
+                 })
+             }
+         }
+     }
+ }
++
++public extension Message {
++    var ayuDisplayMedia: [Media] {
++        let markerURLs = Set(attributes.compactMap { $0 as? TextEntitiesMessageAttribute }.flatMap { $0.ayuWireEntities }.compactMap { entity -> String? in
++            guard case let .TextUrl(url) = entity.type, ayuEmojiFileIdFromLink(url) != nil else { return nil }
++            return url.components(separatedBy: "#")[0]
++        })
++        guard !markerURLs.isEmpty else { return media }
++        return media.filter { media in
++            guard let page = media as? TelegramMediaWebpage, case let .Loaded(content) = page.content else { return true }
++            return !markerURLs.contains(content.url.components(separatedBy: "#")[0])
++        }
++    }
++}
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift
+--- a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift
+@@ -365,20 +365,16 @@
+     private let storedEntities: [MessageTextEntity]
+     public var ayuWireEntities: [MessageTextEntity] { storedEntities }
+     public var entities: [MessageTextEntity] {
+-        guard AyuGramSettings.shared.client.localPremium else { return storedEntities }
+-        var result = storedEntities
+-        for entity in storedEntities {
+-            guard case let .TextUrl(url) = entity.type,
+-                  let fileId = ayuEmojiFileIdFromLink(url),
+-                  !result.contains(where: { candidate in
+-                      if case .CustomEmoji = candidate.type { return candidate.range == entity.range }
+-                      return false
+-                  }) else { continue }
+-            result.append(MessageTextEntity(range: entity.range, type: .CustomEmoji(stickerPack: nil, fileId: fileId)))
+-        }
+-        return result
+-    }
+-    
++        // Every client user can display the marker, independently of local Premium.
++        // Raw entities remain untouched for forwarding and network serialization.
++        return storedEntities.map { entity in
++            if case let .TextUrl(url) = entity.type, let fileId = ayuEmojiFileIdFromLink(url) {
++                return MessageTextEntity(range: entity.range, type: .CustomEmoji(stickerPack: nil, fileId: fileId))
++            }
++            return entity
++        }
++    }
++
+     public var associatedPeerIds: [PeerId] {
+         var result: [PeerId] = []
+         for entity in entities {
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+@@ -151,7 +151,7 @@
+             }
+         }
+         
+-        var messageMedia = message.media
++        var messageMedia = message.ayuDisplayMedia
+         if let updatingMedia = itemAttributes.updatingMedia, messageMedia.isEmpty, case let .update(media) = updatingMedia.media {
+             messageMedia.append(media.media)
+         }
+diff --git a/submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiPagerContentSignals.swift b/submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiPagerContentSignals.swift
+--- a/submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiPagerContentSignals.swift
++++ b/submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiPagerContentSignals.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import UIKit
+ import AccountContext
+@@ -201,7 +202,7 @@
+         
+         let emojiItems: Signal<EmojiPagerContentComponent, NoError> = combineLatest(
+             context.account.postbox.itemCollectionsView(orderedItemListCollectionIds: orderedItemListCollectionIds, namespaces: [Namespaces.ItemCollection.CloudEmojiPacks], aroundIndex: nil, count: 10000000),
+-            forceHasPremium ? .single(true) : hasPremium(context: context, chatPeerId: chatPeerId, premiumIfSavedMessages: premiumIfSavedMessages),
++            (forceHasPremium || AyuGramSettings.shared.client.localPremium) ? .single(true) : hasPremium(context: context, chatPeerId: chatPeerId, premiumIfSavedMessages: premiumIfSavedMessages),
+             context.account.viewTracker.featuredEmojiPacks(),
+             availableReactions,
+             searchCategories,
+diff --git a/submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiSearchContent.swift b/submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiSearchContent.swift
+--- a/submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiSearchContent.swift
++++ b/submodules/TelegramUI/Components/EntityKeyboard/Sources/EmojiSearchContent.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import UIKit
+ import Display
+@@ -81,7 +82,7 @@
+         self.forceTheme = forceTheme
+         self.initialFocusId = initialFocusId
+         self.hasPremiumForUse = hasPremiumForUse
+-        self.hasPremiumForInstallation = hasPremiumForInstallation
++        self.hasPremiumForInstallation = hasPremiumForInstallation || AyuGramSettings.shared.client.localPremium
+         self.parentInputInteraction = parentInputInteraction
+         
+         var presentationData = context.sharedContext.currentPresentationData.with { $0 }
+@@ -220,7 +221,7 @@
+                             guard case let .user(user) = peer else {
+                                 return false
+                             }
+-                            return user.isPremium
++                            return user.isPremium || AyuGramSettings.shared.client.localPremium
+                         }
+                         |> distinctUntilChanged
+                         
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
+--- a/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
++++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
+@@ -90,3 +90,32 @@
+         NotificationCenter.default.post(name: Self.didChange, object: self)
+     }
+ }
++
++public struct AyuGramLocalStatus: Codable, Equatable {
++    public var fileId: Int64?
++    public var expirationDate: Int32?
++    public init(fileId: Int64?, expirationDate: Int32?) {
++        self.fileId = fileId
++        self.expirationDate = expirationDate
++    }
++}
++
++public extension AyuGramSettings {
++    func localStatus(peerId: Int64) -> AyuGramLocalStatus? {
++        guard client.localPremium else { return nil }
++        lock.lock()
++        defer { lock.unlock() }
++        guard let data = defaults.data(forKey: "swiftgram.ayuGram.status.v1.\(peerId)"),
++              let status = try? JSONDecoder().decode(AyuGramLocalStatus.self, from: data) else { return nil }
++        if let expiry = status.expirationDate, Int64(expiry) <= Int64(Date().timeIntervalSince1970) { return nil }
++        return status
++    }
++    func setLocalStatus(peerId: Int64, status: AyuGramLocalStatus?) {
++        lock.lock()
++        let key = "swiftgram.ayuGram.status.v1.\(peerId)"
++        if let status, let data = try? JSONEncoder().encode(status) { defaults.set(data, forKey: key) }
++        else { defaults.removeObject(forKey: key) }
++        lock.unlock()
++        NotificationCenter.default.post(name: Self.didChange, object: self)
++    }
++}
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swift
+--- a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swift
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Postbox
+ import FlatBuffers
+ import FlatSerialization
+@@ -165,7 +166,13 @@
+     public let botInfo: BotUserInfo?
+     public let restrictionInfo: PeerAccessRestrictionInfo?
+     public let flags: UserInfoFlags
+-    public let emojiStatus: PeerEmojiStatus?
++    private let ayuServerEmojiStatus: PeerEmojiStatus?
++    public var emojiStatus: PeerEmojiStatus? {
++        if !flags.contains(.isPremium), let status = AyuGramSettings.shared.localStatus(peerId: id.toInt64()) {
++            return status.fileId.map { PeerEmojiStatus(content: .emoji(fileId: $0), expirationDate: status.expirationDate) }
++        }
++        return ayuServerEmojiStatus
++    }
+     public let usernames: [TelegramPeerUsername]
+     public let storiesHidden: Bool?
+     public let nameColor: PeerColor?
+@@ -214,7 +221,7 @@
+     
+     public var associatedMediaIds: [MediaId]? {
+         var mediaIds: [MediaId] = []
+-        if let emojiStatus = self.emojiStatus {
++        if let emojiStatus = self.ayuServerEmojiStatus {
+             switch emojiStatus.content {
+             case let .emoji(fileId):
+                 mediaIds.append(MediaId(namespace: Namespaces.Media.CloudFile, id: fileId))
+@@ -243,7 +250,7 @@
+     }
+ 
+     public var timeoutAttribute: UInt32? {
+-        if let emojiStatus = self.emojiStatus {
++        if let emojiStatus = self.ayuServerEmojiStatus {
+             if let expirationDate = emojiStatus.expirationDate {
+                 return UInt32(max(0, expirationDate))
+             } else {
+@@ -286,7 +293,7 @@
+         self.botInfo = botInfo
+         self.restrictionInfo = restrictionInfo
+         self.flags = flags
+-        self.emojiStatus = emojiStatus
++        self.ayuServerEmojiStatus = emojiStatus
+         self.usernames = usernames
+         self.storiesHidden = storiesHidden
+         self.nameColor = nameColor
+@@ -331,7 +338,7 @@
+         
+         self.flags = UserInfoFlags(rawValue: decoder.decodeInt32ForKey("fl", orElse: 0))
+         
+-        self.emojiStatus = decoder.decode(PeerEmojiStatus.self, forKey: "emjs")
++        self.ayuServerEmojiStatus = decoder.decode(PeerEmojiStatus.self, forKey: "emjs")
+         
+         self.usernames = decoder.decodeObjectArrayForKey("uns")
+         self.storiesHidden = decoder.decodeOptionalBoolForKey("sth")
+@@ -406,7 +413,7 @@
+         
+         encoder.encodeInt32(self.flags.rawValue, forKey: "fl")
+         
+-        if let emojiStatus = self.emojiStatus {
++        if let emojiStatus = self.ayuServerEmojiStatus {
+             encoder.encode(emojiStatus, forKey: "emjs")
+         } else {
+             encoder.encodeNil(forKey: "emjs")
+@@ -515,7 +522,7 @@
+         if lhs.flags != rhs.flags {
+             return false
+         }
+-        if lhs.emojiStatus != rhs.emojiStatus {
++        if lhs.ayuServerEmojiStatus != rhs.ayuServerEmojiStatus {
+             return false
+         }
+         if lhs.usernames != rhs.usernames {
+@@ -549,23 +556,23 @@
+     }
+     
+     public func withUpdatedUsername(_ username: String?) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedUsernames(_ usernames: [TelegramPeerUsername]) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedNames(firstName: String?, lastName: String?) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: firstName, lastName: lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: firstName, lastName: lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedPhone(_ phone: String?) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedPhoto(_ representations: [TelegramMediaImageRepresentation]) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: phone, photo: representations, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: phone, photo: representations, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedEmojiStatus(_ emojiStatus: PeerEmojiStatus?) -> TelegramUser {
+@@ -573,27 +580,27 @@
+     }
+     
+     public func withUpdatedFlags(_ flags: UserInfoFlags) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedStoriesHidden(_ storiesHidden: Bool?) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedNameColor(_ nameColor: PeerColor) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedBackgroundEmojiId(_ backgroundEmojiId: Int64?) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedProfileColor(_ profileColor: PeerNameColor?) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: profileColor, profileBackgroundEmojiId: self.profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public func withUpdatedProfileBackgroundEmojiId(_ profileBackgroundEmojiId: Int64?) -> TelegramUser {
+-        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.emojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
++        return TelegramUser(id: self.id, accessHash: self.accessHash, firstName: self.firstName, lastName: self.lastName, username: self.username, phone: self.phone, photo: self.photo, botInfo: self.botInfo, restrictionInfo: self.restrictionInfo, flags: self.flags, emojiStatus: self.ayuServerEmojiStatus, usernames: self.usernames, storiesHidden: self.storiesHidden, nameColor: self.nameColor, backgroundEmojiId: self.backgroundEmojiId, profileColor: self.profileColor, profileBackgroundEmojiId: profileBackgroundEmojiId, subscriberCount: self.subscriberCount, verificationIconFileId: self.verificationIconFileId, linkedCommunityId: self.linkedCommunityId)
+     }
+     
+     public init(flatBuffersObject: TelegramCore_TelegramUser) throws {
+@@ -607,7 +614,7 @@
+         self.botInfo = try flatBuffersObject.botInfo.flatMap { try BotUserInfo(flatBuffersObject: $0) }
+         self.restrictionInfo = try flatBuffersObject.restrictionInfo.flatMap { try PeerAccessRestrictionInfo(flatBuffersObject: $0) }
+         self.flags = UserInfoFlags(rawValue: flatBuffersObject.flags)
+-        self.emojiStatus = try flatBuffersObject.emojiStatus.flatMap { try PeerEmojiStatus(flatBuffersObject: $0) }
++        self.ayuServerEmojiStatus = try flatBuffersObject.emojiStatus.flatMap { try PeerEmojiStatus(flatBuffersObject: $0) }
+         self.usernames = try (0 ..< flatBuffersObject.usernamesCount).map { try TelegramPeerUsername(flatBuffersObject: flatBuffersObject.usernames(at: $0)!) }
+         self.storiesHidden = flatBuffersObject.storiesHidden?.value
+         if let collectibleColor = try flatBuffersObject.collectibleColor.flatMap(PeerCollectibleColor.init) {
+@@ -655,7 +662,7 @@
+             collectibleColorOffset = nil
+         }        
+         let profileColorOffset = self.profileColor.flatMap { $0.encodeToFlatBuffers(builder: &builder) }
+-        let emojiStatusOffset = self.emojiStatus?.encodeToFlatBuffers(builder: &builder)
++        let emojiStatusOffset = self.ayuServerEmojiStatus?.encodeToFlatBuffers(builder: &builder)
+         
+         let start = TelegramCore_TelegramUser.startTelegramUser(&builder)
+         
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift b/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import SwiftSignalKit
+ import Postbox
+@@ -148,6 +149,17 @@
+         }
+         
+         public func setEmojiStatus(file: TelegramMediaFile?, expirationDate: Int32?) -> Signal<Never, NoError> {
++            return self.account.postbox.transaction { transaction -> Bool in
++                transaction.getPeer(self.account.peerId)?.isPremium ?? false
++            }
++            |> mapToSignal { isPremium -> Signal<Never, NoError> in
++                let localOnly = !isPremium && AyuGramSettings.shared.client.localPremium
++                AyuGramSettings.shared.setLocalStatus(peerId: self.account.peerId.toInt64(), status: localOnly ? AyuGramLocalStatus(fileId: file?.fileId.id, expirationDate: expirationDate) : nil)
++                return self.ayuApplyEmojiStatus(file: file, expirationDate: expirationDate, localOnly: localOnly)
++            }
++        }
++
++        private func ayuApplyEmojiStatus(file: TelegramMediaFile?, expirationDate: Int32?, localOnly: Bool) -> Signal<Never, NoError> {
+             let peerId = self.account.peerId
+             
+             let remoteApply = self.account.network.request(Api.functions.account.updateEmojiStatus(emojiStatus: file.flatMap({ file in
+@@ -179,7 +191,7 @@
+                 }
+             }
+             |> ignoreValues
+-            |> then(remoteApply)
++            |> then(localOnly ? .complete() : remoteApply)
+         }
+         
+         public func updateAccountBusinessHours(businessHours: TelegramBusinessHours?) -> Signal<Never, NoError> {
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+@@ -2,6 +2,12 @@
+ import Postbox
+ import SwiftSignalKit
+ import SGSimpleSettings
++
++public struct AyuGramHistoryPolicy: Codable, Equatable {
++    public var selectedChats: [Int64] = []
++    public var savePhotos = true
++    public init() {}
++}
+ 
+ public struct AyuGramHistoryEntry: Codable, Equatable {
+     public let peerId: Int64
+@@ -11,50 +17,124 @@
+     public let text: String
+     public let event: String
+     public let timestamp: Int32
++    public var photoFileName: String?
++    public var photoResourceId: String?
+ }
+ 
+-private struct AyuGramHistory: Codable {
+-    var entries: [AyuGramHistoryEntry]
++private struct AyuGramHistory: Codable { var entries: [AyuGramHistoryEntry] }
++private let ayuGramHistoryKey = applicationSpecificPreferencesKey(0x415955)
++private let ayuGramHistoryPolicyKey = applicationSpecificPreferencesKey(0x415956)
++
++private func archiveDirectory(_ mediaBox: MediaBox) -> URL {
++    URL(fileURLWithPath: mediaBox.basePath, isDirectory: true).appendingPathComponent("ayu-message-archive", isDirectory: true)
+ }
+ 
+-// Reserved application preference key, distinct from Telegram's built-in keys.
+-private let ayuGramHistoryKey = applicationSpecificPreferencesKey(0x415955)
++private func archiveFile(_ mediaBox: MediaBox, name: String) -> URL? {
++    guard !name.isEmpty, name == URL(fileURLWithPath: name).lastPathComponent, !name.contains("..") else { return nil }
++    return archiveDirectory(mediaBox).appendingPathComponent(name)
++}
+ 
+-func ayuGramRecordHistory(transaction: Transaction, ids: [MessageId], event: String) {
++private func pruneHistory(_ history: inout AyuGramHistory, mediaBox: MediaBox) {
++    let threshold = Int32(Date().timeIntervalSince1970) - 30 * 24 * 60 * 60
++    history.entries.removeAll { $0.timestamp < threshold }
++    history.entries = Array(history.entries.suffix(200))
++    let keep = Set(history.entries.compactMap { $0.photoFileName })
++    let directory = archiveDirectory(mediaBox)
++    var total: Int64 = 0
++    for entry in history.entries.reversed() {
++        guard let name = entry.photoFileName, let url = archiveFile(mediaBox, name: name),
++              let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber else { continue }
++        total += size.int64Value
++        if total > 200 * 1024 * 1024 {
++            try? FileManager.default.removeItem(at: url)
++            if let index = history.entries.firstIndex(of: entry) { history.entries[index].photoFileName = nil }
++        }
++    }
++    for url in (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] where !keep.contains(url.lastPathComponent) {
++        try? FileManager.default.removeItem(at: url)
++    }
++}
++
++func ayuGramRecordHistory(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], event: String) {
+     guard AyuGramSettings.shared.snapshot.messageHistory else { return }
++    let policy = transaction.getPreferencesEntry(key: ayuGramHistoryPolicyKey)?.get(AyuGramHistoryPolicy.self) ?? AyuGramHistoryPolicy()
++    let selected = Set(policy.selectedChats)
++    guard !selected.isEmpty else { return }
+     var history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self) ?? AyuGramHistory(entries: [])
+     let now = Int32(Date().timeIntervalSince1970)
+-    history.entries.removeAll { $0.timestamp < now - 30 * 24 * 60 * 60 }
+     for id in ids {
+-        guard id.namespace == Namespaces.Message.Cloud,
++        guard selected.contains(id.peerId.toInt64()), id.namespace == Namespaces.Message.Cloud,
+               id.peerId.namespace != Namespaces.Peer.SecretChat,
+-              let message = transaction.getMessage(id), !message.text.isEmpty,
+-              !message.containsSecretMedia,
++              let message = transaction.getMessage(id), !message.containsSecretMedia,
++              !message.isCopyProtected(),
+               !message.attributes.contains(where: { $0 is AutoremoveTimeoutMessageAttribute || $0 is AutoclearTimeoutMessageAttribute }) else { continue }
+-        let entry = AyuGramHistoryEntry(peerId: id.peerId.toInt64(), messageId: id.id, peerTitle: String((transaction.getPeer(id.peerId)?.debugDisplayTitle ?? "Chat").prefix(256)), author: String((message.author?.debugDisplayTitle ?? "").prefix(256)), text: String(message.text.prefix(4096)), event: event, timestamp: now)
+-        // Deduplicate replayed updates, but preserve distinct revisions.
+-        if history.entries.last(where: { $0.peerId == entry.peerId && $0.messageId == entry.messageId && $0.event == entry.event })?.text != entry.text {
+-            history.entries.append(entry)
+-            if history.entries.count > 200 { history.entries.removeFirst(history.entries.count - 200) }
++        var source: String?
++        var resourceId: String?
++        if policy.savePhotos {
++            for image in message.media.compactMap({ $0 as? TelegramMediaImage }) {
++                for representation in image.representations.sorted(by: { $0.dimensions.width * $0.dimensions.height > $1.dimensions.width * $1.dimensions.height }) {
++                    if let path = mediaBox.completedResourcePath(representation.resource) {
++                        source = path
++                        resourceId = representation.resource.id.stringRepresentation
++                        break
++                    }
++                }
++                if source != nil { break }
++            }
+         }
++        let text = String(message.text.prefix(4096))
++        guard !text.isEmpty || source != nil else { continue }
++        if let previous = history.entries.last(where: { $0.peerId == id.peerId.toInt64() && $0.messageId == id.id && $0.event == event }), previous.text == text, previous.photoResourceId == resourceId { continue }
++        var fileName: String?
++        if let source, let size = (try? FileManager.default.attributesOfItem(atPath: source)[.size]) as? NSNumber, size.int64Value <= 20 * 1024 * 1024 {
++            let name = UUID().uuidString + ".jpg"
++            let directory = archiveDirectory(mediaBox)
++            do {
++                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
++                var excluded = directory
++                var values = URLResourceValues()
++                values.isExcludedFromBackup = true
++                try? excluded.setResourceValues(values)
++                if let destination = archiveFile(mediaBox, name: name) {
++                    try FileManager.default.copyItem(at: URL(fileURLWithPath: source), to: destination)
++                    fileName = name
++                }
++            } catch { fileName = nil }
++        }
++        guard !text.isEmpty || fileName != nil else { continue }
++        history.entries.append(AyuGramHistoryEntry(peerId: id.peerId.toInt64(), messageId: id.id, peerTitle: String((transaction.getPeer(id.peerId)?.debugDisplayTitle ?? "").prefix(256)), author: String((message.author?.debugDisplayTitle ?? "").prefix(256)), text: text, event: event, timestamp: now, photoFileName: fileName, photoResourceId: resourceId))
+     }
+-    history.entries = Array(history.entries.suffix(200))
++    pruneHistory(&history, mediaBox: mediaBox)
+     transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
+ }
+ 
+ public extension TelegramEngine {
++    func ayuGramHistoryPolicy() -> Signal<(AyuGramHistoryPolicy, [EnginePeer]), NoError> {
++        return self.account.postbox.transaction { transaction in
++            let policy = transaction.getPreferencesEntry(key: ayuGramHistoryPolicyKey)?.get(AyuGramHistoryPolicy.self) ?? AyuGramHistoryPolicy()
++            return (policy, policy.selectedChats.compactMap { transaction.getPeer(PeerId($0)).map(EnginePeer.init) })
++        }
++    }
++    func ayuGramSetHistoryPolicy(_ policy: AyuGramHistoryPolicy) -> Signal<Void, NoError> {
++        return self.account.postbox.transaction { transaction in
++            var policy = policy
++            policy.selectedChats = Array(Set(policy.selectedChats)).sorted()
++            transaction.setPreferencesEntry(key: ayuGramHistoryPolicyKey, value: PreferencesEntry(policy))
++        }
++    }
++    func ayuGramArchivedPhotoURL(_ name: String) -> URL? { archiveFile(self.account.postbox.mediaBox, name: name) }
+     func ayuGramMessageHistory() -> Signal<[AyuGramHistoryEntry], NoError> {
+         return self.account.postbox.transaction { transaction in
+             var history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self) ?? AyuGramHistory(entries: [])
+-            let now = Int32(Date().timeIntervalSince1970)
+-            history.entries.removeAll { $0.timestamp < now - 30 * 24 * 60 * 60 }
++            pruneHistory(&history, mediaBox: self.account.postbox.mediaBox)
+             transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
+             return Array(history.entries.reversed())
+         }
+     }
+-
+     func ayuGramClearMessageHistory() -> Signal<Void, NoError> {
+         return self.account.postbox.transaction { transaction in
++            var empty = AyuGramHistory(entries: [])
++            pruneHistory(&empty, mediaBox: self.account.postbox.mediaBox)
+             transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: nil)
+         }
+     }
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+@@ -1,56 +1,134 @@
+ import Foundation
++import UIKit
+ import Display
+ import SwiftSignalKit
+ import TelegramCore
++import Postbox
+ import AccountContext
+ import TelegramPresentationData
+ import PresentationDataUtils
+ import ItemListUI
+ import SGItemListUI
++import SGStrings
+ 
+-private enum HistorySection: Int32, SGItemListSection { case actions, entries }
+-private enum HistoryAction: Hashable { case clear }
++private enum HistorySection: Int32, SGItemListSection { case options, chats, actions, entries }
++private enum HistoryAction: Hashable { case clear, selectChats, removeChat(Int64), photo(String) }
+ private typealias HistoryEntry = SGItemListUIEntry<HistorySection, Int, Int, Int, Int, HistoryAction>
+ 
+ func ayuGramHistoryController(context: AccountContext) -> ViewController {
+     let records = Promise<[AyuGramHistoryEntry]>()
++    let policy = Promise<(AyuGramHistoryPolicy, [EnginePeer])>()
+     records.set(context.engine.ayuGramMessageHistory())
+-    var presentClear: (() -> Void)?
+-    let arguments = SGItemListArguments<Int, Int, Int, Int, HistoryAction>(context: context, action: { _ in presentClear?() })
+-    let signal = combineLatest(context.sharedContext.presentationData, records.get())
++    policy.set(context.engine.ayuGramHistoryPolicy())
++    var actionImpl: ((HistoryAction) -> Void)?
++    let arguments = SGItemListArguments<Int, Int, Int, Int, HistoryAction>(context: context, setBoolValue: { _, enabled in
++        let _ = (context.engine.ayuGramHistoryPolicy() |> take(1)).startStandalone(next: { current, _ in
++            var updated = current
++            updated.savePhotos = enabled
++            policy.set(context.engine.ayuGramSetHistoryPolicy(updated) |> mapToSignal { context.engine.ayuGramHistoryPolicy() })
++        })
++    }, action: { actionImpl?($0) })
++    let signal = combineLatest(context.sharedContext.presentationData, records.get(), policy.get())
+     |> deliverOnMainQueue
+-    |> map { presentationData, records -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<Int, Int, Int, Int, HistoryAction>)) in
+-        let ru = ["ru", "uk"].contains(presentationData.strings.baseLanguageCode)
++    |> map { presentationData, records, policyData -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<Int, Int, Int, Int, HistoryAction>)) in
++        let locale = presentationData.strings.baseLanguageCode
++        let current = policyData.0
+         var entries: [HistoryEntry] = [
+-            .action(id: 0, section: .actions, actionType: .clear, text: ru ? "Очистить историю" : "Clear history", kind: .destructive),
+-            .notice(id: 1, section: .actions, text: ru ? "Локальная история текущего аккаунта. Записи старше 30 дней удаляются при открытии или добавлении новых. Это текстовые снимки, а не восстановление сообщений с сервера." : "Local to this account. Entries older than 30 days are removed when opened or updated. These are text snapshots, not server message recovery.")
++            .header(id: 0, section: .options, text: i18n("Ayu.History", locale), badge: nil),
++            .toggle(id: 1, section: .options, settingName: 0, value: current.savePhotos, text: i18n("Ayu.SavePhotos", locale), enabled: true),
++            .notice(id: 2, section: .options, text: i18n("Ayu.HistoryInfo", locale)),
++            .header(id: 3, section: .chats, text: presentationData.strings.ChatListFolder_IncludeChatsTitle, badge: nil),
++            .action(id: 4, section: .chats, actionType: .selectChats, text: presentationData.strings.ChatListFolder_AddChats, kind: .generic)
+         ]
++        for (index, peer) in policyData.1.enumerated() {
++            entries.append(.action(id: 10 + index, section: .chats, actionType: .removeChat(peer.id.toInt64()), text: "− " + peer.debugDisplayTitle, kind: .generic))
++        }
++        entries.append(.action(id: 10000, section: .actions, actionType: .clear, text: i18n("Ayu.ClearHistory", locale), kind: .destructive))
+         let formatter = DateFormatter()
++        formatter.locale = Locale(identifier: locale)
+         formatter.dateStyle = .short
+-        formatter.timeStyle = .medium
+-        if records.isEmpty {
+-            entries.append(.notice(id: 2, section: .entries, text: ru ? "История пуста" : "No history yet"))
++        formatter.timeStyle = .short
++        if records.isEmpty { entries.append(.notice(id: 10001, section: .entries, text: i18n("Ayu.EmptyHistory", locale))) }
++        for (index, record) in records.enumerated() {
++            let event = i18n(record.event == "edited" ? "Ayu.BeforeEdit" : "Ayu.Deleted", locale)
++            let date = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(record.timestamp)))
++            entries.append(.notice(id: 10002 + index * 2, section: .entries, text: "\(record.peerTitle) · \(record.author)\n\(event) · \(date)\n\(record.text)"))
++            if let name = record.photoFileName {
++                entries.append(.action(id: 10003 + index * 2, section: .entries, actionType: .photo(name), text: presentationData.strings.Settings_ViewPhoto, kind: .generic))
++            }
+         }
+-        for (index, record) in records.enumerated() {
+-            let event = record.event == "edited" ? (ru ? "До правки" : "Before edit") : (ru ? "Удалено" : "Deleted")
+-            let date = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(record.timestamp)))
+-            entries.append(.notice(id: index + 3, section: .entries, text: "\(record.peerTitle) · \(record.author)\n\(event) · \(date)\n\(record.text)"))
+-        }
+-        let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Message History"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(i18n("Ayu.History", locale)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+         return (state, (ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks), arguments))
+     }
+     let controller = ItemListController(context: context, state: signal)
+-    presentClear = { [weak controller] in
++    actionImpl = { [weak controller] action in
++        guard let controller else { return }
+         let data = context.sharedContext.currentPresentationData.with { $0 }
+-        let sheet = ActionSheetController(presentationData: data)
+-        sheet.setItemGroups([
+-            ActionSheetItemGroup(items: [ActionSheetButtonItem(title: data.strings.Common_Delete, color: .destructive, action: { [weak sheet] in
+-                sheet?.dismissAnimated()
+-                records.set(context.engine.ayuGramClearMessageHistory() |> mapToSignal { _ in context.engine.ayuGramMessageHistory() })
+-            })]),
+-            ActionSheetItemGroup(items: [ActionSheetButtonItem(title: data.strings.Common_Cancel, color: .accent, action: { [weak sheet] in sheet?.dismissAnimated() })])
+-        ])
+-        controller?.present(sheet, in: .window(.root))
++        switch action {
++        case .selectChats:
++            let _ = (context.engine.ayuGramHistoryPolicy() |> take(1) |> deliverOnMainQueue).startStandalone(next: { current, peers in
++                let selection = context.sharedContext.makeContactMultiselectionController(ContactMultiselectionControllerParams(context: context, mode: .chatSelection(.init(title: data.strings.ChatListFolder_IncludeChatsTitle, searchPlaceholder: data.strings.ChatListFilter_AddChatsSearchPlaceholder, selectedChats: Set(current.selectedChats.map(PeerId.init)), additionalCategories: nil, chatListFilters: nil)), filters: [], isPeerEnabled: { $0.id.namespace != Namespaces.Peer.SecretChat }, alwaysEnabled: true, initialSelectedPeers: peers))
++                selection.navigationPresentation = .modal
++                let _ = (selection.result |> take(1) |> deliverOnMainQueue).startStandalone(next: { [weak selection] result in
++                    guard case let .result(ids, _) = result else { selection?.dismiss(); return }
++                    var updated = current
++                    updated.selectedChats = ids.compactMap { if case let .peer(id) = $0 { return id.toInt64() }; return nil }
++                    policy.set(context.engine.ayuGramSetHistoryPolicy(updated) |> mapToSignal { context.engine.ayuGramHistoryPolicy() })
++                    selection?.dismiss()
++                })
++                (controller.navigationController as? NavigationController)?.pushViewController(selection)
++            })
++        case let .removeChat(id):
++            let _ = (context.engine.ayuGramHistoryPolicy() |> take(1)).startStandalone(next: { current, _ in
++                var updated = current
++                updated.selectedChats.removeAll { $0 == id }
++                policy.set(context.engine.ayuGramSetHistoryPolicy(updated) |> mapToSignal { context.engine.ayuGramHistoryPolicy() })
++            })
++        case let .photo(name):
++            guard let url = context.engine.ayuGramArchivedPhotoURL(name), let image = UIImage(contentsOfFile: url.path) else { return }
++            let photo = AyuArchivePhotoController(image: image, url: url, strings: data.strings)
++            controller.present(UINavigationController(rootViewController: photo), animated: true)
++        case .clear:
++            let sheet = ActionSheetController(presentationData: data)
++            sheet.setItemGroups([
++                ActionSheetItemGroup(items: [ActionSheetButtonItem(title: data.strings.Common_Delete, color: .destructive, action: { [weak sheet] in
++                    sheet?.dismissAnimated()
++                    records.set(context.engine.ayuGramClearMessageHistory() |> mapToSignal { context.engine.ayuGramMessageHistory() })
++                })]),
++                ActionSheetItemGroup(items: [ActionSheetButtonItem(title: data.strings.Common_Cancel, color: .accent, action: { [weak sheet] in sheet?.dismissAnimated() })])
++            ])
++            controller.present(sheet, in: .window(.root))
++        }
+     }
+     return controller
+ }
++
++private final class AyuArchivePhotoController: UIViewController {
++    private let image: UIImage
++    private let url: URL
++    private let strings: PresentationStrings
++    init(image: UIImage, url: URL, strings: PresentationStrings) {
++        self.image = image
++        self.url = url
++        self.strings = strings
++        super.init(nibName: nil, bundle: nil)
++    }
++    required init?(coder: NSCoder) { fatalError() }
++    override func viewDidLoad() {
++        super.viewDidLoad()
++        view.backgroundColor = .black
++        let imageView = UIImageView(image: image)
++        imageView.contentMode = .scaleAspectFit
++        imageView.translatesAutoresizingMaskIntoConstraints = false
++        view.addSubview(imageView)
++        NSLayoutConstraint.activate([imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor), imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor), imageView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), imageView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)])
++        navigationItem.leftBarButtonItem = UIBarButtonItem(title: strings.Common_Close, style: .plain, target: self, action: #selector(closePhoto))
++        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .action, target: self, action: #selector(sharePhoto))
++    }
++    @objc private func closePhoto() { dismiss(animated: true) }
++    @objc private func sharePhoto() {
++        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
++        activity.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItem
++        present(activity, animated: true)
++    }
++}
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+@@ -8,8 +8,9 @@
+ import ItemListUI
+ import SGItemListUI
+ import SGSimpleSettings
++import SGStrings
+ 
+-private enum AyuSection: Int32, SGItemListSection { case privacy, history, client, limits }
++private enum AyuSection: Int32, SGItemListSection { case privacy, history, client }
+ private enum AyuToggle: Hashable { case ghost, read, online, typing, recording, uploading, stories, history, premium }
+ private enum AyuSlider: Hashable { case pins }
+ private enum AyuUnused: Hashable { case unused }
+@@ -21,20 +22,19 @@
+     let arguments = SGItemListArguments<AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>(context: context, setBoolValue: { key, enabled in
+         if key == .premium {
+             AyuGramSettings.shared.updateClient { $0.localPremium = enabled }
+-            changed.set(0)
+-            return
+-        }
+-        AyuGramSettings.shared.update { settings in
+-            switch key {
+-            case .ghost: settings.ghostMode = enabled
+-            case .read: settings.antiRead = enabled
+-            case .online: settings.antiOnline = enabled
+-            case .typing: settings.antiTyping = enabled
+-            case .recording: settings.antiRecording = enabled
+-            case .uploading: settings.antiUploading = enabled
+-            case .stories: settings.storyPrivacy = enabled
+-            case .history: settings.messageHistory = enabled
+-            case .premium: break
++        } else {
++            AyuGramSettings.shared.update { settings in
++                switch key {
++                case .ghost: settings.ghostMode = enabled
++                case .read: settings.antiRead = enabled
++                case .online: settings.antiOnline = enabled
++                case .typing: settings.antiTyping = enabled
++                case .recording: settings.antiRecording = enabled
++                case .uploading: settings.antiUploading = enabled
++                case .stories: settings.storyPrivacy = enabled
++                case .history: settings.messageHistory = enabled
++                case .premium: break
++                }
+             }
+         }
+         changed.set(0)
+@@ -44,36 +44,30 @@
+     }, openDisclosureLink: { _ in openHistory?() })
+     let signal = combineLatest(context.sharedContext.presentationData, changed.get())
+     |> deliverOnMainQueue
+-    |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>)) in
++    |> map { data, _ -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>)) in
+         let settings = AyuGramSettings.shared.snapshot
+-        let clientSettings = AyuGramSettings.shared.client
+-        let ru = ["ru", "uk"].contains(presentationData.strings.baseLanguageCode)
++        let client = AyuGramSettings.shared.client
++        let locale = data.strings.baseLanguageCode
+         let entries: [AyuEntry] = [
+-            .header(id: 0, section: .privacy, text: "AyuGram / Privacy", badge: nil),
+-            .toggle(id: 1, section: .privacy, settingName: .ghost, value: settings.ghostMode, text: "Ghost Mode", enabled: true),
+-            .toggle(id: 2, section: .privacy, settingName: .read, value: settings.suppressRead, text: "Anti Read", enabled: !settings.ghostMode),
+-            .toggle(id: 3, section: .privacy, settingName: .online, value: settings.suppressOnline, text: "Anti Online", enabled: !settings.ghostMode),
+-            .toggle(id: 4, section: .privacy, settingName: .typing, value: settings.suppressTyping, text: "Anti Typing", enabled: !settings.ghostMode),
+-            .toggle(id: 5, section: .privacy, settingName: .recording, value: settings.suppressRecording, text: "Anti Recording", enabled: !settings.ghostMode),
+-            .toggle(id: 6, section: .privacy, settingName: .uploading, value: settings.suppressUploading, text: "Anti Uploading", enabled: !settings.ghostMode),
+-            .toggle(id: 7, section: .privacy, settingName: .stories, value: settings.suppressStoryViews, text: "Story Privacy", enabled: !settings.ghostMode),
+-            .notice(id: 8, section: .privacy, text: ru ? "Для всех аккаунтов на этом устройстве. Ghost Mode включает ограничения выше, сохраняя ваши отдельные настройки. Уже отправленные запросы отменить нельзя." : "Applies to every account on this device. Ghost Mode overrides the switches above and preserves their individual values. Requests already sent cannot be recalled."),
+-            .header(id: 10, section: .history, text: "Message History", badge: nil),
+-            .toggle(id: 11, section: .history, settingName: .history, value: settings.messageHistory, text: ru ? "Сохранять предыдущий текст" : "Keep previous message text", enabled: true),
+-            .disclosure(id: 12, section: .history, link: .unused, text: ru ? "Открыть историю этого аккаунта" : "Open this account’s history"),
+-            .notice(id: 13, section: .history, text: ru ? "Сохраняется только уже загруженный текст при получении правки или удаления, до 200 записей. Вложения, секретные и исчезающие сообщения не сохраняются. Выключение останавливает сбор; удалить записи можно внутри истории." : "Keeps already downloaded text when an edit or deletion arrives, up to 200 entries. Excludes attachments, secret and disappearing messages. Disabling stops collection; clear existing entries inside History."),
+-            .header(id: 15, section: .client, text: ru ? "Возможности клиента" : "Client features", badge: nil),
+-            .toggle(id: 16, section: .client, settingName: .premium, value: clientSettings.localPremium, text: ru ? "Локальный Premium" : "Local Premium", enabled: true),
+-            .notice(id: 17, section: .client, text: ru ? "Значок и анимированные эмодзи в этом клиенте. Собеседникам отправляется обычный эмодзи со ссылкой на набор. Если набор недоступен, отправляется обычный эмодзи. Серверная подписка не меняется." : "Local badge and animated emoji. Recipients receive regular emoji linked to the pack. If the pack is unavailable, only regular emoji is sent. The server subscription stays the same."),
+-            .header(id: 18, section: .client, text: ru ? "Максимум закреплённых чатов" : "Maximum pinned chats", badge: nil),
+-            .countSlider(id: 19, section: .client, settingName: .pins, value: clientSettings.pinnedChatLimit),
+-            .notice(id: 20, section: .client, text: ru ? "После увеличения лимита закрепления и их порядок сохраняются только на этом устройстве. Уменьшение лимита не открепляет существующие чаты." : "After increasing the limit, pins and their order are local to this device. Lowering the limit does not unpin existing chats."),
+-            .header(id: 30, section: .limits, text: ru ? "Как это работает" : "How it works", badge: nil),
+-            .notice(id: 31, section: .limits, text: ru ? "Anti Read подавляет исходящие отметки чтения и прослушивания. Прочитанное в этом клиенте убирает местный счётчик, не отправляя отметку серверу. После выключения следующее чтение может подтвердить предыдущие сообщения. Story Privacy оставляет истории непросмотренными." : "Anti Read suppresses outgoing read and playback receipts. Reading here clears the local unread count without a server receipt. After disabling it, later reading can acknowledge earlier messages. Story Privacy leaves stories unseen."),
+-            .notice(id: 32, section: .limits, text: ru ? "Anti Online скрывает явные обновления статуса. Отправка сообщений, другие устройства и действия на сервере могут раскрыть активность. Звонки не скрываются. Anti Uploading скрывает индикатор, а не передачу файла." : "Anti Online suppresses explicit presence updates. Sending messages, other devices and server behavior may reveal activity. Calls are not hidden. Anti Uploading hides the indicator, not the file transfer.")
++            .header(id: 0, section: .privacy, text: data.strings.Settings_PrivacySettings, badge: nil),
++            .toggle(id: 1, section: .privacy, settingName: .ghost, value: settings.ghostMode, text: i18n("Ayu.Ghost", locale), enabled: true),
++            .toggle(id: 2, section: .privacy, settingName: .read, value: settings.suppressRead, text: i18n("Ayu.HideRead", locale), enabled: !settings.ghostMode),
++            .toggle(id: 3, section: .privacy, settingName: .online, value: settings.suppressOnline, text: i18n("Ayu.HideOnline", locale), enabled: !settings.ghostMode),
++            .toggle(id: 4, section: .privacy, settingName: .typing, value: settings.suppressTyping, text: i18n("Ayu.HideTyping", locale), enabled: !settings.ghostMode),
++            .toggle(id: 5, section: .privacy, settingName: .recording, value: settings.suppressRecording, text: i18n("Ayu.HideRecording", locale), enabled: !settings.ghostMode),
++            .toggle(id: 6, section: .privacy, settingName: .uploading, value: settings.suppressUploading, text: i18n("Ayu.HideUploading", locale), enabled: !settings.ghostMode),
++            .toggle(id: 7, section: .privacy, settingName: .stories, value: settings.suppressStoryViews, text: i18n("Ayu.HideStories", locale), enabled: !settings.ghostMode),
++            .header(id: 10, section: .history, text: i18n("Ayu.History", locale), badge: nil),
++            .toggle(id: 11, section: .history, settingName: .history, value: settings.messageHistory, text: i18n("Ayu.SaveDeleted", locale), enabled: true),
++            .disclosure(id: 12, section: .history, link: .unused, text: i18n("Ayu.History", locale)),
++            .header(id: 15, section: .client, text: "AyuGram", badge: nil),
++            .toggle(id: 16, section: .client, settingName: .premium, value: client.localPremium, text: i18n("Ayu.LocalPremium", locale), enabled: true),
++            .header(id: 18, section: .client, text: i18n("Ayu.Pins", locale), badge: nil),
++            .countSlider(id: 19, section: .client, settingName: .pins, value: client.pinnedChatLimit),
++            .notice(id: 20, section: .client, text: i18n("Ayu.LocalOnly", locale))
+         ]
+-        let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("AyuGram / Privacy"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+-        return (state, (ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks), arguments))
++        let state = ItemListControllerState(presentationData: ItemListPresentationData(data), title: .text("AyuGram"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: data.strings.Common_Back))
++        return (state, (ItemListNodeState(presentationData: ItemListPresentationData(data), entries: entries, style: .blocks), arguments))
+     }
+     let controller = ItemListController(context: context, state: signal)
+     openHistory = { [weak controller] in
+diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+--- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
++++ b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+@@ -4440,7 +4440,7 @@
+                     }
+                 }
+             case let .DeleteMessagesWithGlobalIds(ids):
+-                ayuGramRecordHistory(transaction: transaction, ids: transaction.messageIdsForGlobalIds(ids), event: "deleted")
++                ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: transaction.messageIdsForGlobalIds(ids), event: "deleted")
+                 var resourceIds: [MediaResourceId] = []
+                 transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in
+                     addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
+@@ -4450,7 +4450,7 @@
+                 }
+                 deletedMessageIds.append(contentsOf: ids.map { .global($0) })
+             case let .DeleteMessages(ids):
+-                ayuGramRecordHistory(transaction: transaction, ids: ids, event: "deleted")
++                ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: ids, event: "deleted")
+                 _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
+                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+                 })
+@@ -4489,7 +4489,7 @@
+                 }
+             case let .EditMessage(id, message):
+                 if let previous = transaction.getMessage(id), previous.text != message.text {
+-                    ayuGramRecordHistory(transaction: transaction, ids: [id], event: "edited")
++                    ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: [id], event: "edited")
+                 }
+                 var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
+                 transaction.updateMessage(id, update: { previousMessage in
+diff --git a/submodules/TelegramUI/Components/EmojiStatusSelectionComponent/Sources/EmojiStatusSelectionComponent.swift b/submodules/TelegramUI/Components/EmojiStatusSelectionComponent/Sources/EmojiStatusSelectionComponent.swift
+--- a/submodules/TelegramUI/Components/EmojiStatusSelectionComponent/Sources/EmojiStatusSelectionComponent.swift
++++ b/submodules/TelegramUI/Components/EmojiStatusSelectionComponent/Sources/EmojiStatusSelectionComponent.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import UIKit
+ import Display
+@@ -515,7 +516,7 @@
+                                     guard case let .user(user) = peer else {
+                                         return false
+                                     }
+-                                    return user.isPremium
++                                    return user.isPremium || AyuGramSettings.shared.client.localPremium
+                                 }
+                                 |> distinctUntilChanged
+ 
+diff --git a/submodules/TelegramUI/Components/EmojiStatusSelectionComponent/BUILD b/submodules/TelegramUI/Components/EmojiStatusSelectionComponent/BUILD
+--- a/submodules/TelegramUI/Components/EmojiStatusSelectionComponent/BUILD
++++ b/submodules/TelegramUI/Components/EmojiStatusSelectionComponent/BUILD
+@@ -10,6 +10,7 @@
+         "-warnings-as-errors",
+     ],
+     deps = [
++        "//Swiftgram/SGSimpleSettings:SGSimpleSettings",
+         "//submodules/AsyncDisplayKit:AsyncDisplayKit",
+         "//submodules/Display:Display",
+         "//submodules/TelegramCore:TelegramCore",
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -277,3 +277,25 @@
+ "Settings.NY.Style.snow" = "Snow";
+ "Settings.NY.Style.lightning" = "Lightning";
+ "Settings.NY.Notice" = "Available for a limited time only!";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Ghost mode";
++"Ayu.HideRead" = "Hide read receipts";
++"Ayu.HideOnline" = "Hide online status";
++"Ayu.HideTyping" = "Hide typing";
++"Ayu.HideRecording" = "Hide recording";
++"Ayu.HideUploading" = "Hide uploads";
++"Ayu.HideStories" = "Hide story views";
++"Ayu.History" = "Message history";
++"Ayu.SaveDeleted" = "Save deleted messages";
++"Ayu.SavePhotos" = "Save photos";
++"Ayu.ClearHistory" = "Clear history";
++"Ayu.EmptyHistory" = "No history yet";
++"Ayu.BeforeEdit" = "Before edit";
++"Ayu.Deleted" = "Deleted";
++"Ayu.LocalPremium" = "Local Premium";
++"Ayu.Pins" = "Maximum pinned chats";
++"Ayu.LocalOnly" = "Only on this device";
++"Ayu.HistoryInfo" = "Selected chats only. Cached photos and text, 30 days, up to 200 entries. Secret and disappearing messages are excluded.";
++"Ayu.ReadWarning" = "Send a read receipt for this chat up to this message?";
++"Ayu.ViewWarning" = "Send a view receipt and start the disappearing media timer?";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -272,3 +272,25 @@
+ "Settings.NY.Style.snow" = "Снег";
+ "Settings.NY.Style.lightning" = "Молнии";
+ "Settings.NY.Notice" = "Доступны только на ограниченное время!";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Режим призрака";
++"Ayu.HideRead" = "Скрывать прочтение";
++"Ayu.HideOnline" = "Скрывать онлайн";
++"Ayu.HideTyping" = "Скрывать набор текста";
++"Ayu.HideRecording" = "Скрывать запись";
++"Ayu.HideUploading" = "Скрывать загрузку";
++"Ayu.HideStories" = "Скрывать просмотр историй";
++"Ayu.History" = "История сообщений";
++"Ayu.SaveDeleted" = "Сохранять удалённые сообщения";
++"Ayu.SavePhotos" = "Сохранять фото";
++"Ayu.ClearHistory" = "Очистить историю";
++"Ayu.EmptyHistory" = "История пока пуста";
++"Ayu.BeforeEdit" = "До изменения";
++"Ayu.Deleted" = "Удалено";
++"Ayu.LocalPremium" = "Локальный Premium";
++"Ayu.Pins" = "Максимум закреплённых чатов";
++"Ayu.LocalOnly" = "Только на этом устройстве";
++"Ayu.HistoryInfo" = "Только выбранные чаты. Загруженные фото и текст: 30 дней, до 200 записей. Без секретных и исчезающих сообщений.";
++"Ayu.ReadWarning" = "Отправить отчёт о прочтении чата до этого сообщения?";
++"Ayu.ViewWarning" = "Отправить отчёт о просмотре и запустить таймер исчезающего медиа?";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -243,3 +243,25 @@
+ "PayWall.ValidationError" = "Помилка валідації";
+ "PayWall.ValidationError.TryAgain" = "Щось пішло не так під час перевірки покупки. Не хвилюйтеся! Спробуйте відновити покупки трохи пізніше.";
+ "PayWall.ValidationError.Expired" = "Ваша підписка застаріла. Підпишіться, щоб відновити доступ до Pro-можливостей.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Режим привида";
++"Ayu.HideRead" = "Приховувати прочитання";
++"Ayu.HideOnline" = "Приховувати онлайн";
++"Ayu.HideTyping" = "Приховувати набір тексту";
++"Ayu.HideRecording" = "Приховувати запис";
++"Ayu.HideUploading" = "Приховувати завантаження";
++"Ayu.HideStories" = "Приховувати перегляд історій";
++"Ayu.History" = "Історія повідомлень";
++"Ayu.SaveDeleted" = "Зберігати видалені повідомлення";
++"Ayu.SavePhotos" = "Зберігати фото";
++"Ayu.ClearHistory" = "Очистити історію";
++"Ayu.EmptyHistory" = "Історія поки порожня";
++"Ayu.BeforeEdit" = "До зміни";
++"Ayu.Deleted" = "Видалено";
++"Ayu.LocalPremium" = "Локальний Premium";
++"Ayu.Pins" = "Максимум закріплених чатів";
++"Ayu.LocalOnly" = "Лише на цьому пристрої";
++"Ayu.HistoryInfo" = "Лише вибрані чати. Завантажені фото й текст: 30 днів, до 200 записів. Без секретних і зникаючих повідомлень.";
++"Ayu.ReadWarning" = "Надіслати звіт про прочитання чату до цього повідомлення?";
++"Ayu.ViewWarning" = "Надіслати звіт про перегляд і запустити таймер зникаючого медіа?";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP mit Wischen";
+ "Settings.swipeForVideoPIP.Notice" = "Wenn aktiviert, öffnet das Wischen des Videos es im Bild-in-Bild-Modus.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Geistmodus";
++"Ayu.HideRead" = "Lesebestätigungen verbergen";
++"Ayu.HideOnline" = "Online-Status verbergen";
++"Ayu.HideTyping" = "Tippen verbergen";
++"Ayu.HideRecording" = "Aufnahme verbergen";
++"Ayu.HideUploading" = "Uploads verbergen";
++"Ayu.HideStories" = "Story-Aufrufe verbergen";
++"Ayu.History" = "Nachrichtenverlauf";
++"Ayu.SaveDeleted" = "Gelöschte Nachrichten speichern";
++"Ayu.SavePhotos" = "Fotos speichern";
++"Ayu.ClearHistory" = "Verlauf löschen";
++"Ayu.EmptyHistory" = "Noch kein Verlauf";
++"Ayu.BeforeEdit" = "Vor Bearbeitung";
++"Ayu.Deleted" = "Gelöscht";
++"Ayu.LocalPremium" = "Lokales Premium";
++"Ayu.Pins" = "Maximale angeheftete Chats";
++"Ayu.LocalOnly" = "Nur auf diesem Gerät";
++"Ayu.HistoryInfo" = "Nur ausgewählte Chats. Zwischengespeicherte Fotos und Text: 30 Tage, bis zu 200 Einträge. Keine geheimen oder selbstlöschenden Nachrichten.";
++"Ayu.ReadWarning" = "Lesebestätigung für diesen Chat bis zu dieser Nachricht senden?";
++"Ayu.ViewWarning" = "Ansicht bestätigen und den Timer für selbstlöschende Medien starten?";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -135,3 +135,25 @@
+ "Settings.forceBuiltInMic.Notice" = "Si activé, l'application utilisera uniquement le microphone de l'appareil même si des écouteurs sont connectés.";
+ 
+ "Settings.hideChannelBottomButton" = "Masquer le panneau inférieur du canal";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Mode fantôme";
++"Ayu.HideRead" = "Masquer les confirmations de lecture";
++"Ayu.HideOnline" = "Masquer le statut en ligne";
++"Ayu.HideTyping" = "Masquer la saisie";
++"Ayu.HideRecording" = "Masquer l'enregistrement";
++"Ayu.HideUploading" = "Masquer les envois";
++"Ayu.HideStories" = "Masquer les vues des stories";
++"Ayu.History" = "Historique des messages";
++"Ayu.SaveDeleted" = "Conserver les messages supprimés";
++"Ayu.SavePhotos" = "Conserver les photos";
++"Ayu.ClearHistory" = "Effacer l'historique";
++"Ayu.EmptyHistory" = "Aucun historique";
++"Ayu.BeforeEdit" = "Avant modification";
++"Ayu.Deleted" = "Supprimé";
++"Ayu.LocalPremium" = "Premium local";
++"Ayu.Pins" = "Maximum de discussions épinglées";
++"Ayu.LocalOnly" = "Uniquement sur cet appareil";
++"Ayu.HistoryInfo" = "Discussions sélectionnées uniquement. Photos en cache et texte : 30 jours, 200 entrées maximum. Sans messages secrets ou éphémères.";
++"Ayu.ReadWarning" = "Confirmer la lecture de cette discussion jusqu'à ce message ?";
++"Ayu.ViewWarning" = "Confirmer la vue et démarrer le minuteur du média éphémère ?";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP con deslizamiento";
+ "Settings.swipeForVideoPIP.Notice" = "Si está habilitado, deslizar el video lo abrirá en modo imagen en imagen.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Modo fantasma";
++"Ayu.HideRead" = "Ocultar confirmaciones de lectura";
++"Ayu.HideOnline" = "Ocultar estado en línea";
++"Ayu.HideTyping" = "Ocultar escritura";
++"Ayu.HideRecording" = "Ocultar grabación";
++"Ayu.HideUploading" = "Ocultar cargas";
++"Ayu.HideStories" = "Ocultar vistas de historias";
++"Ayu.History" = "Historial de mensajes";
++"Ayu.SaveDeleted" = "Guardar mensajes eliminados";
++"Ayu.SavePhotos" = "Guardar fotos";
++"Ayu.ClearHistory" = "Borrar historial";
++"Ayu.EmptyHistory" = "Sin historial todavía";
++"Ayu.BeforeEdit" = "Antes de editar";
++"Ayu.Deleted" = "Eliminado";
++"Ayu.LocalPremium" = "Premium local";
++"Ayu.Pins" = "Máximo de chats fijados";
++"Ayu.LocalOnly" = "Solo en este dispositivo";
++"Ayu.HistoryInfo" = "Solo chats seleccionados. Fotos en caché y texto: 30 días, hasta 200 registros. Sin mensajes secretos ni temporales.";
++"Ayu.ReadWarning" = "¿Confirmar la lectura de este chat hasta este mensaje?";
++"Ayu.ViewWarning" = "¿Confirmar la vista e iniciar el temporizador del contenido temporal?";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP con scorrimento";
+ "Settings.swipeForVideoPIP.Notice" = "Se abilitato, scorrendo il video si aprirà in modalità Picture-in-Picture.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Modalità fantasma";
++"Ayu.HideRead" = "Nascondi conferme di lettura";
++"Ayu.HideOnline" = "Nascondi stato online";
++"Ayu.HideTyping" = "Nascondi digitazione";
++"Ayu.HideRecording" = "Nascondi registrazione";
++"Ayu.HideUploading" = "Nascondi caricamenti";
++"Ayu.HideStories" = "Nascondi visualizzazioni storie";
++"Ayu.History" = "Cronologia messaggi";
++"Ayu.SaveDeleted" = "Salva messaggi eliminati";
++"Ayu.SavePhotos" = "Salva foto";
++"Ayu.ClearHistory" = "Cancella cronologia";
++"Ayu.EmptyHistory" = "Nessuna cronologia";
++"Ayu.BeforeEdit" = "Prima della modifica";
++"Ayu.Deleted" = "Eliminato";
++"Ayu.LocalPremium" = "Premium locale";
++"Ayu.Pins" = "Numero massimo di chat fissate";
++"Ayu.LocalOnly" = "Solo su questo dispositivo";
++"Ayu.HistoryInfo" = "Solo chat selezionate. Foto in cache e testo: 30 giorni, fino a 200 voci. Esclusi messaggi segreti e temporanei.";
++"Ayu.ReadWarning" = "Confermare la lettura della chat fino a questo messaggio?";
++"Ayu.ViewWarning" = "Confermare la visualizzazione e avviare il timer del contenuto temporaneo?";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -271,4 +271,26 @@
+ "Settings.NY.Style.default" = "Desativado";
+ "Settings.NY.Style.snow" = "Neve";
+ "Settings.NY.Style.lightning" = "Raio";
+-"Settings.NY.Notice" = "Disponível por tempo limitado!";
+\ No newline at end of file
++"Settings.NY.Notice" = "Disponível por tempo limitado!";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Modo fantasma";
++"Ayu.HideRead" = "Ocultar confirmações de leitura";
++"Ayu.HideOnline" = "Ocultar estado online";
++"Ayu.HideTyping" = "Ocultar digitação";
++"Ayu.HideRecording" = "Ocultar gravação";
++"Ayu.HideUploading" = "Ocultar envios";
++"Ayu.HideStories" = "Ocultar visualizações de histórias";
++"Ayu.History" = "Histórico de mensagens";
++"Ayu.SaveDeleted" = "Guardar mensagens apagadas";
++"Ayu.SavePhotos" = "Guardar fotos";
++"Ayu.ClearHistory" = "Limpar histórico";
++"Ayu.EmptyHistory" = "Ainda sem histórico";
++"Ayu.BeforeEdit" = "Antes da edição";
++"Ayu.Deleted" = "Apagado";
++"Ayu.LocalPremium" = "Premium local";
++"Ayu.Pins" = "Máximo de conversas fixadas";
++"Ayu.LocalOnly" = "Apenas neste dispositivo";
++"Ayu.HistoryInfo" = "Apenas conversas selecionadas. Fotos em cache e texto: 30 dias, até 200 registos. Sem mensagens secretas ou temporárias.";
++"Ayu.ReadWarning" = "Confirmar a leitura da conversa até esta mensagem?";
++"Ayu.ViewWarning" = "Confirmar a visualização e iniciar o temporizador do conteúdo temporário?";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -243,3 +243,25 @@
+ "PayWall.ValidationError" = "Błąd weryfikacji";
+ "PayWall.ValidationError.TryAgain" = "Coś poszło nie tak podczas weryfikacji zakupu. Nie martw się! Spróbuj przywrócić zakupy trochę później.";
+ "PayWall.ValidationError.Expired" = "Twoja subskrypcja wygasła. Subskrybuj ponownie, aby odzyskać dostęp do funkcji Pro.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Tryb ducha";
++"Ayu.HideRead" = "Ukryj potwierdzenia odczytu";
++"Ayu.HideOnline" = "Ukryj status online";
++"Ayu.HideTyping" = "Ukryj pisanie";
++"Ayu.HideRecording" = "Ukryj nagrywanie";
++"Ayu.HideUploading" = "Ukryj wysyłanie";
++"Ayu.HideStories" = "Ukryj wyświetlenia relacji";
++"Ayu.History" = "Historia wiadomości";
++"Ayu.SaveDeleted" = "Zapisuj usunięte wiadomości";
++"Ayu.SavePhotos" = "Zapisuj zdjęcia";
++"Ayu.ClearHistory" = "Wyczyść historię";
++"Ayu.EmptyHistory" = "Brak historii";
++"Ayu.BeforeEdit" = "Przed edycją";
++"Ayu.Deleted" = "Usunięto";
++"Ayu.LocalPremium" = "Lokalne Premium";
++"Ayu.Pins" = "Maksimum przypiętych czatów";
++"Ayu.LocalOnly" = "Tylko na tym urządzeniu";
++"Ayu.HistoryInfo" = "Tylko wybrane czaty. Zdjęcia w pamięci i tekst: 30 dni, do 200 wpisów. Bez wiadomości tajnych i znikających.";
++"Ayu.ReadWarning" = "Wysłać potwierdzenie odczytu czatu do tej wiadomości?";
++"Ayu.ViewWarning" = "Potwierdzić wyświetlenie i uruchomić licznik znikających multimediów?";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Videoyu kaydırarak PIP";
+ "Settings.swipeForVideoPIP.Notice" = "Eğer etkinleştirildi ise videoyu kaydırmak, Piksel içinde Piksel modunda açılacaktır.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Hayalet modu";
++"Ayu.HideRead" = "Okundu bilgisini gizle";
++"Ayu.HideOnline" = "Çevrimiçi durumunu gizle";
++"Ayu.HideTyping" = "Yazmayı gizle";
++"Ayu.HideRecording" = "Kaydı gizle";
++"Ayu.HideUploading" = "Yüklemeleri gizle";
++"Ayu.HideStories" = "Hikâye görüntülemelerini gizle";
++"Ayu.History" = "Mesaj geçmişi";
++"Ayu.SaveDeleted" = "Silinen mesajları kaydet";
++"Ayu.SavePhotos" = "Fotoğrafları kaydet";
++"Ayu.ClearHistory" = "Geçmişi temizle";
++"Ayu.EmptyHistory" = "Henüz geçmiş yok";
++"Ayu.BeforeEdit" = "Düzenlemeden önce";
++"Ayu.Deleted" = "Silindi";
++"Ayu.LocalPremium" = "Yerel Premium";
++"Ayu.Pins" = "En fazla sabitlenmiş sohbet";
++"Ayu.LocalOnly" = "Yalnızca bu cihazda";
++"Ayu.HistoryInfo" = "Yalnızca seçilen sohbetler. Önbellekteki fotoğraf ve metin: 30 gün, en fazla 200 kayıt. Gizli ve kaybolan mesajlar hariç.";
++"Ayu.ReadWarning" = "Bu mesaja kadar sohbet için okundu bilgisi gönderilsin mi?";
++"Ayu.ViewWarning" = "Görüntüleme bilgisi gönderilip kaybolan medya zamanlayıcısı başlatılsın mı?";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "فيديو PIP مع السحب";
+ "Settings.swipeForVideoPIP.Notice" = "إذا تم تمكينه، سيفتح سحب الفيديو في وضع الصورة في الصورة.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "وضع الشبح";
++"Ayu.HideRead" = "إخفاء إشعارات القراءة";
++"Ayu.HideOnline" = "إخفاء حالة الاتصال";
++"Ayu.HideTyping" = "إخفاء الكتابة";
++"Ayu.HideRecording" = "إخفاء التسجيل";
++"Ayu.HideUploading" = "إخفاء التحميل";
++"Ayu.HideStories" = "إخفاء مشاهدات القصص";
++"Ayu.History" = "سجل الرسائل";
++"Ayu.SaveDeleted" = "حفظ الرسائل المحذوفة";
++"Ayu.SavePhotos" = "حفظ الصور";
++"Ayu.ClearHistory" = "مسح السجل";
++"Ayu.EmptyHistory" = "لا يوجد سجل بعد";
++"Ayu.BeforeEdit" = "قبل التعديل";
++"Ayu.Deleted" = "محذوف";
++"Ayu.LocalPremium" = "Premium محلي";
++"Ayu.Pins" = "أقصى عدد للمحادثات المثبتة";
++"Ayu.LocalOnly" = "على هذا الجهاز فقط";
++"Ayu.HistoryInfo" = "المحادثات المحددة فقط. الصور المخزنة والنصوص: 30 يومًا، حتى 200 سجل. باستثناء الرسائل السرية والمؤقتة.";
++"Ayu.ReadWarning" = "إرسال إشعار قراءة للمحادثة حتى هذه الرسالة؟";
++"Ayu.ViewWarning" = "إرسال إشعار مشاهدة وبدء مؤقت الوسائط المؤقتة؟";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -7,3 +7,25 @@
+ "Settings.ShowProfileID" = "نمایش ایدی پروفایل";
+ "Settings.Translation.QuickTranslateButton" = "دکمه ترجمه سریع";
+ "ContextMenu.SaveToCloud" = "ذخیره در فضای ابری";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "حالت شبح";
++"Ayu.HideRead" = "پنهان کردن رسید خواندن";
++"Ayu.HideOnline" = "پنهان کردن وضعیت آنلاین";
++"Ayu.HideTyping" = "پنهان کردن تایپ";
++"Ayu.HideRecording" = "پنهان کردن ضبط";
++"Ayu.HideUploading" = "پنهان کردن بارگذاری";
++"Ayu.HideStories" = "پنهان کردن بازدید داستان";
++"Ayu.History" = "تاریخچه پیام‌ها";
++"Ayu.SaveDeleted" = "ذخیره پیام‌های حذف‌شده";
++"Ayu.SavePhotos" = "ذخیره عکس‌ها";
++"Ayu.ClearHistory" = "پاک کردن تاریخچه";
++"Ayu.EmptyHistory" = "هنوز تاریخچه‌ای نیست";
++"Ayu.BeforeEdit" = "پیش از ویرایش";
++"Ayu.Deleted" = "حذف‌شده";
++"Ayu.LocalPremium" = "Premium محلی";
++"Ayu.Pins" = "حداکثر گفتگوهای سنجاق‌شده";
++"Ayu.LocalOnly" = "فقط در این دستگاه";
++"Ayu.HistoryInfo" = "فقط گفتگوهای انتخاب‌شده. عکس‌های ذخیره‌شده و متن: ۳۰ روز، تا ۲۰۰ مورد. بدون پیام‌های محرمانه و ناپدیدشونده.";
++"Ayu.ReadWarning" = "رسید خواندن گفتگو تا این پیام ارسال شود؟";
++"Ayu.ViewWarning" = "رسید مشاهده ارسال و زمان‌سنج رسانه ناپدیدشونده شروع شود؟";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "וידאו PIP עם החלקה";
+ "Settings.swipeForVideoPIP.Notice" = "אם מופעל, החלקת הווידאו תפתח אותו במצב תמונה בתוך תמונה.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "מצב רוח רפאים";
++"Ayu.HideRead" = "הסתר אישורי קריאה";
++"Ayu.HideOnline" = "הסתר מצב מקוון";
++"Ayu.HideTyping" = "הסתר הקלדה";
++"Ayu.HideRecording" = "הסתר הקלטה";
++"Ayu.HideUploading" = "הסתר העלאות";
++"Ayu.HideStories" = "הסתר צפיות בסטוריז";
++"Ayu.History" = "היסטוריית הודעות";
++"Ayu.SaveDeleted" = "שמור הודעות שנמחקו";
++"Ayu.SavePhotos" = "שמור תמונות";
++"Ayu.ClearHistory" = "נקה היסטוריה";
++"Ayu.EmptyHistory" = "אין עדיין היסטוריה";
++"Ayu.BeforeEdit" = "לפני עריכה";
++"Ayu.Deleted" = "נמחק";
++"Ayu.LocalPremium" = "Premium מקומי";
++"Ayu.Pins" = "מספר מרבי של צ'אטים נעוצים";
++"Ayu.LocalOnly" = "רק במכשיר הזה";
++"Ayu.HistoryInfo" = "רק צ'אטים נבחרים. תמונות במטמון וטקסט: 30 ימים, עד 200 רשומות. ללא הודעות סודיות ונעלמות.";
++"Ayu.ReadWarning" = "לשלוח אישור קריאה לצ׳אט עד ההודעה הזו?";
++"Ayu.ViewWarning" = "לשלוח אישור צפייה ולהפעיל את טיימר המדיה הנעלמת?";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -247,3 +247,25 @@
+ "PayWall.ValidationError" = "验证错误";
+ "PayWall.ValidationError.TryAgain" = "购买验证过程中出现问题。不用担心！稍后再试恢复购买。";
+ "PayWall.ValidationError.Expired" = "您的订阅已过期。再次订阅以重新获得专业版功能。";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "幽灵模式";
++"Ayu.HideRead" = "隐藏已读回执";
++"Ayu.HideOnline" = "隐藏在线状态";
++"Ayu.HideTyping" = "隐藏正在输入";
++"Ayu.HideRecording" = "隐藏正在录制";
++"Ayu.HideUploading" = "隐藏正在上传";
++"Ayu.HideStories" = "隐藏限时动态浏览";
++"Ayu.History" = "消息历史";
++"Ayu.SaveDeleted" = "保存已删除消息";
++"Ayu.SavePhotos" = "保存照片";
++"Ayu.ClearHistory" = "清空历史";
++"Ayu.EmptyHistory" = "暂无历史记录";
++"Ayu.BeforeEdit" = "编辑前";
++"Ayu.Deleted" = "已删除";
++"Ayu.LocalPremium" = "本地 Premium";
++"Ayu.Pins" = "最多置顶聊天数";
++"Ayu.LocalOnly" = "仅在此设备上";
++"Ayu.HistoryInfo" = "仅限所选聊天。缓存照片和文字保留30天，最多200条。不包括秘密聊天和阅后即焚消息。";
++"Ayu.ReadWarning" = "发送此聊天截至这条消息的已读回执？";
++"Ayu.ViewWarning" = "发送浏览回执并启动阅后即焚媒体计时器？";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -247,3 +247,25 @@
+ "PayWall.ValidationError" = "驗證錯誤";
+ "PayWall.ValidationError.TryAgain" = "在購買驗證過程中出錯。別擔心！稍後再試恢復購買。";
+ "PayWall.ValidationError.Expired" = "您的訂閱已過期。請重新訂閱以恢復訪問 Pro 功能。";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "幽靈模式";
++"Ayu.HideRead" = "隱藏已讀回條";
++"Ayu.HideOnline" = "隱藏上線狀態";
++"Ayu.HideTyping" = "隱藏正在輸入";
++"Ayu.HideRecording" = "隱藏正在錄製";
++"Ayu.HideUploading" = "隱藏正在上傳";
++"Ayu.HideStories" = "隱藏限時動態瀏覽";
++"Ayu.History" = "訊息歷史";
++"Ayu.SaveDeleted" = "儲存已刪除訊息";
++"Ayu.SavePhotos" = "儲存照片";
++"Ayu.ClearHistory" = "清除歷史";
++"Ayu.EmptyHistory" = "尚無歷史紀錄";
++"Ayu.BeforeEdit" = "編輯前";
++"Ayu.Deleted" = "已刪除";
++"Ayu.LocalPremium" = "本機 Premium";
++"Ayu.Pins" = "最多置頂聊天數";
++"Ayu.LocalOnly" = "僅在此裝置上";
++"Ayu.HistoryInfo" = "僅限所選聊天。快取照片和文字保留30天，最多200筆。不包括秘密聊天和閱後即焚訊息。";
++"Ayu.ReadWarning" = "傳送此聊天截至這則訊息的已讀回條？";
++"Ayu.ViewWarning" = "傳送瀏覽回條並啟動閱後即焚媒體計時器？";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -244,3 +244,25 @@
+ "PayWall.ValidationError" = "検証エラー";
+ "PayWall.ValidationError.TryAgain" = "購入の検証中に問題が発生しました。心配しないでください！後で購入を復元してみてください。";
+ "PayWall.ValidationError.Expired" = "サブスクリプションの有効期限が切れました。Pro機能へのアクセスを取り戻すには、再度サブスクリプションを登録してください。";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "ゴーストモード";
++"Ayu.HideRead" = "既読通知を隠す";
++"Ayu.HideOnline" = "オンライン状態を隠す";
++"Ayu.HideTyping" = "入力中を隠す";
++"Ayu.HideRecording" = "録音中を隠す";
++"Ayu.HideUploading" = "アップロード中を隠す";
++"Ayu.HideStories" = "ストーリーの閲覧を隠す";
++"Ayu.History" = "メッセージ履歴";
++"Ayu.SaveDeleted" = "削除されたメッセージを保存";
++"Ayu.SavePhotos" = "写真を保存";
++"Ayu.ClearHistory" = "履歴を消去";
++"Ayu.EmptyHistory" = "履歴はまだありません";
++"Ayu.BeforeEdit" = "編集前";
++"Ayu.Deleted" = "削除済み";
++"Ayu.LocalPremium" = "ローカル Premium";
++"Ayu.Pins" = "固定するチャットの上限";
++"Ayu.LocalOnly" = "この端末のみ";
++"Ayu.HistoryInfo" = "選択したチャットのみ。キャッシュされた写真とテキストを30日間、最大200件保存。秘密・消えるメッセージは対象外。";
++"Ayu.ReadWarning" = "このメッセージまでの既読通知を送信しますか？";
++"Ayu.ViewWarning" = "閲覧通知を送信し、消えるメディアのタイマーを開始しますか？";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "비디오 PIP 스와이프";
+ "Settings.swipeForVideoPIP.Notice" = "설정이 활성화되면 비디오를 스와이프하면 화면 속 화면 모드로 열립니다.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "고스트 모드";
++"Ayu.HideRead" = "읽음 확인 숨기기";
++"Ayu.HideOnline" = "온라인 상태 숨기기";
++"Ayu.HideTyping" = "입력 중 숨기기";
++"Ayu.HideRecording" = "녹음 중 숨기기";
++"Ayu.HideUploading" = "업로드 숨기기";
++"Ayu.HideStories" = "스토리 조회 숨기기";
++"Ayu.History" = "메시지 기록";
++"Ayu.SaveDeleted" = "삭제된 메시지 저장";
++"Ayu.SavePhotos" = "사진 저장";
++"Ayu.ClearHistory" = "기록 지우기";
++"Ayu.EmptyHistory" = "아직 기록이 없습니다";
++"Ayu.BeforeEdit" = "수정 전";
++"Ayu.Deleted" = "삭제됨";
++"Ayu.LocalPremium" = "로컬 Premium";
++"Ayu.Pins" = "고정 채팅 최대 개수";
++"Ayu.LocalOnly" = "이 기기에서만";
++"Ayu.HistoryInfo" = "선택한 채팅만 저장합니다. 캐시된 사진과 텍스트: 30일, 최대 200개. 비밀 및 사라지는 메시지는 제외됩니다.";
++"Ayu.ReadWarning" = "이 메시지까지 채팅의 읽음 확인을 보낼까요?";
++"Ayu.ViewWarning" = "조회 확인을 보내고 사라지는 미디어 타이머를 시작할까요?";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP dengan Geser";
+ "Settings.swipeForVideoPIP.Notice" = "Jika diaktifkan, menggeser video akan membukanya dalam mode Gambar-dalam-Gambar.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Mode hantu";
++"Ayu.HideRead" = "Sembunyikan tanda dibaca";
++"Ayu.HideOnline" = "Sembunyikan status online";
++"Ayu.HideTyping" = "Sembunyikan mengetik";
++"Ayu.HideRecording" = "Sembunyikan merekam";
++"Ayu.HideUploading" = "Sembunyikan unggahan";
++"Ayu.HideStories" = "Sembunyikan tayangan cerita";
++"Ayu.History" = "Riwayat pesan";
++"Ayu.SaveDeleted" = "Simpan pesan yang dihapus";
++"Ayu.SavePhotos" = "Simpan foto";
++"Ayu.ClearHistory" = "Hapus riwayat";
++"Ayu.EmptyHistory" = "Belum ada riwayat";
++"Ayu.BeforeEdit" = "Sebelum diedit";
++"Ayu.Deleted" = "Dihapus";
++"Ayu.LocalPremium" = "Premium lokal";
++"Ayu.Pins" = "Maksimum obrolan disematkan";
++"Ayu.LocalOnly" = "Hanya di perangkat ini";
++"Ayu.HistoryInfo" = "Hanya obrolan terpilih. Foto dalam cache dan teks: 30 hari, hingga 200 entri. Tanpa pesan rahasia dan sementara.";
++"Ayu.ReadWarning" = "Kirim tanda dibaca untuk obrolan hingga pesan ini?";
++"Ayu.ViewWarning" = "Kirim tanda dilihat dan mulai penghitung media sementara?";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP với Vuốt";
+ "Settings.swipeForVideoPIP.Notice" = "Nếu được kích hoạt, việc vuốt video sẽ mở nó ở chế độ Hình trong hình.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Chế độ ẩn";
++"Ayu.HideRead" = "Ẩn xác nhận đã đọc";
++"Ayu.HideOnline" = "Ẩn trạng thái trực tuyến";
++"Ayu.HideTyping" = "Ẩn đang nhập";
++"Ayu.HideRecording" = "Ẩn đang ghi âm";
++"Ayu.HideUploading" = "Ẩn tải lên";
++"Ayu.HideStories" = "Ẩn lượt xem tin";
++"Ayu.History" = "Lịch sử tin nhắn";
++"Ayu.SaveDeleted" = "Lưu tin nhắn đã xóa";
++"Ayu.SavePhotos" = "Lưu ảnh";
++"Ayu.ClearHistory" = "Xóa lịch sử";
++"Ayu.EmptyHistory" = "Chưa có lịch sử";
++"Ayu.BeforeEdit" = "Trước khi sửa";
++"Ayu.Deleted" = "Đã xóa";
++"Ayu.LocalPremium" = "Premium cục bộ";
++"Ayu.Pins" = "Số cuộc trò chuyện ghim tối đa";
++"Ayu.LocalOnly" = "Chỉ trên thiết bị này";
++"Ayu.HistoryInfo" = "Chỉ các cuộc trò chuyện đã chọn. Ảnh được lưu đệm và văn bản: 30 ngày, tối đa 200 mục. Không gồm tin nhắn bí mật và tự hủy.";
++"Ayu.ReadWarning" = "Gửi xác nhận đã đọc cuộc trò chuyện đến tin nhắn này?";
++"Ayu.ViewWarning" = "Gửi xác nhận đã xem và bắt đầu bộ đếm cho nội dung tự hủy?";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "वीडियो PIP स्वाइप के साथ";
+ "Settings.swipeForVideoPIP.Notice" = "यदि सक्षम है, तो वीडियो को स्वाइप करने से यह चित्र-इन-चित्र मोड में खोला जाएगा।";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "घोस्ट मोड";
++"Ayu.HideRead" = "पढ़ने की पुष्टि छिपाएँ";
++"Ayu.HideOnline" = "ऑनलाइन स्थिति छिपाएँ";
++"Ayu.HideTyping" = "टाइप करना छिपाएँ";
++"Ayu.HideRecording" = "रिकॉर्डिंग छिपाएँ";
++"Ayu.HideUploading" = "अपलोड छिपाएँ";
++"Ayu.HideStories" = "स्टोरी देखना छिपाएँ";
++"Ayu.History" = "संदेश इतिहास";
++"Ayu.SaveDeleted" = "हटाए गए संदेश सहेजें";
++"Ayu.SavePhotos" = "फ़ोटो सहेजें";
++"Ayu.ClearHistory" = "इतिहास साफ़ करें";
++"Ayu.EmptyHistory" = "अभी कोई इतिहास नहीं";
++"Ayu.BeforeEdit" = "संपादन से पहले";
++"Ayu.Deleted" = "हटाया गया";
++"Ayu.LocalPremium" = "स्थानीय Premium";
++"Ayu.Pins" = "पिन किए चैट की अधिकतम संख्या";
++"Ayu.LocalOnly" = "केवल इस डिवाइस पर";
++"Ayu.HistoryInfo" = "केवल चुने हुए चैट। कैश किए फ़ोटो और टेक्स्ट: 30 दिन, अधिकतम 200 रिकॉर्ड। गुप्त और गायब होने वाले संदेश शामिल नहीं हैं।";
++"Ayu.ReadWarning" = "इस संदेश तक चैट पढ़ने की पुष्टि भेजें?";
++"Ayu.ViewWarning" = "देखने की पुष्टि भेजें और गायब होने वाले मीडिया का टाइमर शुरू करें?";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP met veeg";
+ "Settings.swipeForVideoPIP.Notice" = "Als ingeschakeld, opent het swipen van video het in de modus Beeld-in-Beeld.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Spookmodus";
++"Ayu.HideRead" = "Leesbevestigingen verbergen";
++"Ayu.HideOnline" = "Online-status verbergen";
++"Ayu.HideTyping" = "Typen verbergen";
++"Ayu.HideRecording" = "Opnemen verbergen";
++"Ayu.HideUploading" = "Uploads verbergen";
++"Ayu.HideStories" = "Verhaalweergaven verbergen";
++"Ayu.History" = "Berichtgeschiedenis";
++"Ayu.SaveDeleted" = "Verwijderde berichten bewaren";
++"Ayu.SavePhotos" = "Foto's bewaren";
++"Ayu.ClearHistory" = "Geschiedenis wissen";
++"Ayu.EmptyHistory" = "Nog geen geschiedenis";
++"Ayu.BeforeEdit" = "Voor bewerking";
++"Ayu.Deleted" = "Verwijderd";
++"Ayu.LocalPremium" = "Lokale Premium";
++"Ayu.Pins" = "Maximum vastgemaakte chats";
++"Ayu.LocalOnly" = "Alleen op dit apparaat";
++"Ayu.HistoryInfo" = "Alleen geselecteerde chats. Foto's in cache en tekst: 30 dagen, maximaal 200 items. Geen geheime of verdwijnende berichten.";
++"Ayu.ReadWarning" = "Leesbevestiging voor deze chat tot dit bericht versturen?";
++"Ayu.ViewWarning" = "Weergave bevestigen en de timer voor verdwijnende media starten?";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP med svep";
+ "Settings.swipeForVideoPIP.Notice" = "Om aktiverat, kommer svepning av video att öppna det i bild-i-bild-läge.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Spökläge";
++"Ayu.HideRead" = "Dölj läskvitton";
++"Ayu.HideOnline" = "Dölj onlinestatus";
++"Ayu.HideTyping" = "Dölj skrivande";
++"Ayu.HideRecording" = "Dölj inspelning";
++"Ayu.HideUploading" = "Dölj uppladdning";
++"Ayu.HideStories" = "Dölj storyvisningar";
++"Ayu.History" = "Meddelandehistorik";
++"Ayu.SaveDeleted" = "Spara raderade meddelanden";
++"Ayu.SavePhotos" = "Spara foton";
++"Ayu.ClearHistory" = "Rensa historik";
++"Ayu.EmptyHistory" = "Ingen historik ännu";
++"Ayu.BeforeEdit" = "Före redigering";
++"Ayu.Deleted" = "Raderat";
++"Ayu.LocalPremium" = "Lokalt Premium";
++"Ayu.Pins" = "Högsta antal fästa chattar";
++"Ayu.LocalOnly" = "Endast på denna enhet";
++"Ayu.HistoryInfo" = "Endast valda chattar. Cachade foton och text: 30 dagar, högst 200 poster. Inga hemliga eller försvinnande meddelanden.";
++"Ayu.ReadWarning" = "Skicka läskvitto för chatten fram till detta meddelande?";
++"Ayu.ViewWarning" = "Bekräfta visning och starta timern för försvinnande media?";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP med sveip";
+ "Settings.swipeForVideoPIP.Notice" = "Hvis aktivert, vil sveipingen av video åpne den i bilde-i-bilde-modus.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Spøkelsesmodus";
++"Ayu.HideRead" = "Skjul lesebekreftelser";
++"Ayu.HideOnline" = "Skjul nettstatus";
++"Ayu.HideTyping" = "Skjul skriving";
++"Ayu.HideRecording" = "Skjul opptak";
++"Ayu.HideUploading" = "Skjul opplastinger";
++"Ayu.HideStories" = "Skjul historievisninger";
++"Ayu.History" = "Meldingshistorikk";
++"Ayu.SaveDeleted" = "Lagre slettede meldinger";
++"Ayu.SavePhotos" = "Lagre bilder";
++"Ayu.ClearHistory" = "Tøm historikk";
++"Ayu.EmptyHistory" = "Ingen historikk ennå";
++"Ayu.BeforeEdit" = "Før redigering";
++"Ayu.Deleted" = "Slettet";
++"Ayu.LocalPremium" = "Lokalt Premium";
++"Ayu.Pins" = "Maksimalt antall festede chatter";
++"Ayu.LocalOnly" = "Bare på denne enheten";
++"Ayu.HistoryInfo" = "Bare valgte chatter. Bufrede bilder og tekst: 30 dager, opptil 200 oppføringer. Ingen hemmelige eller forsvinnende meldinger.";
++"Ayu.ReadWarning" = "Sende lesebekreftelse for chatten frem til denne meldingen?";
++"Ayu.ViewWarning" = "Bekrefte visning og starte tidtakeren for forsvinnende medier?";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP med Swipe";
+ "Settings.swipeForVideoPIP.Notice" = "Hvis aktiveret, vil sletning af video åbne den i billede-i-billede-tilstand.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Spøgelsestilstand";
++"Ayu.HideRead" = "Skjul læsekvitteringer";
++"Ayu.HideOnline" = "Skjul onlinestatus";
++"Ayu.HideTyping" = "Skjul indtastning";
++"Ayu.HideRecording" = "Skjul optagelse";
++"Ayu.HideUploading" = "Skjul uploads";
++"Ayu.HideStories" = "Skjul historievisninger";
++"Ayu.History" = "Beskedhistorik";
++"Ayu.SaveDeleted" = "Gem slettede beskeder";
++"Ayu.SavePhotos" = "Gem billeder";
++"Ayu.ClearHistory" = "Ryd historik";
++"Ayu.EmptyHistory" = "Ingen historik endnu";
++"Ayu.BeforeEdit" = "Før redigering";
++"Ayu.Deleted" = "Slettet";
++"Ayu.LocalPremium" = "Lokalt Premium";
++"Ayu.Pins" = "Maksimalt antal fastgjorte chats";
++"Ayu.LocalOnly" = "Kun på denne enhed";
++"Ayu.HistoryInfo" = "Kun valgte chats. Cachelagrede billeder og tekst: 30 dage, op til 200 poster. Ingen hemmelige eller forsvindende beskeder.";
++"Ayu.ReadWarning" = "Send læsekvittering for chatten frem til denne besked?";
++"Ayu.ViewWarning" = "Bekræft visning og start timeren for forsvindende medier?";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -228,3 +228,25 @@
+ "Paywall.Error.Title" = "Virhe";
+ "PayWall.ValidationError" = "Vahvistusvirhe";
+ "PayWall.ValidationError.TryAgain" = "Ostovahvistuksessa tapahtui jokin virhe. Ei hätää! Yritä palauttaa ostot hieman myöhemmin.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Haamutila";
++"Ayu.HideRead" = "Piilota lukukuittaukset";
++"Ayu.HideOnline" = "Piilota online-tila";
++"Ayu.HideTyping" = "Piilota kirjoittaminen";
++"Ayu.HideRecording" = "Piilota tallennus";
++"Ayu.HideUploading" = "Piilota lataukset";
++"Ayu.HideStories" = "Piilota tarinoiden katselut";
++"Ayu.History" = "Viestihistoria";
++"Ayu.SaveDeleted" = "Tallenna poistetut viestit";
++"Ayu.SavePhotos" = "Tallenna kuvat";
++"Ayu.ClearHistory" = "Tyhjennä historia";
++"Ayu.EmptyHistory" = "Ei vielä historiaa";
++"Ayu.BeforeEdit" = "Ennen muokkausta";
++"Ayu.Deleted" = "Poistettu";
++"Ayu.LocalPremium" = "Paikallinen Premium";
++"Ayu.Pins" = "Kiinnitettyjen keskustelujen enimmäismäärä";
++"Ayu.LocalOnly" = "Vain tällä laitteella";
++"Ayu.HistoryInfo" = "Vain valitut keskustelut. Välimuistissa olevat kuvat ja teksti: 30 päivää, enintään 200 merkintää. Ei salaisia tai katoavia viestejä.";
++"Ayu.ReadWarning" = "Lähetetäänkö lukukuittaus tämän keskustelun viesteistä tähän asti?";
++"Ayu.ViewWarning" = "Vahvistetaanko katselu ja käynnistetäänkö katoavan median ajastin?";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP s přetahováním";
+ "Settings.swipeForVideoPIP.Notice" = "Pokud je povoleno, poslání videa jej otevře v režimu Obraz v obraze.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Režim ducha";
++"Ayu.HideRead" = "Skrýt potvrzení o přečtení";
++"Ayu.HideOnline" = "Skrýt stav online";
++"Ayu.HideTyping" = "Skrýt psaní";
++"Ayu.HideRecording" = "Skrýt nahrávání";
++"Ayu.HideUploading" = "Skrýt odesílání";
++"Ayu.HideStories" = "Skrýt zobrazení příběhů";
++"Ayu.History" = "Historie zpráv";
++"Ayu.SaveDeleted" = "Ukládat smazané zprávy";
++"Ayu.SavePhotos" = "Ukládat fotografie";
++"Ayu.ClearHistory" = "Vymazat historii";
++"Ayu.EmptyHistory" = "Historie je zatím prázdná";
++"Ayu.BeforeEdit" = "Před úpravou";
++"Ayu.Deleted" = "Smazáno";
++"Ayu.LocalPremium" = "Místní Premium";
++"Ayu.Pins" = "Maximum připnutých chatů";
++"Ayu.LocalOnly" = "Pouze na tomto zařízení";
++"Ayu.HistoryInfo" = "Pouze vybrané chaty. Fotografie z mezipaměti a text: 30 dní, nejvýše 200 záznamů. Bez tajných a mizejících zpráv.";
++"Ayu.ReadWarning" = "Odeslat potvrzení o přečtení chatu až po tuto zprávu?";
++"Ayu.ViewWarning" = "Potvrdit zobrazení a spustit časovač mizejících médií?";
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -2,3 +2,25 @@
+ "Settings.Tabs.ShowContacts" = "Zobraziť kontakty";
+ "Settings.Tabs.ShowNames" = "Zobraziť názvy záložiek";
+ "ContextMenu.SaveToCloud" = "Uložiť na Cloud";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Režim ducha";
++"Ayu.HideRead" = "Skryť potvrdenia o prečítaní";
++"Ayu.HideOnline" = "Skryť stav online";
++"Ayu.HideTyping" = "Skryť písanie";
++"Ayu.HideRecording" = "Skryť nahrávanie";
++"Ayu.HideUploading" = "Skryť odosielanie";
++"Ayu.HideStories" = "Skryť zobrazenia príbehov";
++"Ayu.History" = "História správ";
++"Ayu.SaveDeleted" = "Ukladať odstránené správy";
++"Ayu.SavePhotos" = "Ukladať fotografie";
++"Ayu.ClearHistory" = "Vymazať históriu";
++"Ayu.EmptyHistory" = "Zatiaľ žiadna história";
++"Ayu.BeforeEdit" = "Pred úpravou";
++"Ayu.Deleted" = "Odstránené";
++"Ayu.LocalPremium" = "Miestne Premium";
++"Ayu.Pins" = "Maximum pripnutých četov";
++"Ayu.LocalOnly" = "Iba na tomto zariadení";
++"Ayu.HistoryInfo" = "Iba vybrané čety. Fotografie z vyrovnávacej pamäte a text: 30 dní, najviac 200 záznamov. Bez tajných a miznúcich správ.";
++"Ayu.ReadWarning" = "Odoslať potvrdenie o prečítaní četu až po túto správu?";
++"Ayu.ViewWarning" = "Potvrdiť zobrazenie a spustiť časovač miznúcich médií?";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP cu gestul de glisare";
+ "Settings.swipeForVideoPIP.Notice" = "Dacă este activat, glisarea video va deschide în modul imagine în imagine.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Mod fantomă";
++"Ayu.HideRead" = "Ascunde confirmările de citire";
++"Ayu.HideOnline" = "Ascunde starea online";
++"Ayu.HideTyping" = "Ascunde tastarea";
++"Ayu.HideRecording" = "Ascunde înregistrarea";
++"Ayu.HideUploading" = "Ascunde încărcările";
++"Ayu.HideStories" = "Ascunde vizualizările poveștilor";
++"Ayu.History" = "Istoricul mesajelor";
++"Ayu.SaveDeleted" = "Salvează mesajele șterse";
++"Ayu.SavePhotos" = "Salvează fotografii";
++"Ayu.ClearHistory" = "Șterge istoricul";
++"Ayu.EmptyHistory" = "Încă nu există istoric";
++"Ayu.BeforeEdit" = "Înainte de editare";
++"Ayu.Deleted" = "Șters";
++"Ayu.LocalPremium" = "Premium local";
++"Ayu.Pins" = "Număr maxim de conversații fixate";
++"Ayu.LocalOnly" = "Doar pe acest dispozitiv";
++"Ayu.HistoryInfo" = "Doar conversațiile selectate. Fotografii în cache și text: 30 de zile, până la 200 de înregistrări. Fără mesaje secrete sau temporare.";
++"Ayu.ReadWarning" = "Trimiți confirmarea de citire a conversației până la acest mesaj?";
++"Ayu.ViewWarning" = "Confirmi vizualizarea și pornești temporizatorul conținutului temporar?";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Videó PIP a húzással";
+ "Settings.swipeForVideoPIP.Notice" = "Ha engedélyezve van, a videó húzása képet-képben üzemmódban nyitja meg.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Szellem mód";
++"Ayu.HideRead" = "Olvasási visszajelzések elrejtése";
++"Ayu.HideOnline" = "Online állapot elrejtése";
++"Ayu.HideTyping" = "Gépelés elrejtése";
++"Ayu.HideRecording" = "Felvétel elrejtése";
++"Ayu.HideUploading" = "Feltöltések elrejtése";
++"Ayu.HideStories" = "Történetmegtekintések elrejtése";
++"Ayu.History" = "Üzenetelőzmények";
++"Ayu.SaveDeleted" = "Törölt üzenetek mentése";
++"Ayu.SavePhotos" = "Fotók mentése";
++"Ayu.ClearHistory" = "Előzmények törlése";
++"Ayu.EmptyHistory" = "Még nincsenek előzmények";
++"Ayu.BeforeEdit" = "Szerkesztés előtt";
++"Ayu.Deleted" = "Törölve";
++"Ayu.LocalPremium" = "Helyi Premium";
++"Ayu.Pins" = "Rögzített csevegések maximális száma";
++"Ayu.LocalOnly" = "Csak ezen az eszközön";
++"Ayu.HistoryInfo" = "Csak a kijelölt csevegések. Gyorsítótárazott fotók és szöveg: 30 nap, legfeljebb 200 bejegyzés. Titkos és eltűnő üzenetek nélkül.";
++"Ayu.ReadWarning" = "Olvasási visszajelzés küldése erről a beszélgetésről eddig az üzenetig?";
++"Ayu.ViewWarning" = "Megtekintés visszajelzése és az eltűnő média időzítőjének indítása?";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Βίντεο PIP με Swipe";
+ "Settings.swipeForVideoPIP.Notice" = "Αν είναι ενεργοποιημένο, το σ swipe video θα το ανοίξει σε λειτουργία Εικόνα μέσα στην Εικόνα.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Λειτουργία φαντάσματος";
++"Ayu.HideRead" = "Απόκρυψη αποδείξεων ανάγνωσης";
++"Ayu.HideOnline" = "Απόκρυψη σύνδεσης";
++"Ayu.HideTyping" = "Απόκρυψη πληκτρολόγησης";
++"Ayu.HideRecording" = "Απόκρυψη εγγραφής";
++"Ayu.HideUploading" = "Απόκρυψη αποστολών";
++"Ayu.HideStories" = "Απόκρυψη προβολών ιστοριών";
++"Ayu.History" = "Ιστορικό μηνυμάτων";
++"Ayu.SaveDeleted" = "Αποθήκευση διαγραμμένων μηνυμάτων";
++"Ayu.SavePhotos" = "Αποθήκευση φωτογραφιών";
++"Ayu.ClearHistory" = "Εκκαθάριση ιστορικού";
++"Ayu.EmptyHistory" = "Δεν υπάρχει ακόμη ιστορικό";
++"Ayu.BeforeEdit" = "Πριν την επεξεργασία";
++"Ayu.Deleted" = "Διαγράφηκε";
++"Ayu.LocalPremium" = "Τοπικό Premium";
++"Ayu.Pins" = "Μέγιστος αριθμός καρφιτσωμένων συνομιλιών";
++"Ayu.LocalOnly" = "Μόνο σε αυτή τη συσκευή";
++"Ayu.HistoryInfo" = "Μόνο επιλεγμένες συνομιλίες. Φωτογραφίες στην κρυφή μνήμη και κείμενο: 30 ημέρες, έως 200 εγγραφές. Χωρίς μυστικά ή προσωρινά μηνύματα.";
++"Ayu.ReadWarning" = "Αποστολή απόδειξης ανάγνωσης της συνομιλίας έως αυτό το μήνυμα;";
++"Ayu.ViewWarning" = "Επιβεβαίωση προβολής και έναρξη χρονομέτρου προσωρινών πολυμέσων;";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Vídeo PIP amb desplaçament";
+ "Settings.swipeForVideoPIP.Notice" = "Si està habilitat, desplaçar el vídeo l'obrirà en mode Imatge en Imatge.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Mode fantasma";
++"Ayu.HideRead" = "Amaga les confirmacions de lectura";
++"Ayu.HideOnline" = "Amaga l'estat en línia";
++"Ayu.HideTyping" = "Amaga l'escriptura";
++"Ayu.HideRecording" = "Amaga l'enregistrament";
++"Ayu.HideUploading" = "Amaga les càrregues";
++"Ayu.HideStories" = "Amaga les visualitzacions d'històries";
++"Ayu.History" = "Historial de missatges";
++"Ayu.SaveDeleted" = "Desa els missatges eliminats";
++"Ayu.SavePhotos" = "Desa les fotos";
++"Ayu.ClearHistory" = "Esborra l'historial";
++"Ayu.EmptyHistory" = "Encara no hi ha historial";
++"Ayu.BeforeEdit" = "Abans de l'edició";
++"Ayu.Deleted" = "Eliminat";
++"Ayu.LocalPremium" = "Premium local";
++"Ayu.Pins" = "Màxim de xats fixats";
++"Ayu.LocalOnly" = "Només en aquest dispositiu";
++"Ayu.HistoryInfo" = "Només els xats seleccionats. Fotos en memòria cau i text: 30 dies, fins a 200 registres. Sense missatges secrets ni temporals.";
++"Ayu.ReadWarning" = "Confirma la lectura del xat fins a aquest missatge?";
++"Ayu.ViewWarning" = "Confirma la visualització i inicia el temporitzador del contingut temporal?";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Видео PIP са свлачење";
+ "Settings.swipeForVideoPIP.Notice" = "Ако је омогућено, померање видеа ће га отворити у режиму слике у слици.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Режим духа";
++"Ayu.HideRead" = "Сакриј потврде читања";
++"Ayu.HideOnline" = "Сакриј статус на мрежи";
++"Ayu.HideTyping" = "Сакриј куцање";
++"Ayu.HideRecording" = "Сакриј снимање";
++"Ayu.HideUploading" = "Сакриј отпремање";
++"Ayu.HideStories" = "Сакриј прегледе прича";
++"Ayu.History" = "Историја порука";
++"Ayu.SaveDeleted" = "Сачувај обрисане поруке";
++"Ayu.SavePhotos" = "Сачувај фотографије";
++"Ayu.ClearHistory" = "Обриши историју";
++"Ayu.EmptyHistory" = "Још нема историје";
++"Ayu.BeforeEdit" = "Пре измене";
++"Ayu.Deleted" = "Обрисано";
++"Ayu.LocalPremium" = "Локални Premium";
++"Ayu.Pins" = "Максимум закачених разговора";
++"Ayu.LocalOnly" = "Само на овом уређају";
++"Ayu.HistoryInfo" = "Само изабрани разговори. Кеширане фотографије и текст: 30 дана, до 200 записа. Без тајних и нестајућих порука.";
++"Ayu.ReadWarning" = "Послати потврду читања разговора до ове поруке?";
++"Ayu.ViewWarning" = "Потврдити преглед и покренути тајмер нестајућих медија?";
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP met Veeg";
+ "Settings.swipeForVideoPIP.Notice" = "As geaktiveer, sal die veeg van die video dit in Prent-in-Prent modus oopmaak.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Spookmodus";
++"Ayu.HideRead" = "Versteek leesbewyse";
++"Ayu.HideOnline" = "Versteek aanlynstatus";
++"Ayu.HideTyping" = "Versteek tik";
++"Ayu.HideRecording" = "Versteek opname";
++"Ayu.HideUploading" = "Versteek oplaaie";
++"Ayu.HideStories" = "Versteek storiekyke";
++"Ayu.History" = "Boodskapgeskiedenis";
++"Ayu.SaveDeleted" = "Stoor geskrapte boodskappe";
++"Ayu.SavePhotos" = "Stoor foto's";
++"Ayu.ClearHistory" = "Maak geskiedenis skoon";
++"Ayu.EmptyHistory" = "Nog geen geskiedenis nie";
++"Ayu.BeforeEdit" = "Voor wysiging";
++"Ayu.Deleted" = "Geskrap";
++"Ayu.LocalPremium" = "Plaaslike Premium";
++"Ayu.Pins" = "Maksimum vasgespelde geselsies";
++"Ayu.LocalOnly" = "Slegs op hierdie toestel";
++"Ayu.HistoryInfo" = "Slegs gekose geselsies. Gekaste foto's en teks: 30 dae, tot 200 inskrywings. Geen geheime of verdwynende boodskappe nie.";
++"Ayu.ReadWarning" = "Stuur 'n leesbewys vir die geselsie tot by hierdie boodskap?";
++"Ayu.ViewWarning" = "Bevestig die kyk en begin die tydhouer vir verdwynende media?";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -150,3 +150,25 @@
+ 
+ "Settings.swipeForVideoPIP" = "Video PIP bilan Surish";
+ "Settings.swipeForVideoPIP.Notice" = "Agar yoqilgan bo'lsa, videoni surish uni Tasvir ichida Tasvir rejimida ochadi.";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Arvoh rejimi";
++"Ayu.HideRead" = "O‘qilganini yashirish";
++"Ayu.HideOnline" = "Onlayn holatini yashirish";
++"Ayu.HideTyping" = "Yozishni yashirish";
++"Ayu.HideRecording" = "Yozib olishni yashirish";
++"Ayu.HideUploading" = "Yuklashni yashirish";
++"Ayu.HideStories" = "Hikoya ko‘rishlarini yashirish";
++"Ayu.History" = "Xabarlar tarixi";
++"Ayu.SaveDeleted" = "O‘chirilgan xabarlarni saqlash";
++"Ayu.SavePhotos" = "Rasmlarni saqlash";
++"Ayu.ClearHistory" = "Tarixni tozalash";
++"Ayu.EmptyHistory" = "Hali tarix yo‘q";
++"Ayu.BeforeEdit" = "Tahrirdan oldin";
++"Ayu.Deleted" = "O‘chirilgan";
++"Ayu.LocalPremium" = "Mahalliy Premium";
++"Ayu.Pins" = "Qadalgan chatlar maksimumi";
++"Ayu.LocalOnly" = "Faqat shu qurilmada";
++"Ayu.HistoryInfo" = "Faqat tanlangan chatlar. Keshdagi rasmlar va matn: 30 kun, 200 tagacha yozuv. Maxfiy va yo‘qoladigan xabarlar kiritilmaydi.";
++"Ayu.ReadWarning" = "Chatning shu xabargacha o‘qilgani haqida hisobot yuborilsinmi?";
++"Ayu.ViewWarning" = "Ko‘rish hisoboti yuborilib, yo‘qoladigan media taymeri boshlansinmi?";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -8,3 +8,25 @@
+ "Settings.Translation.QuickTranslateButton" = "دوگمەی وەرگێڕانی خێرا";
+ "Settings.Folders.BottomTab" = "بوخچەکان لە خوارەوە";
+ "ContextMenu.SaveToCloud" = "هەڵگرتن لە کڵاود";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "Moda ruhê";
++"Ayu.HideRead" = "Veşartina pejirandina xwendinê";
++"Ayu.HideOnline" = "Veşartina rewşa serhêl";
++"Ayu.HideTyping" = "Veşartina nivîsandinê";
++"Ayu.HideRecording" = "Veşartina tomarkirinê";
++"Ayu.HideUploading" = "Veşartina barkirinê";
++"Ayu.HideStories" = "Veşartina dîtina çîrokan";
++"Ayu.History" = "Dîroka peyaman";
++"Ayu.SaveDeleted" = "Tomarkirina peyamên jêbirî";
++"Ayu.SavePhotos" = "Tomarkirina wêneyan";
++"Ayu.ClearHistory" = "Paqijkirina dîrokê";
++"Ayu.EmptyHistory" = "Hê dîrok tune ye";
++"Ayu.BeforeEdit" = "Berî guherandinê";
++"Ayu.Deleted" = "Jêbirî";
++"Ayu.LocalPremium" = "Premium herêmî";
++"Ayu.Pins" = "Herî zêde sohbetên sabîtkirî";
++"Ayu.LocalOnly" = "Tenê li ser vê amûrê";
++"Ayu.HistoryInfo" = "Tenê sohbetên hilbijartî. Wêneyên di bîrê de û nivîs: 30 roj, heta 200 tomar. Peyamên veşartî û winda dibin nayên tomarkirin.";
++"Ayu.ReadWarning" = "Pejirandina xwendinê ji bo vê sohbetê heta vê peyamê bişîne?";
++"Ayu.ViewWarning" = "Dîtinê bipejirîne û demjimêra medyaya winda dibe dest pê bike?";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -6,3 +6,25 @@
+ "Settings.HidePhoneInSettingsUI" = "លាក់លេខទូរសព្ទក្នុងការកំណត់";
+ "Settings.Folders.BottomTab" = "ថតឯបាត";
+ "ContextMenu.SaveToCloud" = "រក្សាទុកទៅពពក";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "មុខងារលាក់ខ្លួន";
++"Ayu.HideRead" = "លាក់ការបញ្ជាក់ថាបានអាន";
++"Ayu.HideOnline" = "លាក់ស្ថានភាពអនឡាញ";
++"Ayu.HideTyping" = "លាក់ការវាយអក្សរ";
++"Ayu.HideRecording" = "លាក់ការថត";
++"Ayu.HideUploading" = "លាក់ការផ្ទុកឡើង";
++"Ayu.HideStories" = "លាក់ការមើលរឿង";
++"Ayu.History" = "ប្រវត្តិសារ";
++"Ayu.SaveDeleted" = "រក្សាទុកសារដែលបានលុប";
++"Ayu.SavePhotos" = "រក្សាទុករូបថត";
++"Ayu.ClearHistory" = "សម្អាតប្រវត្តិ";
++"Ayu.EmptyHistory" = "មិនទាន់មានប្រវត្តិ";
++"Ayu.BeforeEdit" = "មុនពេលកែសម្រួល";
++"Ayu.Deleted" = "បានលុប";
++"Ayu.LocalPremium" = "Premium ក្នុងឧបករណ៍";
++"Ayu.Pins" = "ចំនួនជជែកដែលបានខ្ទាស់អតិបរមា";
++"Ayu.LocalOnly" = "តែលើឧបករណ៍នេះ";
++"Ayu.HistoryInfo" = "តែការជជែកដែលបានជ្រើស។ រូបថតក្នុងឃ្លាំងនិងអត្ថបទ៖ ៣០ ថ្ងៃ រហូតដល់ ២០០ កំណត់ត្រា។ មិនរាប់បញ្ចូលសារសម្ងាត់និងសារបាត់ខ្លួន។";
++"Ayu.ReadWarning" = "ផ្ញើការបញ្ជាក់ថាបានអានការជជែករហូតដល់សារនេះ?";
++"Ayu.ViewWarning" = "ផ្ញើការបញ្ជាក់ថាបានមើល ហើយចាប់ផ្តើមកម្មវិធីកំណត់ពេលមេឌៀបាត់ខ្លួន?";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -1,2 +1,24 @@
+ "Settings.Tabs.Header" = "පටිති";
+ "ContextMenu.SaveToCloud" = "මේඝයට සුරකින්න";
++
++/* AyuGram: follows the selected application language. */
++"Ayu.Ghost" = "සැඟවුණු මාදිලිය";
++"Ayu.HideRead" = "කියවූ බව සඟවන්න";
++"Ayu.HideOnline" = "මාර්ගගත තත්ත්වය සඟවන්න";
++"Ayu.HideTyping" = "ටයිප් කිරීම සඟවන්න";
++"Ayu.HideRecording" = "පටිගත කිරීම සඟවන්න";
++"Ayu.HideUploading" = "උඩුගත කිරීම් සඟවන්න";
++"Ayu.HideStories" = "කතා නැරඹීම් සඟවන්න";
++"Ayu.History" = "පණිවිඩ ඉතිහාසය";
++"Ayu.SaveDeleted" = "මකා දැමූ පණිවිඩ සුරකින්න";
++"Ayu.SavePhotos" = "ඡායාරූප සුරකින්න";
++"Ayu.ClearHistory" = "ඉතිහාසය හිස් කරන්න";
++"Ayu.EmptyHistory" = "තවම ඉතිහාසයක් නැත";
++"Ayu.BeforeEdit" = "සංස්කරණයට පෙර";
++"Ayu.Deleted" = "මකා දමන ලදී";
++"Ayu.LocalPremium" = "දේශීය Premium";
++"Ayu.Pins" = "ඇමිණූ කතාබස් උපරිමය";
++"Ayu.LocalOnly" = "මෙම උපාංගයේ පමණි";
++"Ayu.HistoryInfo" = "තෝරාගත් කතාබස් පමණි. හැඹිලි ඡායාරූප සහ පෙළ: දින 30ක්, වාර්තා 200ක් දක්වා. රහස් සහ අතුරුදහන් වන පණිවිඩ ඇතුළත් නොවේ.";
++"Ayu.ReadWarning" = "මෙම පණිවිඩය දක්වා කතාබස කියවූ බව දන්වන්නද?";
++"Ayu.ViewWarning" = "නැරඹූ බව දන්වා අතුරුදහන් වන මාධ්‍ය කාලකය අරඹන්නද?";
+diff --git a/Swiftgram/SGItemListUI/Sources/AyuPinnedCountSliderItem.swift b/Swiftgram/SGItemListUI/Sources/AyuPinnedCountSliderItem.swift
+--- a/Swiftgram/SGItemListUI/Sources/AyuPinnedCountSliderItem.swift
++++ b/Swiftgram/SGItemListUI/Sources/AyuPinnedCountSliderItem.swift
+@@ -248,9 +248,9 @@
+                     strongSelf.centerMeasureTextNode.attributedText = NSAttributedString(string: centralMeasureText, font: Font.regular(16.0), textColor: item.theme.list.itemPrimaryTextColor)
+ 
+                     strongSelf.leftTextNode.isAccessibilityElement = true
+-                    strongSelf.leftTextNode.accessibilityLabel = "Minimum: 5"
++                    strongSelf.leftTextNode.accessibilityLabel = "5"
+                     strongSelf.rightTextNode.isAccessibilityElement = true
+-                    strongSelf.rightTextNode.accessibilityLabel = "Maximum: 30"
++                    strongSelf.rightTextNode.accessibilityLabel = "30"
+ 
+                     let leftTextSize = strongSelf.leftTextNode.updateLayout(CGSize(width: 100.0, height: 100.0))
+                     let rightTextSize = strongSelf.rightTextNode.updateLayout(CGSize(width: 100.0, height: 100.0))
