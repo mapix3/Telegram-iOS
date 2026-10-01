@@ -90,6 +90,9 @@ def build(source, ci, output, env):
     build_intermediate = env.get('AYUGRAM_BUILD_INTERMEDIATE', 'false').lower() == 'true'
     if stage not in dict(STAGES) or configuration not in ['release_arm64', 'debug_arm64']:
         raise ValueError('Unknown stage or device configuration')
+    variant = env.get('AYUGRAM_VARIANT', 'standard')
+    if variant not in ['standard', 'custom']:
+        raise ValueError('Unknown app variant')
     config = build_configuration(env)
     head = run(['git', 'rev-parse', 'HEAD'], cwd=source, capture=True).strip()
     if head != BASE_COMMIT:
@@ -118,7 +121,7 @@ def build(source, ci, output, env):
     manifest = {'source_repository': 'Swiftgram/Telegram-iOS', 'source_commit': head,
                 'ci_commit': env.get('GITHUB_SHA'), 'requested_stage': stage,
                 'configuration': configuration, 'signing': 'unsigned; requires separate signing',
-                'build_intermediate': build_intermediate,
+                'build_intermediate': build_intermediate, 'variant': variant,
                 'xcode': xcode, 'versions': versions, 'build_number': number, 'stages': [],
                 'status': 'running'}
     manifest_path = output / 'build-manifest.json'
@@ -187,19 +190,24 @@ def build(source, ci, output, env):
                 # Follow-up fixes are applied after the original, already built
                 # privacy/history patches, preserving their exact provenance.
                 swift_paths = set()
-                for filename, hash_key in [('03-local-read-media.patch', 'followup_patch_sha256'),
-                                           ('04-client-extras.patch', 'client_extras_patch_sha256')]:
+                for filename, hash_key in ([('03-local-read-media.patch', 'followup_patch_sha256'),
+                                           ('04-client-extras.patch', 'client_extras_patch_sha256'),
+                                           ('05-refinements.patch', 'refinements_patch_sha256')] +
+                                          ([('06-customization.patch', 'customization_patch_sha256')] if variant == 'custom' else []) +
+                                          [('07-ayugram-branding.patch', 'branding_patch_sha256')]):
                     followup = ci / 'patches' / filename
                     entry[hash_key] = hashlib.sha256(followup.read_bytes()).hexdigest()
                     run(['git', 'apply', '--check', followup], cwd=source)
                     run(['git', 'apply', followup], cwd=source)
                     swift_paths.update(re.findall(r'^diff --git a/(.+\.swift) b/.+$',
                                                   followup.read_text(encoding='utf-8'), re.M))
+                from ayugram_branding import prepare_branding
+                prepare_branding(source)
                 # Parse the final versions of all changed files before the full build.
                 for relative in sorted(swift_paths):
                     run(['xcrun', 'swiftc', '-frontend', '-parse', source / relative], cwd=source)
                 test = source / 'build-input/ayu-client-settings-tests'
-                run(['xcrun', 'swiftc', '-swift-version', '5', '-D', 'AYUGRAM_CLIENT_EXTRAS',
+                run(['xcrun', 'swiftc', '-swift-version', '5', '-D', 'AYUGRAM_CLIENT_EXTRAS', '-D', 'AYUGRAM_REFINEMENTS',
                      source / 'Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift',
                      ci / 'scripts/ayugram-tests/AyuGramSettingsTests.swift', '-o', test], cwd=source)
                 run([test], cwd=source)
@@ -219,7 +227,11 @@ def build(source, ci, output, env):
             if not ipa.is_file():
                 raise FileNotFoundError('Make.py succeeded but Swiftgram.ipa is missing')
             entry['app'] = verify_ipa(ipa, config['bundle_id'])
-            target = output / ('Swiftgram-' + name + '-unsigned.ipa')
+            if name == 'history':
+                from ayugram_branding import verify_branding_ipa
+                verify_branding_ipa(ipa)
+                entry['branding_verified'] = True
+            target = output / ('AyuGram-' + (variant if name == 'history' else name) + '-unsigned.ipa')
             shutil.copyfile(ipa, target)
             entry.update(status='success', ipa=target.name,
                          sha256=hashlib.sha256(target.read_bytes()).hexdigest())
