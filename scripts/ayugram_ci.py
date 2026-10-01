@@ -87,6 +87,7 @@ def build(source, ci, output, env):
         raise RuntimeError('The iOS build requires a macOS runner with Xcode')
     stage = env.get('AYUGRAM_STAGE', 'history')
     configuration = env.get('AYUGRAM_CONFIGURATION', 'release_arm64')
+    build_intermediate = env.get('AYUGRAM_BUILD_INTERMEDIATE', 'false').lower() == 'true'
     if stage not in dict(STAGES) or configuration not in ['release_arm64', 'debug_arm64']:
         raise ValueError('Unknown stage or device configuration')
     config = build_configuration(env)
@@ -117,6 +118,7 @@ def build(source, ci, output, env):
     manifest = {'source_repository': 'Swiftgram/Telegram-iOS', 'source_commit': head,
                 'ci_commit': env.get('GITHUB_SHA'), 'requested_stage': stage,
                 'configuration': configuration, 'signing': 'unsigned; requires separate signing',
+                'build_intermediate': build_intermediate,
                 'xcode': xcode, 'versions': versions, 'build_number': number, 'stages': [],
                 'status': 'running'}
     manifest_path = output / 'build-manifest.json'
@@ -185,6 +187,23 @@ def build(source, ci, output, env):
                          source / 'Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift',
                          ci / 'scripts/ayugram-tests/AyuGramSettingsTests.swift', '-o', test], cwd=source)
                     run([test], cwd=source)
+            if name == 'history':
+                # Follow-up fixes are applied after the original, already built
+                # privacy/history patches, preserving their exact provenance.
+                followup = ci / 'patches/03-local-read-media.patch'
+                entry['followup_patch_sha256'] = hashlib.sha256(followup.read_bytes()).hexdigest()
+                run(['git', 'apply', '--check', followup], cwd=source)
+                run(['git', 'apply', followup], cwd=source)
+                # Parse every changed Swift file before the expensive full build.
+                # Parsing needs no module imports or selective-module builds.
+                swift_paths = re.findall(r'^diff --git a/(.+\.swift) b/.+$',
+                                         followup.read_text(encoding='utf-8'), re.M)
+                for relative in swift_paths:
+                    run(['xcrun', 'swiftc', '-frontend', '-parse', source / relative], cwd=source)
+            if name != stage and not build_intermediate:
+                entry['status'] = 'applied; intermediate IPA not requested'
+                save_manifest(manifest_path, manifest)
+                continue
             # Full real application build, including all native Swiftgram modules.
             run(make + ['build'] + common + ['--configuration=' + configuration], cwd=source)
             ipa = source / 'bazel-bin/Telegram/Swiftgram.ipa'
