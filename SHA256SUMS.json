@@ -7,9 +7,9 @@
   "patches/01-privacy.patch": "40052ab7abc609ae5f6b4e6e6477baf703b25562ad2b071d5ac35e1a74df8723",
   "patches/02-history.patch": "f4b1c0ee9dad85b8f6a8129a5c20916b0be3266e46012221ccc2e9dc534f6687",
   "patches/03-local-read-media.patch": "8efc20e6b83d855cc8fd0184b22e44bce9cff480eaf8ec815043193ef317158c",
-  "patches/04-client-extras.patch": "a72884dc442ba85bea50f0049fb3ad4748a4293b64359eab03a8101a3d6d235b",
+  "patches/04-client-extras.patch": "681b91c1219cc320e74237b30ea4a630fb14779f4d0958db74f5f5db0b1467d5",
   "scripts/ayugram-tests/AyuGramSettingsTests.swift": "9c1e6f75248c07c53c68682c4f3edcef71f8505d41ea89b0634e20a35bf322fa",
   "scripts/ayugram-tests/test_ci.py": "260c3041a68be10030b15f65618d0b7e1092d3bfb1c6826b17e87b7caaa70005",
-  "scripts/ayugram_ci.py": "a39cca7ac93394dd986148d891720febcf7d2429ae7627109a22dec5f95d3e13",
+  "scripts/ayugram_ci.py": "0f1da6eca174ea00a43d2b36655e8ba0a8b0630c74b8399b8289e7a82de4d104",
   "START-HERE.md": "f383a40ea910f40d82bdef8d38da56afaa53da7bf0389be89c9c1feb32cd0331"
 }
