@@ -190,16 +190,23 @@ def build(source, ci, output, env):
             if name == 'history':
                 # Follow-up fixes are applied after the original, already built
                 # privacy/history patches, preserving their exact provenance.
-                followup = ci / 'patches/03-local-read-media.patch'
-                entry['followup_patch_sha256'] = hashlib.sha256(followup.read_bytes()).hexdigest()
-                run(['git', 'apply', '--check', followup], cwd=source)
-                run(['git', 'apply', followup], cwd=source)
-                # Parse every changed Swift file before the expensive full build.
-                # Parsing needs no module imports or selective-module builds.
-                swift_paths = re.findall(r'^diff --git a/(.+\.swift) b/.+$',
-                                         followup.read_text(encoding='utf-8'), re.M)
-                for relative in swift_paths:
+                swift_paths = set()
+                for filename, hash_key in [('03-local-read-media.patch', 'followup_patch_sha256'),
+                                           ('04-client-extras.patch', 'client_extras_patch_sha256')]:
+                    followup = ci / 'patches' / filename
+                    entry[hash_key] = hashlib.sha256(followup.read_bytes()).hexdigest()
+                    run(['git', 'apply', '--check', followup], cwd=source)
+                    run(['git', 'apply', followup], cwd=source)
+                    swift_paths.update(re.findall(r'^diff --git a/(.+\.swift) b/.+$',
+                                                  followup.read_text(encoding='utf-8'), re.M))
+                # Parse the final versions of all changed files before the full build.
+                for relative in sorted(swift_paths):
                     run(['xcrun', 'swiftc', '-frontend', '-parse', source / relative], cwd=source)
+                test = source / 'build-input/ayu-client-settings-tests'
+                run(['xcrun', 'swiftc', '-swift-version', '5', '-D', 'AYUGRAM_CLIENT_EXTRAS',
+                     source / 'Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift',
+                     ci / 'scripts/ayugram-tests/AyuGramSettingsTests.swift', '-o', test], cwd=source)
+                run([test], cwd=source)
             if name != stage and not build_intermediate:
                 entry['status'] = 'applied; intermediate IPA not requested'
                 save_manifest(manifest_path, manifest)
