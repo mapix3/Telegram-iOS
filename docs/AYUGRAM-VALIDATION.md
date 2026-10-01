@@ -1,51 +1,39 @@
-# Состояние проверки
+# Validation status
 
-## Выполнено локально в Windows
+The original privacy/history implementation was built successfully in all
+three variants in GitHub Actions run 3:
+https://github.com/mapix3/Telegram-iOS/actions/runs/36625187938
 
-- Проверены исходный commit, versions.json, Make.py, генератор проекта, Telegram/BUILD и закреплённый rules_apple codesigning support.
-- Найдены producer/consumer paths read, typing, online, recording/upload indicators, story receipts.
-- Патчи 01 и 02 применяются по порядку через `git apply --check` и `git apply` к неизменённым исходникам исследованного commit.
-- 9 Python-тестов CI helper прошли: обязательные поля config, отсутствие значения секрета в диагностике, защита от внедрения кода в generated Starlark, границы API ID, структура IPA, отказ от simulator artifact, executable/bundle-id checks, удаление только generated credentials.
-- Python-скрипты проходят `py_compile`.
-- Четыре новых Swift source files проходят синтаксический разбор tree-sitter-swift. Это **не Swift type checking и не компиляция**.
-- YAML workflow проходит синтаксический разбор. Фактический запуск GitHub Actions пока не выполнен.
+The installed client screenshots subsequently supplied by the user show that
+the original history IPA runs on their device. They also show a local unread
+badge problem when read reporting is suppressed.
 
-## Подготовлено для выполнения в CI
+## Follow-up build
 
-- Foundation-only Swift-тесты persistence, Ghost Mode, сохранения индивидуальных флагов, отсутствия автоматического включения history, конкурентных обновлений и уведомления вне lock.
-- Полная сборка базового Swiftgram, затем Privacy, затем History. При ошибке следующий этап не запускается.
-- Проверка Info.plist IPA, device platform, executable и bundle identifier.
-- SHA-256 результата и манифест успешно завершённых этапов.
+Run 4 builds the follow-up patch after the original privacy/history patches:
+https://github.com/mapix3/Telegram-iOS/actions/runs/36880392159
 
-## Ещё НЕ проверено
+At the time this document was saved, this run had only been started. No new
+compiled IPA or device validation was available. The earlier successful IPA
+does not include these follow-up fixes.
 
-- Компиляция и линковка Swift/Bazel, работа XcodeParse при generateProject.
-- Поддержка unsigned device packaging всей цепочкой зависимостей на runner.
-- Достаточность CPU/RAM/диска стандартного runner.
-- Установка и запуск на iPhone после отдельной подписи, корректность entitlements расширений.
-- Поведение privacy с сервером, переключение во время уже начатого RPC, переподключение, работа нескольких сессий/аккаунтов, counters и push notifications.
-- UI на iPhone/iPad, VoiceOver, длинные сообщения/названия, доступность Swiftgram-сервисов.
-- Runtime-тесты Postbox-истории, удаления аккаунта и лимитов хранения.
+Completed local checks:
 
-## Проверка на двух тестовых аккаунтах после успешной сборки
+- Nine CI helper unit tests passed.
+- The follow-up patch applies cleanly to copies of all eleven original files.
+- Applied files match the generated source byte for byte.
+- A Swift syntax parser found no errors in the eleven changed files.
+- The four new/updated build inputs on GitHub match the local files exactly.
 
-| Сценарий | Ожидаемый результат / что проверить |
-|---|---|
-| Все flags off | Чтение, typing, presence, voice playback и stories ведут себя как baseline |
-| Ghost on → off | Все сетевые ограничения включаются; прежние индивидуальные значения восстанавливаются |
-| Anti Typing | Нет typing/sticker/emoji activity hints, отправка текста работает |
-| Anti Recording / Uploading | Нет соответствующих индикаторов; запись и отправка файлов работают |
-| Anti Online в foreground | Явный `updateStatus(offline:false)` не отправляется; отслеживать ограничения сервера |
-| Anti Read, личный чат/группа/канал | Нет новых readHistory/content-read; unread UI может сохраняться |
-| Forum/replies/mark all read | Не обходят Anti Read |
-| Voice message + Anti Read | Нет content-read receipts; воспроизведение и скачивание работают |
-| Secret chat | Проверить отсутствие read receipt, не поломаны ключи/синхронизация и countdown semantics |
-| Pending operations + reconnect | Нет бесконечных retry и неконтролируемой отправки накопленных receipts; отдельно проверить уже начатые операции |
-| Story обычная/pinned | Нет новых readStories/incrementStoryViews; ранее отправленные views не исчезают |
-| History off | Новые снимки не создаются |
-| History on, edit/delete | Старый загруженный текст появляется в истории текущего аккаунта, серверное изменение в чате применяется |
-| Media-only, secret, disappearing | Не архивируются |
-| Смена аккаунта / Clear history | Истории разделены; очистка после подтверждения удаляет записи только текущего аккаунта |
-| Более 200 событий | Сохраняются последние 200, старые записи удаляются |
+Syntax parsing is not Swift type checking or a full application build. The CI
+also invokes Apple's Swift parser before building the complete native app.
 
-До прохождения этих проверок код следует считать экспериментальным, а утверждать полную невидимость или готовность к повседневному использованию нельзя.
+## Device checks still required
+
+See AYUGRAM-FOLLOWUP.md for the eight device acceptance checks. In particular,
+verify receipts using another Telegram account/device: local UI behavior alone
+does not prove that no server receipt was sent. Test fresh view-once and timed
+photos separately, including saving with Photos permission denied.
+
+Secret-chat photo viewing, ephemeral videos, already expired media recovery,
+and permanent automatic media archives are outside this follow-up.
