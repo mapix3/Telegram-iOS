@@ -167,10 +167,6 @@ def build(source, ci, output, env):
         # This source supplies the configuration model without importing fake certs.
         # Actual provisioning and codesigning are disabled above in Bazel.
         common = ['--configurationPath=' + str(config_path), '--xcodeManagedCodesigning', '--buildNumber=' + str(number)]
-        run(make + ['generateProject'] + common + ['--disableProvisioningProfiles'], cwd=source)
-        if not (source / 'Telegram/Swiftgram.xcodeproj').is_dir():
-            raise ValueError('Make.py did not generate Telegram/Swiftgram.xcodeproj')
-        manifest['project_generated'] = True
         for name, patch in STAGES:
             entry = {'stage': name, 'status': 'building'}
             manifest['stages'].append(entry)
@@ -211,6 +207,12 @@ def build(source, ci, output, env):
                 entry['status'] = 'applied; intermediate IPA not requested'
                 save_manifest(manifest_path, manifest)
                 continue
+            # Parse/test the applied sources before expensive project generation.
+            # Generate against the final patched source tree, including new files.
+            run(make + ['generateProject'] + common + ['--disableProvisioningProfiles'], cwd=source)
+            if not (source / 'Telegram/Swiftgram.xcodeproj').is_dir():
+                raise ValueError('Make.py did not generate Telegram/Swiftgram.xcodeproj')
+            manifest['project_generated'] = True
             # Full real application build, including all native Swiftgram modules.
             run(make + ['build'] + common + ['--configuration=' + configuration], cwd=source)
             ipa = source / 'bazel-bin/Telegram/Swiftgram.ipa'
