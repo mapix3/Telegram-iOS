@@ -1,0 +1,937 @@
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
+--- a/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
++++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
+@@ -59,3 +59,34 @@
+         NotificationCenter.default.post(name: Self.didChange, object: self)
+     }
+ }
++
++public struct AyuGramClientSettings: Codable, Equatable {
++    public var localPremium = false
++    public var maxPinnedChats: Int32 = 5
++    public init() {}
++    public var pinnedChatLimit: Int32 { max(5, min(30, maxPinnedChats)) }
++}
++
++public extension AyuGramSettings {
++    var client: AyuGramClientSettings {
++        lock.lock()
++        defer { lock.unlock() }
++        guard let data = defaults.data(forKey: "swiftgram.ayuGram.client.v1"),
++              let value = try? JSONDecoder().decode(AyuGramClientSettings.self, from: data) else {
++            return AyuGramClientSettings()
++        }
++        return value
++    }
++    func updateClient(_ transform: (inout AyuGramClientSettings) -> Void) {
++        lock.lock()
++        let data = defaults.data(forKey: "swiftgram.ayuGram.client.v1")
++        var value = data.flatMap { try? JSONDecoder().decode(AyuGramClientSettings.self, from: $0) } ?? AyuGramClientSettings()
++        transform(&value)
++        value.maxPinnedChats = value.pinnedChatLimit
++        if let encoded = try? JSONEncoder().encode(value) {
++            defaults.set(encoded, forKey: "swiftgram.ayuGram.client.v1")
++        }
++        lock.unlock()
++        NotificationCenter.default.post(name: Self.didChange, object: self)
++    }
++}
+diff --git a/Swiftgram/SGItemListUI/Sources/AyuPinnedCountSliderItem.swift b/Swiftgram/SGItemListUI/Sources/AyuPinnedCountSliderItem.swift
+new file mode 100644
+--- /dev/null
++++ b/Swiftgram/SGItemListUI/Sources/AyuPinnedCountSliderItem.swift
+@@ -0,0 +1,355 @@
++import Foundation
++import UIKit
++import Display
++import AsyncDisplayKit
++import SwiftSignalKit
++import TelegramCore
++import TelegramPresentationData
++import LegacyComponents
++import ItemListUI
++import PresentationDataUtils
++import AppBundle
++
++public class AyuPinnedCountSliderItem: ListViewItem, ItemListItem {
++    let theme: PresentationTheme
++    let strings: PresentationStrings
++    let value: Int32
++    let systemStyle: ItemListSystemStyle
++    public let sectionId: ItemListSectionId
++    let updated: (Int32) -> Void
++
++    public init(theme: PresentationTheme, strings: PresentationStrings, value: Int32, sectionId: ItemListSectionId, systemStyle: ItemListSystemStyle = .glass, updated: @escaping (Int32) -> Void) {
++        self.theme = theme
++        self.strings = strings
++        self.value = value
++        self.sectionId = sectionId
++        self.systemStyle = systemStyle
++        self.updated = updated
++    }
++
++    public func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
++        async {
++            let node = AyuPinnedCountSliderItemNode()
++            let (layout, apply) = node.asyncLayout()(self, params, itemListNeighbors(item: self, topItem: previousItem as? ItemListItem, bottomItem: nextItem as? ItemListItem))
++
++            node.contentSize = layout.contentSize
++            node.insets = layout.insets
++
++            Queue.mainQueue().async {
++                completion(node, {
++                    return (nil, { _ in apply() })
++                })
++            }
++        }
++    }
++
++    public func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, previousItem: ListViewItem?, nextItem: ListViewItem?, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
++        Queue.mainQueue().async {
++            if let nodeValue = node() as? AyuPinnedCountSliderItemNode {
++                let makeLayout = nodeValue.asyncLayout()
++
++                async {
++                    let (layout, apply) = makeLayout(self, params, itemListNeighbors(item: self, topItem: previousItem as? ItemListItem, bottomItem: nextItem as? ItemListItem))
++                    Queue.mainQueue().async {
++                        completion(layout, { _ in
++                            apply()
++                        })
++                    }
++                }
++            }
++        }
++    }
++}
++
++private func rescalePercentageValueToSlider(_ value: CGFloat) -> CGFloat {
++    return max(0.0, min(1.0, value))
++}
++
++private func rescaleSliderValueToPercentageValue(_ value: CGFloat) -> CGFloat {
++    return max(0.0, min(1.0, value))
++}
++
++class AyuPinnedCountSliderItemNode: ListViewItemNode {
++    private let backgroundNode: ASDisplayNode
++    private let topStripeNode: ASDisplayNode
++    private let bottomStripeNode: ASDisplayNode
++    private let maskNode: ASImageNode
++
++    private var sliderView: TGPhotoEditorSliderView?
++    private let leftTextNode: ImmediateTextNode
++    private let rightTextNode: ImmediateTextNode
++    private let centerTextNode: ImmediateTextNode
++    private let centerMeasureTextNode: ImmediateTextNode
++
++    private let batteryImage: UIImage?
++    private let batteryBackgroundNode: ASImageNode
++    private let batteryForegroundNode: ASImageNode
++
++    private var item: AyuPinnedCountSliderItem?
++    private var layoutParams: ListViewItemLayoutParams?
++
++    // MARK: Swiftgram
++    private let activateArea: AccessibilityAreaNode
++
++    init() {
++        self.backgroundNode = ASDisplayNode()
++        self.backgroundNode.isLayerBacked = true
++
++        self.topStripeNode = ASDisplayNode()
++        self.topStripeNode.isLayerBacked = true
++
++        self.bottomStripeNode = ASDisplayNode()
++        self.bottomStripeNode.isLayerBacked = true
++
++        self.maskNode = ASImageNode()
++
++        self.leftTextNode = ImmediateTextNode()
++        self.rightTextNode = ImmediateTextNode()
++        self.centerTextNode = ImmediateTextNode()
++        self.centerMeasureTextNode = ImmediateTextNode()
++
++        self.batteryImage = nil //UIImage(bundleImageName: "Settings/UsageBatteryFrame")
++        self.batteryBackgroundNode = ASImageNode()
++        self.batteryForegroundNode = ASImageNode()
++
++        // MARK: Swiftgram
++        self.activateArea = AccessibilityAreaNode()
++
++        super.init(layerBacked: false)
++
++        self.addSubnode(self.leftTextNode)
++        self.addSubnode(self.rightTextNode)
++        self.addSubnode(self.centerTextNode)
++        self.addSubnode(self.batteryBackgroundNode)
++        self.addSubnode(self.batteryForegroundNode)
++        self.addSubnode(self.activateArea)
++
++        // MARK: Swiftgram
++        self.activateArea.increment = { [weak self] in
++            if let self {
++                self.sliderView?.increase(by: 0.04)
++            }
++        }
++
++        self.activateArea.decrement = { [weak self] in
++            if let self {
++                self.sliderView?.decrease(by: 0.04)
++            }
++        }
++    }
++
++    override func didLoad() {
++        super.didLoad()
++
++        let sliderView = TGPhotoEditorSliderView()
++        sliderView.enableEdgeTap = true
++        sliderView.enablePanHandling = true
++        sliderView.trackCornerRadius = 1.0
++        sliderView.lineSize = 4.0
++        sliderView.minimumValue = 0.0
++        sliderView.startValue = 0.0
++        sliderView.maximumValue = 1.0
++        sliderView.disablesInteractiveTransitionGestureRecognizer = true
++        sliderView.displayEdges = true
++        if let item = self.item, let params = self.layoutParams {
++            sliderView.value = rescalePercentageValueToSlider(CGFloat(item.value - 5) / 25.0)
++            sliderView.backgroundColor = item.theme.list.itemBlocksBackgroundColor
++            sliderView.backColor = item.theme.list.itemSwitchColors.frameColor
++            sliderView.trackColor = item.theme.list.itemAccentColor
++            sliderView.knobImage = PresentationResourcesItemList.knobImage(item.theme)
++
++            sliderView.frame = CGRect(origin: CGPoint(x: params.leftInset + 18.0, y: 36.0), size: CGSize(width: params.width - params.leftInset - params.rightInset - 18.0 * 2.0, height: 44.0))
++        }
++        self.view.addSubview(sliderView)
++        sliderView.addTarget(self, action: #selector(self.sliderValueChanged), for: .valueChanged)
++        self.sliderView = sliderView
++    }
++
++    func asyncLayout() -> (_ item: AyuPinnedCountSliderItem, _ params: ListViewItemLayoutParams, _ neighbors: ItemListNeighbors) -> (ListViewItemNodeLayout, () -> Void) {
++        let currentItem = self.item
++
++        return { item, params, neighbors in
++            var themeUpdated = false
++            if currentItem?.theme !== item.theme {
++                themeUpdated = true
++            }
++
++            let contentSize: CGSize
++            let insets: UIEdgeInsets
++            let separatorHeight = UIScreenPixel
++
++            contentSize = CGSize(width: params.width, height: 88.0)
++            insets = itemListNeighborsGroupedInsets(neighbors, params)
++
++            let layout = ListViewItemNodeLayout(contentSize: contentSize, insets: insets)
++            let layoutSize = layout.size
++
++            return (layout, { [weak self] in
++                if let strongSelf = self {
++                    strongSelf.item = item
++                    strongSelf.layoutParams = params
++
++                    strongSelf.backgroundNode.backgroundColor = item.theme.list.itemBlocksBackgroundColor
++                    strongSelf.topStripeNode.backgroundColor = item.theme.list.itemBlocksSeparatorColor
++                    strongSelf.bottomStripeNode.backgroundColor = item.theme.list.itemBlocksSeparatorColor
++
++                    if strongSelf.backgroundNode.supernode == nil {
++                        strongSelf.insertSubnode(strongSelf.backgroundNode, at: 0)
++                    }
++                    if strongSelf.topStripeNode.supernode == nil {
++                        strongSelf.insertSubnode(strongSelf.topStripeNode, at: 1)
++                    }
++                    if strongSelf.bottomStripeNode.supernode == nil {
++                        strongSelf.insertSubnode(strongSelf.bottomStripeNode, at: 2)
++                    }
++                    if strongSelf.maskNode.supernode == nil {
++                        strongSelf.insertSubnode(strongSelf.maskNode, at: 3)
++                    }
++
++                    let hasCorners = itemListHasRoundedBlockLayout(params)
++                    var hasTopCorners = false
++                    var hasBottomCorners = false
++                    switch neighbors.top {
++                    case .sameSection(false):
++                        strongSelf.topStripeNode.isHidden = true
++                    default:
++                        hasTopCorners = true
++                        strongSelf.topStripeNode.isHidden = hasCorners
++                    }
++                    let bottomStripeInset: CGFloat
++                    let bottomStripeOffset: CGFloat
++                    switch neighbors.bottom {
++                        case .sameSection(false):
++                            bottomStripeInset = params.leftInset + 16.0
++                            bottomStripeOffset = -separatorHeight
++                            strongSelf.bottomStripeNode.isHidden = false
++                        default:
++                            bottomStripeInset = 0.0
++                            bottomStripeOffset = 0.0
++                            hasBottomCorners = true
++                            strongSelf.bottomStripeNode.isHidden = hasCorners
++                    }
++
++                    strongSelf.maskNode.image = hasCorners ? PresentationResourcesItemList.cornersImage(item.theme, top: hasTopCorners, bottom: hasBottomCorners, glass: item.systemStyle == .glass) : nil
++
++                    strongSelf.backgroundNode.frame = CGRect(origin: CGPoint(x: 0.0, y: -min(insets.top, separatorHeight)), size: CGSize(width: params.width, height: contentSize.height + min(insets.top, separatorHeight) + min(insets.bottom, separatorHeight)))
++                    strongSelf.maskNode.frame = strongSelf.backgroundNode.frame.insetBy(dx: params.leftInset, dy: 0.0)
++                    strongSelf.topStripeNode.frame = CGRect(origin: CGPoint(x: 0.0, y: -min(insets.top, separatorHeight)), size: CGSize(width: layoutSize.width, height: separatorHeight))
++                    strongSelf.bottomStripeNode.frame = CGRect(origin: CGPoint(x: bottomStripeInset, y: contentSize.height + bottomStripeOffset), size: CGSize(width: layoutSize.width - bottomStripeInset, height: separatorHeight))
++
++                    strongSelf.leftTextNode.attributedText = NSAttributedString(string: "5", font: Font.regular(13.0), textColor: item.theme.list.itemSecondaryTextColor)
++                    strongSelf.rightTextNode.attributedText = NSAttributedString(string: "30", font: Font.regular(13.0), textColor: item.theme.list.itemSecondaryTextColor)
++
++                    let centralText: String = "\(item.value)"
++                    let centralMeasureText: String = centralText
++                    strongSelf.batteryBackgroundNode.isHidden = true
++                    strongSelf.batteryForegroundNode.isHidden = strongSelf.batteryBackgroundNode.isHidden
++                    strongSelf.centerTextNode.attributedText = NSAttributedString(string: centralText, font: Font.regular(16.0), textColor: item.theme.list.itemPrimaryTextColor)
++                    strongSelf.centerMeasureTextNode.attributedText = NSAttributedString(string: centralMeasureText, font: Font.regular(16.0), textColor: item.theme.list.itemPrimaryTextColor)
++
++                    strongSelf.leftTextNode.isAccessibilityElement = true
++                    strongSelf.leftTextNode.accessibilityLabel = "Minimum: 5"
++                    strongSelf.rightTextNode.isAccessibilityElement = true
++                    strongSelf.rightTextNode.accessibilityLabel = "Maximum: 30"
++
++                    let leftTextSize = strongSelf.leftTextNode.updateLayout(CGSize(width: 100.0, height: 100.0))
++                    let rightTextSize = strongSelf.rightTextNode.updateLayout(CGSize(width: 100.0, height: 100.0))
++                    let centerTextSize = strongSelf.centerTextNode.updateLayout(CGSize(width: 200.0, height: 100.0))
++                    let centerMeasureTextSize = strongSelf.centerMeasureTextNode.updateLayout(CGSize(width: 200.0, height: 100.0))
++
++                    let sideInset: CGFloat = 18.0
++
++                    strongSelf.leftTextNode.frame = CGRect(origin: CGPoint(x: params.leftInset + sideInset, y: 15.0), size: leftTextSize)
++                    strongSelf.rightTextNode.frame = CGRect(origin: CGPoint(x: params.width - params.leftInset - sideInset - rightTextSize.width, y: 15.0), size: rightTextSize)
++
++                    var centerFrame = CGRect(origin: CGPoint(x: floor((params.width - centerMeasureTextSize.width) / 2.0), y: 11.0), size: centerTextSize)
++                    if !strongSelf.batteryBackgroundNode.isHidden {
++                        centerFrame.origin.x -= 12.0
++                    }
++                    strongSelf.centerTextNode.frame = centerFrame
++
++                    if let frameImage = strongSelf.batteryImage {
++                        strongSelf.batteryBackgroundNode.image = generateImage(frameImage.size, rotatedContext: { size, context in
++                            UIGraphicsPushContext(context)
++
++                            context.clear(CGRect(origin: CGPoint(), size: size))
++
++                            if let image = generateTintedImage(image: frameImage, color: item.theme.list.itemPrimaryTextColor.withMultipliedAlpha(0.9)) {
++                                image.draw(in: CGRect(origin: CGPoint(), size: size))
++
++                                let contentRect = CGRect(origin: CGPoint(x: 3.0, y: (size.height - 9.0) * 0.5), size: CGSize(width: 20.8, height: 9.0))
++                                context.addPath(UIBezierPath(roundedRect: contentRect, cornerRadius: 2.0).cgPath)
++                                context.clip()
++                            }
++
++                            UIGraphicsPopContext()
++                        })
++                        strongSelf.batteryForegroundNode.image = generateImage(frameImage.size, rotatedContext: { size, context in
++                            UIGraphicsPushContext(context)
++
++                            context.clear(CGRect(origin: CGPoint(), size: size))
++
++                            let contentRect = CGRect(origin: CGPoint(x: 3.0, y: (size.height - 9.0) * 0.5), size: CGSize(width: 20.8, height: 9.0))
++                            context.addPath(UIBezierPath(roundedRect: contentRect, cornerRadius: 2.0).cgPath)
++                            context.clip()
++
++                            context.setFillColor(UIColor.white.cgColor)
++                            context.addPath(UIBezierPath(roundedRect: CGRect(origin: contentRect.origin, size: CGSize(width: contentRect.width * CGFloat(item.value - 5) / 25.0, height: contentRect.height)), cornerRadius: 1.0).cgPath)
++                            context.fillPath()
++
++                            UIGraphicsPopContext()
++                        })
++
++                        let batteryColor: UIColor
++                        if item.value <= 10 {
++                            batteryColor = UIColor(rgb: 0xFF3B30)
++                        } else {
++                            batteryColor = item.theme.list.itemSwitchColors.positiveColor
++                        }
++
++                        if strongSelf.batteryForegroundNode.layer.layerTintColor == nil {
++                            strongSelf.batteryForegroundNode.layer.layerTintColor = batteryColor.cgColor
++                        } else {
++                            ContainedViewLayoutTransition.animated(duration: 0.2, curve: .easeInOut).updateTintColor(layer: strongSelf.batteryForegroundNode.layer, color: batteryColor)
++                        }
++
++                        strongSelf.batteryBackgroundNode.frame = CGRect(origin: CGPoint(x: centerFrame.minX + centerMeasureTextSize.width + 4.0, y: floor(centerFrame.midY - frameImage.size.height * 0.5)), size: frameImage.size)
++                        strongSelf.batteryForegroundNode.frame = strongSelf.batteryBackgroundNode.frame
++                    }
++
++                    if let sliderView = strongSelf.sliderView {
++                        if themeUpdated {
++                            sliderView.backgroundColor = item.theme.list.itemBlocksBackgroundColor
++                            sliderView.backColor = item.theme.list.itemSecondaryTextColor
++                            sliderView.trackColor = item.theme.list.itemAccentColor.withAlphaComponent(0.45)
++                            sliderView.knobImage = PresentationResourcesItemList.knobImage(item.theme)
++                        }
++
++                        sliderView.frame = CGRect(origin: CGPoint(x: params.leftInset + 18.0, y: 36.0), size: CGSize(width: params.width - params.leftInset - params.rightInset - 18.0 * 2.0, height: 44.0))
++                    }
++
++                    strongSelf.activateArea.accessibilityLabel = "Slider"
++                    strongSelf.activateArea.accessibilityValue = centralMeasureText
++                    strongSelf.activateArea.accessibilityTraits = .adjustable
++                    strongSelf.activateArea.frame = CGRect(origin: CGPoint(x: params.leftInset, y: 0.0), size: CGSize(width: params.width - params.leftInset - params.rightInset, height: layout.contentSize.height))
++                }
++            })
++        }
++    }
++
++    override func animateInsertion(_ currentTimestamp: Double, duration: Double, options: ListViewItemAnimationOptions) {
++        self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.4)
++    }
++
++    override func animateRemoved(_ currentTimestamp: Double, duration: Double) {
++        self.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.15, removeOnCompletion: false)
++    }
++
++    @objc func sliderValueChanged() {
++        guard let sliderView = self.sliderView else {
++            return
++        }
++        self.item?.updated(Int32((5.0 + rescaleSliderValueToPercentageValue(sliderView.value) * 25.0).rounded()))
++    }
++}
++
+diff --git a/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift b/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift
+--- a/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift
++++ b/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift
+@@ -83,6 +83,7 @@
+     case header(id: Int, section: Section, text: String, badge: String?)
+     case toggle(id: Int, section: Section, settingName: BoolSetting, value: Bool, text: String, enabled: Bool)
+     case notice(id: Int, section: Section, text: String)
++    case countSlider(id: Int, section: Section, settingName: SliderSetting, value: Int32)
+     case percentageSlider(id: Int, section: Section, settingName: SliderSetting, value: Int32)
+     case oneFromManySelector(id: Int, section: Section, settingName: OneFromManySetting, text: String, value: String, enabled: Bool)
+     case disclosure(id: Int, section: Section, link: DisclosureLink, text: String)
+@@ -102,7 +103,7 @@
+         case let .disclosure(_, sectionId, _, _):
+             return sectionId.rawValue
+ 
+-        case let .percentageSlider(_, sectionId, _, _):
++        case let .percentageSlider(_, sectionId, _, _), let .countSlider(_, sectionId, _, _):
+             return sectionId.rawValue
+             
+         case let .peerColorDisclosurePreview(_, sectionId, _, _):
+@@ -128,7 +129,7 @@
+             return stableIdValue
+         case let .disclosure(stableIdValue, _, _, _):
+             return stableIdValue
+-        case let .percentageSlider(stableIdValue, _, _, _):
++        case let .percentageSlider(stableIdValue, _, _, _), let .countSlider(stableIdValue, _, _, _):
+             return stableIdValue
+         case let .peerColorDisclosurePreview(stableIdValue, _, _, _):
+             return stableIdValue
+@@ -156,7 +157,8 @@
+         case let (.notice(id1, section1, text1), .notice(id2, section2, text2)):
+             return id1 == id2 && section1 == section2 && text1 == text2
+         
+-        case let (.percentageSlider(id1, section1, settingName1, value1), .percentageSlider(id2, section2, settingName2, value2)):
++        case let (.percentageSlider(id1, section1, settingName1, value1), .percentageSlider(id2, section2, settingName2, value2)),
++             let (.countSlider(id1, section1, settingName1, value1), .countSlider(id2, section2, settingName2, value2)):
+             return id1 == id2 && section1 == section2 && value1 == value2 && settingName1 == settingName2
+             
+         case let (.disclosure(id1, section1, link1, text1), .disclosure(id2, section2, link2, text2)):
+@@ -195,6 +197,10 @@
+             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: text, label: "", sectionId: self.section, style: .blocks) {
+                 arguments.openDisclosureLink(link)
+             }
++        case let .countSlider(_, _, setting, value):
++            return AyuPinnedCountSliderItem(theme: presentationData.theme, strings: presentationData.strings, value: value, sectionId: self.section, updated: { value in
++                arguments.updateSliderValue(setting, value)
++            })
+         case let .percentageSlider(_, _, setting, value):
+             return SliderPercentageItem(
+                 theme: presentationData.theme,
+@@ -249,7 +255,7 @@
+             return text.lowercased().contains(query)
+         case .notice(_, _, let text):
+             return text.lowercased().contains(query)
+-        case .percentageSlider:
++        case .percentageSlider, .countSlider:
+             return false // Assuming percentage sliders don't have searchable text
+         case .oneFromManySelector(_, _, _, let text, let value, _):
+             return text.lowercased().contains(query) || value.lowercased().contains(query)
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+@@ -9,15 +9,21 @@
+ import SGItemListUI
+ import SGSimpleSettings
+ 
+-private enum AyuSection: Int32, SGItemListSection { case privacy, history, limits }
+-private enum AyuToggle: Hashable { case ghost, read, online, typing, recording, uploading, stories, history }
++private enum AyuSection: Int32, SGItemListSection { case privacy, history, client, limits }
++private enum AyuToggle: Hashable { case ghost, read, online, typing, recording, uploading, stories, history, premium }
++private enum AyuSlider: Hashable { case pins }
+ private enum AyuUnused: Hashable { case unused }
+-private typealias AyuEntry = SGItemListUIEntry<AyuSection, AyuToggle, AyuUnused, AyuUnused, AyuUnused, AyuUnused>
++private typealias AyuEntry = SGItemListUIEntry<AyuSection, AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>
+ 
+ public func ayuGramSettingsController(context: AccountContext) -> ViewController {
+     var openHistory: (() -> Void)?
+     let changed = ValuePromise<Int>(0, ignoreRepeated: false)
+-    let arguments = SGItemListArguments<AyuToggle, AyuUnused, AyuUnused, AyuUnused, AyuUnused>(context: context, setBoolValue: { key, enabled in
++    let arguments = SGItemListArguments<AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>(context: context, setBoolValue: { key, enabled in
++        if key == .premium {
++            AyuGramSettings.shared.updateClient { $0.localPremium = enabled }
++            changed.set(0)
++            return
++        }
+         AyuGramSettings.shared.update { settings in
+             switch key {
+             case .ghost: settings.ghostMode = enabled
+@@ -28,14 +34,19 @@
+             case .uploading: settings.antiUploading = enabled
+             case .stories: settings.storyPrivacy = enabled
+             case .history: settings.messageHistory = enabled
++            case .premium: break
+             }
+         }
++        changed.set(0)
++    }, updateSliderValue: { _, value in
++        AyuGramSettings.shared.updateClient { $0.maxPinnedChats = value }
+         changed.set(0)
+     }, openDisclosureLink: { _ in openHistory?() })
+     let signal = combineLatest(context.sharedContext.presentationData, changed.get())
+     |> deliverOnMainQueue
+-    |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<AyuToggle, AyuUnused, AyuUnused, AyuUnused, AyuUnused>)) in
++    |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>)) in
+         let settings = AyuGramSettings.shared.snapshot
++        let clientSettings = AyuGramSettings.shared.client
+         let ru = ["ru", "uk"].contains(presentationData.strings.baseLanguageCode)
+         let entries: [AyuEntry] = [
+             .header(id: 0, section: .privacy, text: "AyuGram / Privacy", badge: nil),
+@@ -51,9 +62,15 @@
+             .toggle(id: 11, section: .history, settingName: .history, value: settings.messageHistory, text: ru ? "Сохранять предыдущий текст" : "Keep previous message text", enabled: true),
+             .disclosure(id: 12, section: .history, link: .unused, text: ru ? "Открыть историю этого аккаунта" : "Open this account’s history"),
+             .notice(id: 13, section: .history, text: ru ? "Сохраняется только уже загруженный текст при получении правки или удаления, до 200 записей. Вложения, секретные и исчезающие сообщения не сохраняются. Выключение останавливает сбор; удалить записи можно внутри истории." : "Keeps already downloaded text when an edit or deletion arrives, up to 200 entries. Excludes attachments, secret and disappearing messages. Disabling stops collection; clear existing entries inside History."),
+-            .header(id: 20, section: .limits, text: ru ? "Как это работает" : "How it works", badge: nil),
+-            .notice(id: 21, section: .limits, text: ru ? "Anti Read подавляет исходящие отметки чтения и прослушивания. Счётчики могут оставаться непрочитанными. После выключения следующее чтение может подтвердить предыдущие сообщения. Story Privacy оставляет истории непросмотренными." : "Anti Read suppresses outgoing read and playback receipts. Unread counters may remain. After disabling it, later reading can acknowledge earlier messages. Story Privacy leaves stories unseen."),
+-            .notice(id: 22, section: .limits, text: ru ? "Anti Online скрывает явные обновления статуса. Отправка сообщений, другие устройства и действия на сервере могут раскрыть активность. Звонки не скрываются. Anti Uploading скрывает индикатор, а не передачу файла." : "Anti Online suppresses explicit presence updates. Sending messages, other devices and server behavior may reveal activity. Calls are not hidden. Anti Uploading hides the indicator, not the file transfer.")
++            .header(id: 15, section: .client, text: ru ? "Возможности клиента" : "Client features", badge: nil),
++            .toggle(id: 16, section: .client, settingName: .premium, value: clientSettings.localPremium, text: ru ? "Локальный Premium" : "Local Premium", enabled: true),
++            .notice(id: 17, section: .client, text: ru ? "Значок и анимированные эмодзи в этом клиенте. Собеседникам отправляется обычный эмодзи со ссылкой на набор. Если набор недоступен, отправляется обычный эмодзи. Серверная подписка не меняется." : "Local badge and animated emoji. Recipients receive regular emoji linked to the pack. If the pack is unavailable, only regular emoji is sent. The server subscription stays the same."),
++            .header(id: 18, section: .client, text: ru ? "Максимум закреплённых чатов" : "Maximum pinned chats", badge: nil),
++            .countSlider(id: 19, section: .client, settingName: .pins, value: clientSettings.pinnedChatLimit),
++            .notice(id: 20, section: .client, text: ru ? "После увеличения лимита закрепления и их порядок сохраняются только на этом устройстве. Уменьшение лимита не открепляет существующие чаты." : "After increasing the limit, pins and their order are local to this device. Lowering the limit does not unpin existing chats."),
++            .header(id: 30, section: .limits, text: ru ? "Как это работает" : "How it works", badge: nil),
++            .notice(id: 31, section: .limits, text: ru ? "Anti Read подавляет исходящие отметки чтения и прослушивания. Прочитанное в этом клиенте убирает местный счётчик, не отправляя отметку серверу. После выключения следующее чтение может подтвердить предыдущие сообщения. Story Privacy оставляет истории непросмотренными." : "Anti Read suppresses outgoing read and playback receipts. Reading here clears the local unread count without a server receipt. After disabling it, later reading can acknowledge earlier messages. Story Privacy leaves stories unseen."),
++            .notice(id: 32, section: .limits, text: ru ? "Anti Online скрывает явные обновления статуса. Отправка сообщений, другие устройства и действия на сервере могут раскрыть активность. Звонки не скрываются. Anti Uploading скрывает индикатор, а не передачу файла." : "Anti Online suppresses explicit presence updates. Sending messages, other devices and server behavior may reveal activity. Calls are not hidden. Anti Uploading hides the indicator, not the file transfer.")
+         ]
+         let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("AyuGram / Privacy"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+         return (state, (ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks), arguments))
+diff --git a/submodules/Postbox/Sources/Postbox.swift b/submodules/Postbox/Sources/Postbox.swift
+--- a/submodules/Postbox/Sources/Postbox.swift
++++ b/submodules/Postbox/Sources/Postbox.swift
+@@ -875,7 +875,22 @@
+         self.postbox?.globalNotificationSettingsUpdated()
+     }
+     
++    public static let ayuLocalRootPinsKey = ValueBoxKey("ayu.local-root-pins.v1")
++    public var ayuHasLocalRootPins: Bool {
++        getPreferencesEntry(key: Self.ayuLocalRootPinsKey)?.get([Int64].self) != nil
++    }
++    public func ayuEnableLocalRootPins() {
++        if !ayuHasLocalRootPins {
++            let ids = getPinnedItemIds(groupId: .root).map { item -> Int64 in
++                switch item { case let .peer(peerId): return peerId.toInt64() }
++            }
++            setPreferencesEntry(key: Self.ayuLocalRootPinsKey, value: PreferencesEntry(ids))
++        }
++    }
+     public func getPinnedItemIds(groupId: PeerGroupId) -> [PinnedItemId] {
++        if groupId == .root, let ids = getPreferencesEntry(key: Self.ayuLocalRootPinsKey)?.get([Int64].self) {
++            return ids.map { .peer(PeerId($0)) }
++        }
+         assert(!self.disposed)
+         if let postbox = self.postbox {
+             return postbox.getPinnedItemIds(groupId: groupId)
+@@ -884,7 +899,14 @@
+         }
+     }
+     
+-    public func setPinnedItemIds(groupId: PeerGroupId, itemIds: [PinnedItemId]) {
++    public func setPinnedItemIds(groupId: PeerGroupId, itemIds: [PinnedItemId], fromServer: Bool = false) {
++        if groupId == .root, ayuHasLocalRootPins {
++            if fromServer { return }
++            let ids = itemIds.map { item -> Int64 in
++                switch item { case let .peer(peerId): return peerId.toInt64() }
++            }
++            setPreferencesEntry(key: Self.ayuLocalRootPinsKey, value: PreferencesEntry(ids))
++        }
+         assert(!self.disposed)
+         if let postbox = self.postbox {
+             postbox.setPinnedItemIds(groupId: groupId, itemIds: itemIds)
+@@ -2606,6 +2628,14 @@
+     }
+     
+     private func beforeCommit(currentTransaction: Transaction) -> (updatedTransactionStateVersion: Int64?, updatedMasterClientId: Int64?) {
++        if let ids = self.getPreferencesEntry(key: Transaction.ayuLocalRootPinsKey)?.get([Int64].self) {
++            // Prune deleted/archived chats and restore local ranks after server updates.
++            let activeIds = ids.filter { self.getPeerChatListInclusion(PeerId($0)).groupId == .root }
++            if activeIds != ids {
++                self.setPreferencesEntry(key: Transaction.ayuLocalRootPinsKey, value: PreferencesEntry(activeIds))
++            }
++            self.setPinnedItemIds(groupId: .root, itemIds: activeIds.map { .peer(PeerId($0)) })
++        }
+         self.chatListTable.replay(postbox: self, historyOperationsByPeerId: self.currentOperationsByPeerId, updatedPeerChatListEmbeddedStates: self.currentUpdatedPeerChatListEmbeddedStates, updatedPeerCachedData: self.currentUpdatedCachedPeerData, updatedChatListInclusions: self.currentUpdatedChatListInclusions, messageHistoryTable: self.messageHistoryTable, peerChatInterfaceStateTable: self.peerChatInterfaceStateTable, operations: &self.currentChatListOperations)
+         
+         self.peerChatTopTaggedMessageIdsTable.replay(historyOperationsByPeerId: self.currentOperationsByPeerId)
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Peers/TogglePeerChatPinned.swift b/submodules/TelegramCore/Sources/TelegramEngine/Peers/TogglePeerChatPinned.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Peers/TogglePeerChatPinned.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Peers/TogglePeerChatPinned.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import Postbox
+ import SwiftSignalKit
+@@ -14,6 +15,9 @@
+ 
+ func _internal_toggleItemPinned(postbox: Postbox, accountPeerId: PeerId, location: TogglePeerChatPinnedLocation, itemId: PinnedItemId) -> Signal<TogglePeerChatPinnedResult, NoError> {
+     return postbox.transaction { transaction -> TogglePeerChatPinnedResult in
++        if case .group(.root) = location, AyuGramSettings.shared.client.pinnedChatLimit > 5 {
++            transaction.ayuEnableLocalRootPins()
++        }
+         let isPremium = transaction.getPeer(accountPeerId)?.isPremium ?? false
+         
+         let appConfiguration = transaction.getPreferencesEntry(key: PreferencesKeys.appConfiguration)?.get(AppConfiguration.self) ?? .defaultValue
+@@ -51,12 +55,12 @@
+             
+             let limitCount: Int
+             if case .root = groupId {
+-                limitCount = Int(userLimitsConfiguration.maxPinnedChatCount)
++                limitCount = transaction.ayuHasLocalRootPins ? Int(AyuGramSettings.shared.client.pinnedChatLimit) : Int(userLimitsConfiguration.maxPinnedChatCount)
+             } else {
+                 limitCount = Int(userLimitsConfiguration.maxArchivedPinnedChatCount)
+             }
+             
+-            let count = sameKind.count + additionalCount
++            let count = (groupId == .root && transaction.ayuHasLocalRootPins ? itemIds.count : sameKind.count) + additionalCount
+             if count > limitCount, itemIds.firstIndex(of: itemId) == nil {
+                 return .limitExceeded(count: sameKind.count, limit: limitCount)
+             } else {
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_SynchronizePinnedChatsOperation.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_SynchronizePinnedChatsOperation.swift
+--- a/submodules/TelegramCore/Sources/SyncCore/SyncCore_SynchronizePinnedChatsOperation.swift
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_SynchronizePinnedChatsOperation.swift
+@@ -44,6 +44,7 @@
+ }
+ 
+ public func addSynchronizePinnedChatsOperation(transaction: Transaction, groupId: PeerGroupId) {
++    if groupId == .root, transaction.ayuHasLocalRootPins { return }
+     let rawId: Int32 = groupId.rawValue
+     var previousItemIds = transaction.getPinnedItemIds(groupId: groupId)
+     var updateLocalIndex: Int32?
+diff --git a/submodules/TelegramCore/Sources/State/ManagedSynchronizePinnedChatsOperations.swift b/submodules/TelegramCore/Sources/State/ManagedSynchronizePinnedChatsOperations.swift
+--- a/submodules/TelegramCore/Sources/State/ManagedSynchronizePinnedChatsOperations.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedSynchronizePinnedChatsOperations.swift
+@@ -113,6 +113,7 @@
+ }
+ 
+ private func synchronizePinnedChats(transaction: Transaction, postbox: Postbox, network: Network, accountPeerId: PeerId, stateManager: AccountStateManager, groupId: PeerGroupId, operation: SynchronizePinnedChatsOperation) -> Signal<Void, NoError> {
++    if groupId == .root, transaction.ayuHasLocalRootPins { return .complete() }
+     let initialRemoteItemIds = operation.previousItemIds
+     let initialRemoteItemIdsWithoutSecretChats = initialRemoteItemIds.filter { item in
+         switch item {
+@@ -225,7 +226,7 @@
+             return postbox.transaction { transaction -> Signal<Void, NoError> in
+                 updatePeers(transaction: transaction, accountPeerId: accountPeerId, peers: parsedPeers)
+                 
+-                transaction.setPinnedItemIds(groupId: groupId, itemIds: resultingItemIds)
++                transaction.setPinnedItemIds(groupId: groupId, itemIds: resultingItemIds, fromServer: true)
+                 
+                 transaction.updateCurrentPeerNotificationSettings(notificationSettings)
+                 
+diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+--- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
++++ b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+@@ -5002,7 +5002,7 @@
+                                     var currentItemIds = transaction.getPinnedItemIds(groupId: groupId)
+                                     if !currentItemIds.contains(.peer(peerId)) {
+                                         currentItemIds.insert(.peer(peerId), at: 0)
+-                                        transaction.setPinnedItemIds(groupId: groupId, itemIds: currentItemIds)
++                                        transaction.setPinnedItemIds(groupId: groupId, itemIds: currentItemIds, fromServer: true)
+                                     }
+                                 }
+                         }
+@@ -5012,7 +5012,7 @@
+                                 var currentItemIds = transaction.getPinnedItemIds(groupId: groupId)
+                                 if let index = currentItemIds.firstIndex(of: .peer(peerId)) {
+                                     currentItemIds.remove(at: index)
+-                                    transaction.setPinnedItemIds(groupId: groupId, itemIds: currentItemIds)
++                                    transaction.setPinnedItemIds(groupId: groupId, itemIds: currentItemIds, fromServer: true)
+                                 } else {
+                                     addSynchronizePinnedChatsOperation(transaction: transaction, groupId: groupId)
+                                 }
+@@ -5020,7 +5020,7 @@
+                     case let .reorder(itemIds):
+                         let currentItemIds = transaction.getPinnedItemIds(groupId: groupId)
+                         if Set(itemIds) == Set(currentItemIds) {
+-                            transaction.setPinnedItemIds(groupId: groupId, itemIds: itemIds)
++                            transaction.setPinnedItemIds(groupId: groupId, itemIds: itemIds, fromServer: true)
+                         } else {
+                             addSynchronizePinnedChatsOperation(transaction: transaction, groupId: groupId)
+                         }
+diff --git a/submodules/TelegramCore/Sources/State/Holes.swift b/submodules/TelegramCore/Sources/State/Holes.swift
+--- a/submodules/TelegramCore/Sources/State/Holes.swift
++++ b/submodules/TelegramCore/Sources/State/Holes.swift
+@@ -1266,7 +1266,7 @@
+             }
+             
+             if let replacePinnedItemIds = fetchedChats.pinnedItemIds {
+-                transaction.setPinnedItemIds(groupId: groupId, itemIds: replacePinnedItemIds.map(PinnedItemId.peer))
++                transaction.setPinnedItemIds(groupId: groupId, itemIds: replacePinnedItemIds.map(PinnedItemId.peer), fromServer: true)
+             }
+             
+             for (peerId, summary) in fetchedChats.mentionTagSummaries {
+diff --git a/submodules/TelegramCore/Sources/State/ResetState.swift b/submodules/TelegramCore/Sources/State/ResetState.swift
+--- a/submodules/TelegramCore/Sources/State/ResetState.swift
++++ b/submodules/TelegramCore/Sources/State/ResetState.swift
+@@ -123,7 +123,7 @@
+                 }
+                 
+                 if let replacePinnedItemIds = fetchedChats.pinnedItemIds {
+-                    transaction.setPinnedItemIds(groupId: .root, itemIds: replacePinnedItemIds.map(PinnedItemId.peer))
++                    transaction.setPinnedItemIds(groupId: .root, itemIds: replacePinnedItemIds.map(PinnedItemId.peer), fromServer: true)
+                 }
+                 
+                 for (peerId, summary) in fetchedChats.mentionTagSummaries {
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import UIKit
+ import AsyncDisplayKit
+@@ -637,7 +638,7 @@
+                 credibilityIcon = .scam
+             } else if let emojiStatus = peer.emojiStatus {
+                 statusIcon = .emojiStatus(emojiStatus)
+-            } else if peer.isPremium && !premiumConfiguration.isPremiumDisabled && (peer.id != self.context.account.peerId || self.isSettings || self.isMyProfile) {
++            } else if (peer.isPremium || (peer.id == self.context.account.peerId && AyuGramSettings.shared.client.localPremium)) && !premiumConfiguration.isPremiumDisabled && (peer.id != self.context.account.peerId || self.isSettings || self.isMyProfile) {
+                 credibilityIcon = .premium
+             } else {
+                 credibilityIcon = .none
+@@ -1225,7 +1226,7 @@
+         var panelSubtitleString: (text: String, attributes: MultiScaleTextState.Attributes)?
+         let usernameString: (text: String, attributes: MultiScaleTextState.Attributes)
+         if let peer = peer {
+-            isPremium = peer.isPremium
++            isPremium = peer.isPremium || (peer.id == self.context.account.peerId && AyuGramSettings.shared.client.localPremium)
+             isVerified = peer.isVerified
+             isFake = peer.isFake || peer.isScam
+         }
+diff --git a/submodules/TelegramUI/Components/ChatEntityKeyboardInputNode/Sources/ChatEntityKeyboardInputNode.swift b/submodules/TelegramUI/Components/ChatEntityKeyboardInputNode/Sources/ChatEntityKeyboardInputNode.swift
+--- a/submodules/TelegramUI/Components/ChatEntityKeyboardInputNode/Sources/ChatEntityKeyboardInputNode.swift
++++ b/submodules/TelegramUI/Components/ChatEntityKeyboardInputNode/Sources/ChatEntityKeyboardInputNode.swift
+@@ -149,6 +149,9 @@
+     }
+ 
+     public static func hasPremium(context: AccountContext, chatPeerId: EnginePeer.Id?, premiumIfSavedMessages: Bool) -> Signal<Bool, NoError> {
++        if premiumIfSavedMessages, AyuGramSettings.shared.client.localPremium {
++            return .single(true)
++        }
+         let hasPremium: Signal<Bool, NoError>
+         if premiumIfSavedMessages, let chatPeerId = chatPeerId, chatPeerId == context.account.peerId {
+             hasPremium = .single(true)
+diff --git a/submodules/TelegramUI/Sources/EmojisChatInputContextPanelNode.swift b/submodules/TelegramUI/Sources/EmojisChatInputContextPanelNode.swift
+--- a/submodules/TelegramUI/Sources/EmojisChatInputContextPanelNode.swift
++++ b/submodules/TelegramUI/Sources/EmojisChatInputContextPanelNode.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import Foundation
+ import UIKit
+ import AsyncDisplayKit
+@@ -266,7 +267,7 @@
+         
+         return context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: accountPeerId))
+         |> map { peer -> Bool in
+-            var hasPremium = false
++            var hasPremium = AyuGramSettings.shared.client.localPremium
+             if case let .user(user) = peer, user.isPremium {
+                 hasPremium = true
+             }
+diff --git a/submodules/TelegramUI/Components/Chat/ChatTextInputPanelNode/Sources/ChatTextInputPanelNode.swift b/submodules/TelegramUI/Components/Chat/ChatTextInputPanelNode/Sources/ChatTextInputPanelNode.swift
+--- a/submodules/TelegramUI/Components/Chat/ChatTextInputPanelNode/Sources/ChatTextInputPanelNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatTextInputPanelNode/Sources/ChatTextInputPanelNode.swift
+@@ -4415,7 +4415,7 @@
+         
+         return context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: accountPeerId))
+         |> map { peer -> Bool in
+-            var hasPremium = false
++            var hasPremium = AyuGramSettings.shared.client.localPremium
+             if case let .user(user) = peer, user.isPremium {
+                 hasPremium = true
+             }
+diff --git a/submodules/TelegramUI/Sources/ChatControllerNode.swift b/submodules/TelegramUI/Sources/ChatControllerNode.swift
+--- a/submodules/TelegramUI/Sources/ChatControllerNode.swift
++++ b/submodules/TelegramUI/Sources/ChatControllerNode.swift
+@@ -4969,7 +4969,7 @@
+                             }
+                         }
+                         
+-                        if file.isPremiumEmoji && !self.chatPresentationInterfaceState.isPremium && self.chatPresentationInterfaceState.chatLocation.peerId != self.context.account.peerId && !isPeerSpecific {
++                        if file.isPremiumEmoji && !AyuGramSettings.shared.client.localPremium && !self.chatPresentationInterfaceState.isPremium && self.chatPresentationInterfaceState.chatLocation.peerId != self.context.account.peerId && !isPeerSpecific {
+                             if firstLockedPremiumEmoji == nil {
+                                 firstLockedPremiumEmoji = file
+                             }
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift
+--- a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift
+@@ -1,5 +1,6 @@
+ import Foundation
+ import Postbox
++import SGSimpleSettings
+ 
+ public enum MessageTextEntityType: Equatable {
+     public typealias CustomEntityType = Int32
+@@ -361,7 +362,22 @@
+ }
+ 
+ public class TextEntitiesMessageAttribute: MessageAttribute, Equatable {
+-    public let entities: [MessageTextEntity]
++    private let storedEntities: [MessageTextEntity]
++    public var ayuWireEntities: [MessageTextEntity] { storedEntities }
++    public var entities: [MessageTextEntity] {
++        guard AyuGramSettings.shared.client.localPremium else { return storedEntities }
++        var result = storedEntities
++        for entity in storedEntities {
++            guard case let .TextUrl(url) = entity.type,
++                  let fileId = ayuEmojiFileIdFromLink(url),
++                  !result.contains(where: { candidate in
++                      if case .CustomEmoji = candidate.type { return candidate.range == entity.range }
++                      return false
++                  }) else { continue }
++            result.append(MessageTextEntity(range: entity.range, type: .CustomEmoji(stickerPack: nil, fileId: fileId)))
++        }
++        return result
++    }
+     
+     public var associatedPeerIds: [PeerId] {
+         var result: [PeerId] = []
+@@ -394,19 +410,19 @@
+     }
+     
+     public init(entities: [MessageTextEntity]) {
+-        self.entities = entities
++        self.storedEntities = entities
+     }
+     
+     required public init(decoder: PostboxDecoder) {
+-        self.entities = decoder.decodeObjectArrayWithDecoderForKey("entities")
++        self.storedEntities = decoder.decodeObjectArrayWithDecoderForKey("entities")
+     }
+     
+     public func encode(_ encoder: PostboxEncoder) {
+-        encoder.encodeObjectArray(self.entities, forKey: "entities")
++        encoder.encodeObjectArray(self.storedEntities, forKey: "entities")
+     }
+     
+     public static func ==(lhs: TextEntitiesMessageAttribute, rhs: TextEntitiesMessageAttribute) -> Bool {
+-        return lhs.entities == rhs.entities
++        return lhs.storedEntities == rhs.storedEntities
+     }
+ }
+ 
+diff --git a/submodules/TelegramCore/Sources/ApiUtils/TextEntitiesMessageAttribute.swift b/submodules/TelegramCore/Sources/ApiUtils/TextEntitiesMessageAttribute.swift
+--- a/submodules/TelegramCore/Sources/ApiUtils/TextEntitiesMessageAttribute.swift
++++ b/submodules/TelegramCore/Sources/ApiUtils/TextEntitiesMessageAttribute.swift
+@@ -92,5 +92,5 @@
+ }
+ 
+ func apiTextAttributeEntities(_ attribute: TextEntitiesMessageAttribute, associatedPeers: SimpleDictionary<PeerId, Peer>) -> [Api.MessageEntity] {
+-    return apiEntitiesFromMessageTextEntities(attribute.entities, associatedPeers: associatedPeers)
++    return apiEntitiesFromMessageTextEntities(attribute.ayuWireEntities, associatedPeers: associatedPeers)
+ }
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift
+new file mode 100644
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift
+@@ -0,0 +1,72 @@
++import Foundation
++import Postbox
++import SwiftSignalKit
++import SGSimpleSettings
++
++public func ayuEmojiFileIdFromLink(_ url: String) -> Int64? {
++    guard let components = URLComponents(string: url), components.scheme == "https",
++          components.host == "t.me", components.path.hasPrefix("/addemoji/"),
++          components.path.count > "/addemoji/".count,
++          let fragment = components.fragment, fragment.hasPrefix("ayuemoji_"),
++          let id = Int64(fragment.dropFirst("ayuemoji_".count)), id != 0 else { return nil }
++    return id
++}
++
++/// Convert only new text/caption entities. Files, other formatting and ranges
++/// stay untouched; the original text already contains the native emoji alt.
++func ayuPrepareEmojiLinks(account: Account, peerId: PeerId, messages: [(Bool, EnqueueMessage)]) -> Signal<[(Bool, EnqueueMessage)], NoError> {
++    guard AyuGramSettings.shared.client.localPremium,
++          peerId.namespace != Namespaces.Peer.SecretChat else { return .single(messages) }
++    var ids = Set<Int64>()
++    for (_, message) in messages {
++        if case .message = message {
++            for attribute in message.attributes {
++                if let attribute = attribute as? TextEntitiesMessageAttribute {
++                    for entity in attribute.ayuWireEntities {
++                        if case let .CustomEmoji(_, fileId) = entity.type { ids.insert(fileId) }
++                    }
++                }
++            }
++        }
++    }
++    guard !ids.isEmpty else { return .single(messages) }
++    return _internal_resolveInlineStickers(postbox: account.postbox, network: account.network, fileIds: Array(ids))
++    |> mapToSignal { files -> Signal<[(Bool, EnqueueMessage)], NoError> in
++        var nameSignals: [Signal<(Int64, String?), NoError>] = []
++        for fileId in ids.sorted() {
++            var reference: StickerPackReference?
++            for attribute in files[fileId]?.attributes ?? [] {
++                if case let .CustomEmoji(_, _, _, pack) = attribute { reference = pack }
++            }
++            guard let reference else { nameSignals.append(.single((fileId, nil))); continue }
++            nameSignals.append(_internal_loadedStickerPack(postbox: account.postbox, network: account.network, reference: reference, forceActualized: false)
++            |> filter { pack in if case .fetching = pack { return false }; return true }
++            |> take(1)
++            |> map { pack -> (Int64, String?) in
++                if case let .result(info, _, _) = pack, !info.shortName.isEmpty { return (fileId, info.shortName) }
++                return (fileId, nil)
++            })
++        }
++        return combineLatest(nameSignals)
++        |> map { pairs in
++            var names: [Int64: String] = [:]
++            for (id, name) in pairs { if let name { names[id] = name } }
++            return messages.map { transformed, message in
++                guard case .message = message else { return (transformed, message) }
++                return (transformed, message.withUpdatedAttributes { attributes in
++                    attributes.map { attribute -> MessageAttribute in
++                        guard let attribute = attribute as? TextEntitiesMessageAttribute else { return attribute }
++                        let entities = attribute.ayuWireEntities.compactMap { entity -> MessageTextEntity? in
++                            guard case let .CustomEmoji(_, fileId) = entity.type else { return entity }
++                            // Offline/unavailable pack: retain ordinary alt emoji,
++                            // never send a premium entity or invent a broken URL.
++                            guard let name = names[fileId] else { return nil }
++                            return MessageTextEntity(range: entity.range, type: .TextUrl(url: "https://t.me/addemoji/" + name + "#ayuemoji_" + String(fileId)))
++                        }
++                        return TextEntitiesMessageAttribute(entities: entities)
++                    }
++                })
++            }
++        }
++    }
++}
+diff --git a/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift b/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift
+--- a/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift
++++ b/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift
+@@ -577,6 +577,7 @@
+         signal = .single(messages.map { (false, $0) })
+     }
+     return signal
++    |> mapToSignal { messages in ayuPrepareEmojiLinks(account: account, peerId: peerId, messages: messages) }
+     |> mapToSignal { messages -> Signal<[MessageId?], NoError> in
+         return account.postbox.transaction { transaction -> ([MessageId?], [MessageId]) in
+             var resultIds = Array<MessageId?>(repeating: nil, count: messages.count)
