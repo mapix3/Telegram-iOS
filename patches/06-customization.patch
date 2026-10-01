@@ -81,10 +81,9 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift b/
 new file mode 100644
 --- /dev/null
 +++ b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,156 @@
 +import Foundation
 +import UIKit
-+import UniformTypeIdentifiers
 +import PhotosUI
 +import Display
 +import AccountContext
@@ -92,7 +91,7 @@ new file mode 100644
 +import SGSimpleSettings
 +import SGStrings
 +
-+final class AyuGramAppearanceController: UIViewController, PHPickerViewControllerDelegate {
++final class AyuGramAppearanceController: UIViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
 +    private let context: AccountContext
 +    private var stack: UIStackView!
 +    private var pickingVideo = false
@@ -172,6 +171,18 @@ new file mode 100644
 +    @objc private func chooseVideo() { choose(video: true) }
 +    private func choose(video: Bool) {
 +        pickingVideo = video
++        if #available(iOS 14.0, *) {
++            chooseModern(video: video)
++        } else {
++            let picker = UIImagePickerController()
++            picker.sourceType = .photoLibrary
++            picker.mediaTypes = [video ? "public.movie" : "public.image"]
++            picker.delegate = self
++            present(picker, animated: true)
++        }
++    }
++    @available(iOS 14.0, *)
++    private func chooseModern(video: Bool) {
 +        var configuration = PHPickerConfiguration(photoLibrary: .shared())
 +        configuration.filter = video ? .videos : .images
 +        configuration.selectionLimit = 1
@@ -179,27 +190,53 @@ new file mode 100644
 +        picker.delegate = self
 +        present(picker, animated: true)
 +    }
-+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
++    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
 +        picker.dismiss(animated: true)
-+        guard let provider = results.first?.itemProvider else { return }
-+        let video = pickingVideo
-+        provider.loadFileRepresentation(forTypeIdentifier: video ? UTType.movie.identifier : UTType.image.identifier) { [weak self] url, error in
-+            do {
-+                guard error == nil, let url else { throw CocoaError(.fileReadCorruptFile) }
-+                // The provider removes its temporary file when this callback returns.
-+                try AyuGramAppearance.shared.importMedia(url, isVideo: video)
-+            } catch {
-+                DispatchQueue.main.async { [weak self] in
-+                    guard let self else { return }
-+                    let alert = UIAlertController(title: nil, message: i18n("Ayu.MediaImportError", self.strings.baseLanguageCode), preferredStyle: .alert)
-+                    alert.addAction(UIAlertAction(title: self.strings.Common_OK, style: .default))
-+                    self.present(alert, animated: true)
-+                }
++    }
++    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
++        picker.dismiss(animated: true)
++        do {
++            if let url = info[pickingVideo ? .mediaURL : .imageURL] as? URL {
++                try AyuGramAppearance.shared.importMedia(url, isVideo: pickingVideo)
++            } else if !pickingVideo, let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.95) {
++                let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
++                defer { try? FileManager.default.removeItem(at: temporary) }
++                try data.write(to: temporary, options: .atomic)
++                try AyuGramAppearance.shared.importMedia(temporary, isVideo: false)
++            } else {
++                throw CocoaError(.fileReadCorruptFile)
 +            }
++        } catch {
++            showImportError()
++        }
++    }
++    private func showImportError() {
++        DispatchQueue.main.async { [weak self] in
++            guard let self else { return }
++            let alert = UIAlertController(title: nil, message: i18n("Ayu.MediaImportError", self.strings.baseLanguageCode), preferredStyle: .alert)
++            alert.addAction(UIAlertAction(title: self.strings.Common_OK, style: .default))
++            self.present(alert, animated: true)
 +        }
 +    }
 +    @objc private func close() { dismiss(animated: true) }
 +    @objc private func reset() { AyuGramAppearance.shared.reset(); dismiss(animated: true) }
++}
++
++@available(iOS 14.0, *)
++extension AyuGramAppearanceController: PHPickerViewControllerDelegate {
++    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
++        picker.dismiss(animated: true)
++        guard let provider = results.first?.itemProvider else { return }
++        let video = pickingVideo
++        provider.loadFileRepresentation(forTypeIdentifier: video ? "public.movie" : "public.image") { [weak self] url, error in
++            do {
++                guard error == nil, let url else { throw CocoaError(.fileReadCorruptFile) }
++                try AyuGramAppearance.shared.importMedia(url, isVideo: video)
++            } catch {
++                self?.showImportError()
++            }
++        }
++    }
 +}
 diff --git a/submodules/Display/Source/AyuGramBackdropView.swift b/submodules/Display/Source/AyuGramBackdropView.swift
 new file mode 100644
