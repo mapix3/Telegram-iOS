@@ -1,13 +1,15 @@
 {
   ".github/workflows/ayugram-ios.yml": "94419ba8e86b1e7de5f6110aa3b3ff2ae467257301e53daa3c179bd87677cfae",
   "docs/AYUGRAM-ARCHITECTURE.md": "9b36e15af3b7bc3a00f45a1e9cf2c926f6208da55e98bd41d4f1bdd6338380aa",
+  "docs/AYUGRAM-CLIENT-EXTRAS.md": "8cddef7ec3653265fe8976f158351c2088df0ffed40f673c163392d4882565f3",
   "docs/AYUGRAM-FOLLOWUP.md": "b5bc1c071c5bc4c877280674d988a41d09380e6f8e25c4346d1f355ac07cad80",
-  "docs/AYUGRAM-VALIDATION.md": "44e16ca08caf7ec2e4b475041364075f67643a176dddda7adeba52c866ae77a4",
+  "docs/AYUGRAM-VALIDATION.md": "d972592570d4c81eb02a75299cfddf6f98a8ee4c524ebde4f3d118c504a4916d",
   "patches/01-privacy.patch": "40052ab7abc609ae5f6b4e6e6477baf703b25562ad2b071d5ac35e1a74df8723",
   "patches/02-history.patch": "f4b1c0ee9dad85b8f6a8129a5c20916b0be3266e46012221ccc2e9dc534f6687",
-  "patches/03-local-read-media.patch": "a000966c86acae6d508ea165309135e7cf21410dffdae9dc083552339b223619",
-  "scripts/ayugram-tests/AyuGramSettingsTests.swift": "78108abf1b68480962620499e40e5f0da8983afdf575bf946e0574ce09d61b91",
+  "patches/03-local-read-media.patch": "8efc20e6b83d855cc8fd0184b22e44bce9cff480eaf8ec815043193ef317158c",
+  "patches/04-client-extras.patch": "a72884dc442ba85bea50f0049fb3ad4748a4293b64359eab03a8101a3d6d235b",
+  "scripts/ayugram-tests/AyuGramSettingsTests.swift": "9c1e6f75248c07c53c68682c4f3edcef71f8505d41ea89b0634e20a35bf322fa",
   "scripts/ayugram-tests/test_ci.py": "260c3041a68be10030b15f65618d0b7e1092d3bfb1c6826b17e87b7caaa70005",
-  "scripts/ayugram_ci.py": "0906a1c8cdc647d3e7658891957ab55597f80e42f069b96d3ab1fd09bbbc2ac1",
+  "scripts/ayugram_ci.py": "a39cca7ac93394dd986148d891720febcf7d2429ae7627109a22dec5f95d3e13",
   "START-HERE.md": "f383a40ea910f40d82bdef8d38da56afaa53da7bf0389be89c9c1feb32cd0331"
 }
