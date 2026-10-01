@@ -1,0 +1,1535 @@
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+@@ -19,6 +19,11 @@
+     public let timestamp: Int32
+     public var photoFileName: String?
+     public var photoResourceId: String?
++    public var authorId: Int64?
++    public var messageTimestamp: Int32?
++    public var mediaKind: String?
++    public var mediaTitle: String?
++    public var updatedText: String?
+ }
+ 
+ private struct AyuGramHistory: Codable { var entries: [AyuGramHistoryEntry] }
+@@ -34,10 +39,15 @@
+     return archiveDirectory(mediaBox).appendingPathComponent(name)
+ }
+ 
+-private func pruneHistory(_ history: inout AyuGramHistory, mediaBox: MediaBox) {
++private func pruneHistory(_ history: inout AyuGramHistory, transaction: Transaction, mediaBox: MediaBox) {
++    let previous = history.entries
+     let threshold = Int32(Date().timeIntervalSince1970) - 30 * 24 * 60 * 60
+     history.entries.removeAll { $0.timestamp < threshold }
+     history.entries = Array(history.entries.suffix(200))
++    let retained = Set(history.entries.filter { $0.event == "deleted" }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) })
++    let expired = Set(previous.filter { $0.event == "deleted" }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) }).subtracting(retained)
++    let tombstones = expired.filter { transaction.getMessage($0)?.ayuHistory?.deletedAt != nil }
++    transaction.deleteMessages(Array(tombstones), forEachMedia: { _ in })
+     let keep = Set(history.entries.compactMap { $0.photoFileName })
+     let directory = archiveDirectory(mediaBox)
+     var total: Int64 = 0
+@@ -55,19 +65,28 @@
+     }
+ }
+ 
+-func ayuGramRecordHistory(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], event: String) {
+-    guard AyuGramSettings.shared.snapshot.messageHistory else { return }
++@discardableResult
++func ayuGramRecordHistory(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], event: String) -> Set<MessageId> {
++    guard AyuGramSettings.shared.snapshot.messageHistory else { return [] }
+     let policy = transaction.getPreferencesEntry(key: ayuGramHistoryPolicyKey)?.get(AyuGramHistoryPolicy.self) ?? AyuGramHistoryPolicy()
+     let selected = Set(policy.selectedChats)
+-    guard !selected.isEmpty else { return }
++    guard !selected.isEmpty else { return [] }
+     var history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self) ?? AyuGramHistory(entries: [])
+     let now = Int32(Date().timeIntervalSince1970)
++    var recorded = Set<MessageId>()
+     for id in ids {
+         guard selected.contains(id.peerId.toInt64()), id.namespace == Namespaces.Message.Cloud,
+               id.peerId.namespace != Namespaces.Peer.SecretChat,
+               let message = transaction.getMessage(id), !message.containsSecretMedia,
+               !message.isCopyProtected(),
+               !message.attributes.contains(where: { $0 is AutoremoveTimeoutMessageAttribute || $0 is AutoclearTimeoutMessageAttribute }) else { continue }
++        if event == "deleted", message.ayuHistory?.deletedAt != nil {
++            recorded.insert(id)
++            continue
++        }
++        var kind = "photo"
++        var mediaTitle: String?
++        var fileExtension = "jpg"
+         var source: String?
+         var resourceId: String?
+         if policy.savePhotos {
+@@ -81,13 +100,26 @@
+                 }
+                 if source != nil { break }
+             }
++            if source == nil {
++                for file in message.media.compactMap({ $0 as? TelegramMediaFile }) {
++                    if let path = mediaBox.completedResourcePath(file.resource) {
++                        source = path
++                        resourceId = file.resource.id.stringRepresentation
++                        kind = file.isVideo ? "video" : "file"
++                        mediaTitle = file.fileName
++                        let suffix = URL(fileURLWithPath: file.fileName ?? "").pathExtension
++                        fileExtension = !suffix.isEmpty && suffix.count <= 10 && suffix.allSatisfy({ $0.isLetter || $0.isNumber }) ? suffix : (file.isVideo ? "mp4" : "bin")
++                        break
++                    }
++                }
++            }
+         }
+         let text = String(message.text.prefix(4096))
+         guard !text.isEmpty || source != nil else { continue }
+-        if let previous = history.entries.last(where: { $0.peerId == id.peerId.toInt64() && $0.messageId == id.id && $0.event == event }), previous.text == text, previous.photoResourceId == resourceId { continue }
++        if let previous = history.entries.last(where: { $0.peerId == id.peerId.toInt64() && $0.messageId == id.id && $0.event == event }), previous.text == text, previous.photoResourceId == resourceId { recorded.insert(id); continue }
+         var fileName: String?
+         if let source, let size = (try? FileManager.default.attributesOfItem(atPath: source)[.size]) as? NSNumber, size.int64Value <= 20 * 1024 * 1024 {
+-            let name = UUID().uuidString + ".jpg"
++            let name = UUID().uuidString + "." + fileExtension
+             let directory = archiveDirectory(mediaBox)
+             do {
+                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+@@ -102,9 +134,18 @@
+             } catch { fileName = nil }
+         }
+         guard !text.isEmpty || fileName != nil else { continue }
+-        history.entries.append(AyuGramHistoryEntry(peerId: id.peerId.toInt64(), messageId: id.id, peerTitle: String((transaction.getPeer(id.peerId)?.debugDisplayTitle ?? "").prefix(256)), author: String((message.author?.debugDisplayTitle ?? "").prefix(256)), text: text, event: event, timestamp: now, photoFileName: fileName, photoResourceId: resourceId))
++        history.entries.append(AyuGramHistoryEntry(peerId: id.peerId.toInt64(), messageId: id.id, peerTitle: String((transaction.getPeer(id.peerId)?.debugDisplayTitle ?? "").prefix(256)), author: String((message.author?.debugDisplayTitle ?? "").prefix(256)), text: text, event: event, timestamp: now, photoFileName: fileName, photoResourceId: resourceId, authorId: message.author?.id.toInt64(), messageTimestamp: message.timestamp, mediaKind: kind, mediaTitle: mediaTitle))
++        recorded.insert(id)
+     }
+-    pruneHistory(&history, mediaBox: mediaBox)
++    pruneHistory(&history, transaction: transaction, mediaBox: mediaBox)
++    transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
++    let kept = Set(history.entries.filter { $0.event == event }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) })
++    return recorded.intersection(kept)
++}
++
++func ayuGramCompleteEditSnapshot(transaction: Transaction, id: MessageId, updatedText: String) {
++    guard var history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self), let index = history.entries.lastIndex(where: { $0.peerId == id.peerId.toInt64() && $0.messageId == id.id && $0.event == "edited" }) else { return }
++    history.entries[index].updatedText = String(updatedText.prefix(4096))
+     transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
+ }
+ 
+@@ -126,7 +167,7 @@
+     func ayuGramMessageHistory() -> Signal<[AyuGramHistoryEntry], NoError> {
+         return self.account.postbox.transaction { transaction in
+             var history = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self) ?? AyuGramHistory(entries: [])
+-            pruneHistory(&history, mediaBox: self.account.postbox.mediaBox)
++            pruneHistory(&history, transaction: transaction, mediaBox: self.account.postbox.mediaBox)
+             transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: PreferencesEntry(history))
+             return Array(history.entries.reversed())
+         }
+@@ -134,7 +175,11 @@
+     func ayuGramClearMessageHistory() -> Signal<Void, NoError> {
+         return self.account.postbox.transaction { transaction in
+             var empty = AyuGramHistory(entries: [])
+-            pruneHistory(&empty, mediaBox: self.account.postbox.mediaBox)
++            var old = transaction.getPreferencesEntry(key: ayuGramHistoryKey)?.get(AyuGramHistory.self) ?? empty
++            let ids = Set(old.entries.filter { $0.event == "deleted" }.map { MessageId(peerId: PeerId($0.peerId), namespace: Namespaces.Message.Cloud, id: $0.messageId) })
++            transaction.deleteMessages(Array(ids.filter { transaction.getMessage($0)?.ayuHistory?.deletedAt != nil }), forEachMedia: { _ in })
++            old.entries.removeAll()
++            pruneHistory(&empty, transaction: transaction, mediaBox: self.account.postbox.mediaBox)
+             transaction.setPreferencesEntry(key: ayuGramHistoryKey, value: nil)
+         }
+     }
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_AyuHistoryMessageAttribute.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_AyuHistoryMessageAttribute.swift
+new file mode 100644
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_AyuHistoryMessageAttribute.swift
+@@ -0,0 +1,30 @@
++import Foundation
++import Postbox
++
++public final class AyuHistoryMessageAttribute: MessageAttribute {
++    public var retainedOnServerRefresh: Bool { true }
++    public let originalText: String
++    public let editedAt: Int32?
++    public let deletedAt: Int32?
++    public init(originalText: String, editedAt: Int32?, deletedAt: Int32?) {
++        self.originalText = originalText
++        self.editedAt = editedAt
++        self.deletedAt = deletedAt
++    }
++    public init(decoder: PostboxDecoder) {
++        self.originalText = decoder.decodeStringForKey("t", orElse: "")
++        self.editedAt = decoder.decodeOptionalInt32ForKey("e")
++        self.deletedAt = decoder.decodeOptionalInt32ForKey("d")
++    }
++    public func encode(_ encoder: PostboxEncoder) {
++        encoder.encodeString(self.originalText, forKey: "t")
++        if let editedAt { encoder.encodeInt32(editedAt, forKey: "e") } else { encoder.encodeNil(forKey: "e") }
++        if let deletedAt { encoder.encodeInt32(deletedAt, forKey: "d") } else { encoder.encodeNil(forKey: "d") }
++    }
++}
++
++public extension Message {
++    var ayuHistory: AyuHistoryMessageAttribute? {
++        return self.attributes.first(where: { $0 is AyuHistoryMessageAttribute }) as? AyuHistoryMessageAttribute
++    }
++}
+diff --git a/submodules/TelegramCore/Sources/Account/AccountManager.swift b/submodules/TelegramCore/Sources/Account/AccountManager.swift
+--- a/submodules/TelegramCore/Sources/Account/AccountManager.swift
++++ b/submodules/TelegramCore/Sources/Account/AccountManager.swift
+@@ -137,6 +137,7 @@
+     declareEncodable(ForwardSourceInfoAttribute.self, f: { ForwardSourceInfoAttribute(decoder: $0) })
+     declareEncodable(SourceReferenceMessageAttribute.self, f: { SourceReferenceMessageAttribute(decoder: $0) })
+     declareEncodable(SourceAuthorInfoMessageAttribute.self, f: { SourceAuthorInfoMessageAttribute(decoder: $0) })
++    declareEncodable(AyuHistoryMessageAttribute.self, f: { AyuHistoryMessageAttribute(decoder: $0) })
+     declareEncodable(EditedMessageAttribute.self, f: { EditedMessageAttribute(decoder: $0) })
+     declareEncodable(ReplyMarkupMessageAttribute.self, f: { ReplyMarkupMessageAttribute(decoder: $0) })
+     declareEncodable(OutgoingChatContextResultMessageAttribute.self, f: { OutgoingChatContextResultMessageAttribute(decoder: $0) })
+diff --git a/submodules/Postbox/Sources/Message.swift b/submodules/Postbox/Sources/Message.swift
+--- a/submodules/Postbox/Sources/Message.swift
++++ b/submodules/Postbox/Sources/Message.swift
+@@ -477,6 +477,10 @@
+             rawValue |= MessageFlags.IsForumTopic.rawValue
+         }
+         
++        if flags.contains(StoreMessageFlags.AyuLocallyDeleted) {
++            rawValue |= MessageFlags.AyuLocallyDeleted.rawValue
++        }
++
+         if flags.contains(StoreMessageFlags.ReactionsArePossible) {
+             rawValue |= MessageFlags.ReactionsArePossible.rawValue
+         }
+@@ -497,6 +501,8 @@
+     public static let ReactionsArePossible = MessageFlags(rawValue: 2048)
+     
+     public static let IsIncomingMask = MessageFlags([.Incoming, .CountedAsIncoming])
++    public static let AyuLocallyDeleted = MessageFlags(rawValue: 1 << 16)
++    var ayuCountsAsIncoming: Bool { !self.contains(.AyuLocallyDeleted) && !self.intersection(.IsIncomingMask).isEmpty }
+ }
+ 
+ public struct StoreMessageForwardInfo {
+@@ -613,6 +619,7 @@
+ }
+ 
+ public protocol MessageAttribute: AnyObject, PostboxCoding {
++    var retainedOnServerRefresh: Bool { get }
+     var associatedPeerIds: [PeerId] { get }
+     var associatedMessageIds: [MessageId] { get }
+     var associatedMediaIds: [MediaId] { get }
+@@ -621,6 +628,7 @@
+ }
+ 
+ public extension MessageAttribute {
++    var retainedOnServerRefresh: Bool { false }
+     var associatedPeerIds: [PeerId] {
+         return []
+     }
+@@ -850,6 +858,10 @@
+             rawValue |= StoreMessageFlags.IsForumTopic.rawValue
+         }
+         
++        if flags.contains(MessageFlags.AyuLocallyDeleted) {
++            rawValue |= StoreMessageFlags.AyuLocallyDeleted.rawValue
++        }
++
+         if flags.contains(.ReactionsArePossible) {
+             rawValue |= StoreMessageFlags.ReactionsArePossible.rawValue
+         }
+@@ -870,6 +882,8 @@
+     public static let ReactionsArePossible = StoreMessageFlags(rawValue: 2048)
+     
+     public static let IsIncomingMask = StoreMessageFlags([.Incoming, .CountedAsIncoming])
++    public static let AyuLocallyDeleted = StoreMessageFlags(rawValue: 1 << 16)
++    var ayuCountsAsIncoming: Bool { !self.contains(.AyuLocallyDeleted) && !self.intersection(.IsIncomingMask).isEmpty }
+ }
+ 
+ public enum StoreMessageId {
+diff --git a/submodules/Postbox/Sources/MessageHistoryTable.swift b/submodules/Postbox/Sources/MessageHistoryTable.swift
+--- a/submodules/Postbox/Sources/MessageHistoryTable.swift
++++ b/submodules/Postbox/Sources/MessageHistoryTable.swift
+@@ -347,7 +347,7 @@
+                             self.timeBasedAttributesTable.set(tag: tag, id: message.id, timestamp: timestamp, operations: &timestampBasedMessageAttributesOperations)
+                         }
+                     }
+-                    if self.seedConfiguration.chatMessagesNamespaces.contains(message.id.namespace) && !message.flags.intersection(.IsIncomingMask).isEmpty {
++                    if self.seedConfiguration.chatMessagesNamespaces.contains(message.id.namespace) && message.flags.ayuCountsAsIncoming {
+                         accumulatedAddedIncomingMessageIndices.insert(message.index)
+                     }
+                 case let .InsertExistingMessage(storeMessage):
+@@ -377,7 +377,7 @@
+                             outputOperations.append(.UpdateGroupInfos(updatedGroupInfos))
+                         }
+                         
+-                        if self.seedConfiguration.chatMessagesNamespaces.contains(message.id.namespace) && !message.flags.intersection(.IsIncomingMask).isEmpty {
++                        if self.seedConfiguration.chatMessagesNamespaces.contains(message.id.namespace) && message.flags.ayuCountsAsIncoming {
+                             if index != message.index {
+                                 accumulatedRemoveIndices.append(index)
+                                 accumulatedAddedIncomingMessageIndices.insert(message.index)
+@@ -655,7 +655,7 @@
+         var topMessageId: (MessageId.Id, Bool)?
+         if let index = self.topIndexEntry(peerId: messageId.peerId, namespace: messageId.namespace) {
+             if let message = self.getMessage(index) {
+-                topMessageId = (index.id.id, message.flags.intersection(.IsIncomingMask).isEmpty)
++                topMessageId = (index.id.id, !message.flags.ayuCountsAsIncoming)
+             } else {
+                 topMessageId = (index.id.id, false)
+             }
+@@ -719,7 +719,7 @@
+         var topMessageId: (MessageId.Id, Bool)?
+         if let index = self.topIndexEntry(peerId: messageIndex.id.peerId, namespace: messageIndex.id.namespace) {
+             if let message = self.getMessage(index) {
+-                topMessageId = (index.id.id, message.flags.intersection(.IsIncomingMask).isEmpty)
++                topMessageId = (index.id.id, !message.flags.ayuCountsAsIncoming)
+             } else {
+                 topMessageId = (index.id.id, false)
+             }
+@@ -1551,6 +1551,9 @@
+     
+     private func justUpdate(_ index: MessageIndex, message: InternalStoreMessage, keepLocalTags: Bool, sharedKey: ValueBoxKey, sharedBuffer: WriteBuffer, sharedEncoder: PostboxEncoder, unsentMessageOperations: inout [IntermediateMessageHistoryUnsentOperation], updatedMessageTagSummaries: inout [MessageHistoryTagsSummaryKey: MessageHistoryTagNamespaceSummary], invalidateMessageTagSummaries: inout [InvalidatedMessageHistoryTagsSummaryEntryOperation], updatedGroupInfos: inout [MessageId: MessageGroupInfo], localTagsOperations: inout [IntermediateMessageHistoryLocalTagsOperation], timestampBasedMessageAttributesOperations: inout [TimestampBasedMessageAttributesOperation], updatedMedia: inout [MediaId: Media?]) -> (IntermediateMessage, MessageTags, Int64?)? {
+         if let previousMessage = self.getMessage(index) {
++            if previousMessage.flags.contains(.AyuLocallyDeleted) && !message.flags.contains(.AyuLocallyDeleted) {
++                return (previousMessage, previousMessage.tags, previousMessage.threadId)
++            }
+             var mediaToUpdate: [Media] = []
+             
+             var previousEmbeddedMediaWithIds: [(MediaId, Media)] = []
+@@ -1610,6 +1613,11 @@
+             }
+             
+             var updatedAttributes = message.attributes
++            for attribute in MessageHistoryTable.renderMessageAttributes(previousMessage) where attribute.retainedOnServerRefresh {
++                if !updatedAttributes.contains(where: { ObjectIdentifier(type(of: $0)) == ObjectIdentifier(type(of: attribute)) }) {
++                    updatedAttributes.append(attribute)
++                }
++            }
+             self.seedConfiguration.mergeMessageAttributes(previousAttributes, &updatedAttributes)
+             
+             self.valueBox.remove(self.table, key: self.key(index), secure: true)
+@@ -3017,7 +3025,7 @@
+             let key = self.key(index)
+             if let value = self.valueBox.get(self.table, key: key) {
+                 let entry = self.readIntermediateEntry(key, value: value)
+-                if entry.message.id.namespace == namespace && !entry.message.flags.intersection(.IsIncomingMask).isEmpty {
++                if entry.message.id.namespace == namespace && entry.message.flags.ayuCountsAsIncoming {
+                     count += 1
+                 }
+             } else {
+@@ -3039,7 +3047,7 @@
+         if fromIndex <= toIndex {
+             self.valueBox.range(self.table, start: self.key(fromIndex).predecessor, end: self.key(toIndex).successor, values: { key, value in
+                 let entry = self.readIntermediateEntry(key, value: value)
+-                if entry.message.id.namespace == namespace && !entry.message.flags.intersection(.IsIncomingMask).isEmpty {
++                if entry.message.id.namespace == namespace && entry.message.flags.ayuCountsAsIncoming {
+                     count += 1
+                     messageIds.append(entry.message.id)
+                 }
+@@ -3058,7 +3066,7 @@
+         var messageIds: [MessageId] = []
+         self.valueBox.range(self.table, start: self.key(fromIndex).predecessor, end: self.key(toIndex).successor, values: { key, value in
+             let entry = self.readIntermediateEntry(key, value: value)
+-            if entry.message.flags.intersection(.IsIncomingMask).isEmpty {
++            if !entry.message.flags.ayuCountsAsIncoming {
+                 messageIds.append(entry.message.id)
+             }
+             return true
+diff --git a/submodules/Postbox/Sources/MessageHistoryView.swift b/submodules/Postbox/Sources/MessageHistoryView.swift
+--- a/submodules/Postbox/Sources/MessageHistoryView.swift
++++ b/submodules/Postbox/Sources/MessageHistoryView.swift
+@@ -1485,7 +1485,7 @@
+                                     }
+                                     if let _ = maxNamespaceIndex , index + 1 < entries.count {
+                                         for i in index + 1 ..< entries.count {
+-                                            if entries[i].message.flags.intersection(.IsIncomingMask).isEmpty {
++                                            if !entries[i].message.flags.ayuCountsAsIncoming {
+                                                 maxNamespaceIndex = entries[i].message.index
+                                             } else {
+                                                 break
+@@ -1541,7 +1541,7 @@
+                         }
+                         if let _ = maxNamespaceIndex , index + 1 < entries.count {
+                             for i in index + 1 ..< entries.count {
+-                                if entries[i].message.flags.intersection(.IsIncomingMask).isEmpty {
++                                if !entries[i].message.flags.ayuCountsAsIncoming {
+                                     maxNamespaceIndex = entries[i].message.index
+                                 } else {
+                                     break
+@@ -1635,7 +1635,7 @@
+                                 }
+                                 if let _ = maxNamespaceIndex , index + 1 < entries.count {
+                                     for i in index + 1 ..< entries.count {
+-                                        if entries[i].message.flags.intersection(.IsIncomingMask).isEmpty {
++                                        if !entries[i].message.flags.ayuCountsAsIncoming {
+                                             maxNamespaceIndex = entries[i].message.index
+                                         } else {
+                                             break
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
+new file mode 100644
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
+@@ -0,0 +1,32 @@
++import Foundation
++import Postbox
++
++func ayuGramDeleteRemoteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], manualAddMessageThreadStatsDifference: ((MessageThreadKey, Int, Int) -> Void)? = nil) {
++    let ids = ids.filter { transaction.getMessage($0)?.ayuHistory?.deletedAt == nil }
++    guard !ids.isEmpty else { return }
++    let recorded = ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: ids, event: "deleted")
++    let policy = transaction.getPreferencesEntry(key: applicationSpecificPreferencesKey(0x415956))?.get(AyuGramHistoryPolicy.self) ?? AyuGramHistoryPolicy()
++    var retained: [StoreMessage] = []
++    for id in ids where recorded.contains(id) {
++        guard let message = transaction.getMessage(id) else { continue }
++        var attributes = message.attributes.filter { !($0 is AyuHistoryMessageAttribute) }
++        attributes.append(AyuHistoryMessageAttribute(originalText: message.ayuHistory?.originalText ?? message.text, editedAt: message.ayuHistory?.editedAt, deletedAt: message.ayuHistory?.deletedAt ?? Int32(Date().timeIntervalSince1970)))
++        var flags = StoreMessageFlags(message.flags)
++        flags.insert(.AyuLocallyDeleted)
++        flags.remove(.TopIndexable)
++        flags.remove(.ReactionsArePossible)
++        retained.append(StoreMessage(id: .Id(id), customStableId: message.stableId, globallyUniqueId: message.globallyUniqueId, groupingKey: message.groupingKey, threadId: message.threadId, timestamp: message.timestamp, flags: flags, tags: [], globalTags: [], localTags: [], forwardInfo: message.forwardInfo.map(StoreMessageForwardInfo.init), authorId: message.author?.id, text: message.text, attributes: attributes, media: policy.savePhotos ? message.media : []))
++    }
++    _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: manualAddMessageThreadStatsDifference)
++    let _ = transaction.addMessages(retained, location: .Random)
++}
++
++func ayuGramRecordEdit(transaction: Transaction, mediaBox: MediaBox, id: MessageId, updated: StoreMessage) -> AyuHistoryMessageAttribute? {
++    guard let previous = transaction.getMessage(id), previous.ayuHistory?.deletedAt == nil else { return nil }
++    let changed = previous.text != updated.text || !areMediaArraysEqual(previous.media, updated.media)
++    guard changed else { return previous.ayuHistory }
++    let saved = ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: [id], event: "edited")
++    guard saved.contains(id) else { return previous.ayuHistory }
++    ayuGramCompleteEditSnapshot(transaction: transaction, id: id, updatedText: updated.text)
++    return AyuHistoryMessageAttribute(originalText: previous.ayuHistory?.originalText ?? previous.text, editedAt: Int32(Date().timeIntervalSince1970), deletedAt: nil)
++}
+diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+--- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
++++ b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+@@ -4440,18 +4440,10 @@
+                     }
+                 }
+             case let .DeleteMessagesWithGlobalIds(ids):
+-                ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: transaction.messageIdsForGlobalIds(ids), event: "deleted")
+-                var resourceIds: [MediaResourceId] = []
+-                transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in
+-                    addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
+-                })
+-                if !resourceIds.isEmpty {
+-                    let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
+-                }
++                ayuGramDeleteRemoteMessages(transaction: transaction, mediaBox: mediaBox, ids: transaction.messageIdsForGlobalIds(ids))
+                 deletedMessageIds.append(contentsOf: ids.map { .global($0) })
+             case let .DeleteMessages(ids):
+-                ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: ids, event: "deleted")
+-                _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
++                ayuGramDeleteRemoteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
+                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+                 })
+                 deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })
+@@ -4488,14 +4480,13 @@
+                     invalidateGroupStats.insert(Namespaces.PeerGroup.archive)
+                 }
+             case let .EditMessage(id, message):
+-                if let previous = transaction.getMessage(id), previous.text != message.text {
+-                    ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: [id], event: "edited")
+-                }
++                let ayuEdit = ayuGramRecordEdit(transaction: transaction, mediaBox: mediaBox, id: id, updated: message)
+                 var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
+                 transaction.updateMessage(id, update: { previousMessage in
+                     var updatedFlags = message.flags
+                     var updatedLocalTags = message.localTags
+                     var updatedAttributes = message.attributes
++                    if let ayuEdit { updatedAttributes.append(ayuEdit) }
+                     if previousMessage.localTags.contains(.OutgoingLiveLocation) {
+                         updatedLocalTags.insert(.OutgoingLiveLocation)
+                     }
+diff --git a/submodules/TelegramCore/Sources/State/HistoryViewStateValidation.swift b/submodules/TelegramCore/Sources/State/HistoryViewStateValidation.swift
+--- a/submodules/TelegramCore/Sources/State/HistoryViewStateValidation.swift
++++ b/submodules/TelegramCore/Sources/State/HistoryViewStateValidation.swift
+@@ -862,11 +862,13 @@
+                 |> mapToSignal { removedMessageIds -> Signal<Void, NoError> in
+                     return postbox.transaction { transaction -> Void in
+                         var validMessageIds = Set<MessageId>()
+-                        for message in storeMessages {
++                        for var message in storeMessages {
+                             if case let .Id(id) = message.id {
+                                 validMessageIds.insert(id)
+                                 let previousMessage = previous[id] ?? transaction.getMessage(id)
+                                 
++                                let ayuEdit = ayuGramRecordEdit(transaction: transaction, mediaBox: postbox.mediaBox, id: id, updated: message)
++                                if let ayuEdit { message = message.withUpdatedAttributes(message.attributes + [ayuEdit]) }
+                                 if let previousMessage = previousMessage {
+                                     var updatedTimestamp = message.timestamp
+                                     inner: for attribute in message.attributes {
+@@ -885,7 +887,7 @@
+                                     }
+                                     
+                                     transaction.updateMessage(id, update: { currentMessage in
+-                                        if updatedTimestamp != timestamp {
++                                        if updatedTimestamp != timestamp || previousMessage.text != message.text || !areMediaArraysEqual(previousMessage.media, message.media) {
+                                             var updatedLocalTags = message.localTags
+                                             if currentMessage.localTags.contains(.OutgoingLiveLocation) {
+                                                 updatedLocalTags.insert(.OutgoingLiveLocation)
+@@ -984,7 +986,7 @@
+                                         return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: updatedTags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: storeForwardInfo, authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
+                                     })
+                                 } else {
+-                                    _internal_deleteMessages(transaction: transaction, mediaBox: postbox.mediaBox, ids: [id])
++                                    ayuGramDeleteRemoteMessages(transaction: transaction, mediaBox: postbox.mediaBox, ids: [id])
+                                     Logger.shared.log("HistoryValidation", "deleting message \(id) in \(id.peerId)")
+                                 }
+                             }
+@@ -1167,7 +1169,7 @@
+                 
+                     for id in removedMessageIds {
+                         if !validMessageIds.contains(id) {
+-                            _internal_deleteMessages(transaction: transaction, mediaBox: postbox.mediaBox, ids: [id])
++                            ayuGramDeleteRemoteMessages(transaction: transaction, mediaBox: postbox.mediaBox, ids: [id])
+                             Logger.shared.log("HistoryValidation", "deleting thread message \(id) in \(id.peerId)")
+                         }
+                     }
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/StringForMessageTimestampStatus.swift b/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/StringForMessageTimestampStatus.swift
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/StringForMessageTimestampStatus.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/StringForMessageTimestampStatus.swift
+@@ -248,5 +248,6 @@
+         }
+     }
+     
++    if message._asMessage().ayuHistory?.deletedAt != nil { dateText = "🗑︎ " + dateText }
+     return dateText
+ }
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift
+@@ -632,6 +632,15 @@
+                     attributedText = updatedString
+                 }
+                                 
++                if item.associatedData.subject == nil, let history = item.message.ayuHistory, history.editedAt != nil, !history.originalText.isEmpty {
++                    let combined = NSMutableAttributedString(attributedString: attributedText)
++                    combined.append(NSAttributedString(string: "\n", font: textFont, textColor: messageTheme.primaryTextColor))
++                    let label = item.presentationData.strings.Channel_AdminLog_MessagePreviousMessage
++                    let original = NSMutableAttributedString(string: label + "\n" + history.originalText, attributes: [.font: item.presentationData.messageBlockQuoteFont, .foregroundColor: messageTheme.primaryTextColor])
++                    original.addAttribute(NSAttributedString.Key(rawValue: "Attribute__Blockquote"), value: TextNodeBlockQuoteData(kind: .quote, title: nil, color: messageTheme.accentTextColor, secondaryColor: nil, tertiaryColor: nil, backgroundColor: messageTheme.accentTextColor.withMultipliedAlpha(0.1), isCollapsible: true), range: NSRange(location: 0, length: original.length))
++                    combined.append(original)
++                    attributedText = combined
++                }
+                 var customTruncationToken: ((UIFont, Bool) -> NSAttributedString?)?
+                 var maximumNumberOfLines: Int = 0
+                 if item.presentationData.isPreview {
+@@ -1678,7 +1687,7 @@
+                     enableQuote = false
+                 }
+                 
+-                textSelectionNode.enableQuote = enableQuote
++                textSelectionNode.enableQuote = enableQuote && item.message.ayuHistory?.editedAt == nil
+                 textSelectionNode.enableTranslate = enableOtherActions
+                 textSelectionNode.enableShare = enableOtherActions && enableCopy
+                 textSelectionNode.menuSkipCoordnateConversion = !enableOtherActions
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
+new file mode 100644
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
+@@ -0,0 +1,167 @@
++import Foundation
++import UIKit
++import AsyncDisplayKit
++import Display
++import SwiftSignalKit
++import TelegramCore
++import TelegramPresentationData
++import AccountContext
++import ItemListUI
++import SGStrings
++
++final class AyuGramHistoryCardItem: ListViewItem, ItemListItem {
++    let context: AccountContext
++    let data: ItemListPresentationData
++    let record: AyuGramHistoryEntry
++    let sectionId: ItemListSectionId
++    let openAuthor: () -> Void
++    let openChat: () -> Void
++    let openMedia: () -> Void
++    var isAlwaysPlain: Bool { true }
++    init(context: AccountContext, data: ItemListPresentationData, record: AyuGramHistoryEntry, sectionId: ItemListSectionId, openAuthor: @escaping () -> Void, openChat: @escaping () -> Void, openMedia: @escaping () -> Void) {
++        self.context = context
++        self.data = data
++        self.record = record
++        self.sectionId = sectionId
++        self.openAuthor = openAuthor
++        self.openChat = openChat
++        self.openMedia = openMedia
++    }
++    func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
++        Queue.mainQueue().async {
++            let node = AyuGramHistoryCardNode()
++            let layout = node.update(self, width: params.width, leftInset: params.leftInset, rightInset: params.rightInset)
++            node.contentSize = layout.contentSize
++            node.insets = layout.insets
++            completion(node, { (nil, { _ in }) })
++        }
++    }
++    func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, previousItem: ListViewItem?, nextItem: ListViewItem?, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
++        Queue.mainQueue().async {
++            guard let node = node() as? AyuGramHistoryCardNode else { return }
++            let layout = node.update(self, width: params.width, leftInset: params.leftInset, rightInset: params.rightInset)
++            completion(layout, { _ in })
++        }
++    }
++}
++
++private final class AyuGramHistoryCardNode: ListViewItemNode {
++    private let bubble = UIView()
++    private let chat = UIButton(type: .system)
++    private let author = UIButton(type: .system)
++    private let event = UILabel()
++    private let current = UILabel()
++    private let body = UILabel()
++    private let quoteLine = UIView()
++    private let time = UILabel()
++    private let thumbnail = UIImageView()
++    private let media = UIButton(type: .system)
++    private var item: AyuGramHistoryCardItem?
++    init() {
++        super.init(layerBacked: false)
++        view.addSubview(chat)
++        view.addSubview(bubble)
++        for child in [author, event, current, body, quoteLine, time, thumbnail, media] { bubble.addSubview(child) }
++        bubble.layer.cornerRadius = 18
++        chat.contentHorizontalAlignment = .leading
++        author.contentHorizontalAlignment = .leading
++        author.titleLabel?.lineBreakMode = .byTruncatingTail
++        chat.titleLabel?.lineBreakMode = .byTruncatingTail
++        body.numberOfLines = 0
++        current.numberOfLines = 0
++        thumbnail.contentMode = .scaleAspectFill
++        thumbnail.clipsToBounds = true
++        thumbnail.layer.cornerRadius = 10
++        chat.addTarget(self, action: #selector(openChat), for: .touchUpInside)
++        author.addTarget(self, action: #selector(openAuthor), for: .touchUpInside)
++        media.addTarget(self, action: #selector(openMedia), for: .touchUpInside)
++    }
++    @objc private func openChat() { item?.openChat() }
++    @objc private func openAuthor() { item?.openAuthor() }
++    @objc private func openMedia() { item?.openMedia() }
++    func update(_ item: AyuGramHistoryCardItem, width: CGFloat, leftInset: CGFloat, rightInset: CGFloat) -> ListViewItemNodeLayout {
++        self.item = item
++        let record = item.record
++        let theme = item.data.theme
++        let locale = item.data.strings.baseLanguageCode
++        let accent = theme.list.itemAccentColor
++        let textColor = theme.list.itemPrimaryTextColor
++        let secondary = theme.list.itemSecondaryTextColor
++        let available = max(80, width - leftInset - rightInset - 48)
++        let contentWidth = available - 28
++        bubble.backgroundColor = theme.list.itemBlocksBackgroundColor
++        chat.setTitle(record.peerTitle, for: .normal)
++        chat.setTitleColor(secondary, for: .normal)
++        chat.titleLabel?.font = UIFont.systemFont(ofSize: 12)
++        chat.accessibilityHint = item.data.strings.VoiceOver_Chat_GoToOriginalMessage
++        author.setTitle(record.author.isEmpty ? record.peerTitle : record.author, for: .normal)
++        author.setTitleColor(accent, for: .normal)
++        author.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
++        author.isEnabled = record.authorId != nil
++        event.font = UIFont.systemFont(ofSize: 12, weight: .medium)
++        event.textColor = accent
++        event.text = i18n(record.event == "edited" ? "Ayu.BeforeEdit" : "Ayu.Deleted", locale)
++        body.font = UIFont.systemFont(ofSize: 16)
++        body.textColor = textColor
++        body.text = record.text
++        current.font = body.font
++        current.textColor = textColor
++        current.text = record.updatedText
++        current.isHidden = record.event != "edited" || record.updatedText == nil
++        body.accessibilityLabel = record.text
++        quoteLine.backgroundColor = accent
++        quoteLine.layer.cornerRadius = 1.5
++        quoteLine.isHidden = record.event != "edited"
++        let textX: CGFloat = record.event == "edited" ? 23 : 14
++        let textWidth = contentWidth - (textX - 14)
++        let bodyHeight = ceil((record.text as NSString).boundingRect(with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: body.font!], context: nil).height)
++        author.frame = CGRect(x: 14, y: 8, width: contentWidth, height: 28)
++        let currentHeight = current.isHidden ? 0 : ceil(((record.updatedText ?? "") as NSString).boundingRect(with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: current.font!], context: nil).height)
++        current.frame = CGRect(x: 14, y: 38, width: contentWidth, height: currentHeight)
++        let quoteTop: CGFloat = current.isHidden ? 38 : current.frame.maxY + 10
++        event.frame = CGRect(x: textX, y: quoteTop, width: textWidth, height: 18)
++        body.frame = CGRect(x: textX, y: quoteTop + 22, width: textWidth, height: max(0, bodyHeight))
++        quoteLine.frame = CGRect(x: 14, y: quoteTop + 2, width: 3, height: 20 + bodyHeight)
++        var bottom = body.frame.maxY + 10
++        thumbnail.image = nil
++        thumbnail.isHidden = true
++        media.isHidden = true
++        if let name = record.photoFileName, let url = item.context.engine.ayuGramArchivedPhotoURL(name), FileManager.default.fileExists(atPath: url.path) {
++            let kind = record.mediaKind ?? "photo"
++            if kind == "photo", let image = UIImage(contentsOfFile: url.path) {
++                thumbnail.image = image
++                thumbnail.isHidden = false
++                let ratio = image.size.width > 0 ? image.size.height / image.size.width : 1
++                let height = min(230, max(100, contentWidth * ratio))
++                thumbnail.frame = CGRect(x: 14, y: bottom, width: contentWidth, height: height)
++                media.frame = thumbnail.frame
++                media.setTitle(nil, for: .normal)
++                media.setImage(nil, for: .normal)
++                media.accessibilityLabel = item.data.strings.Settings_ViewPhoto
++                bottom += height + 10
++            } else {
++                media.setImage(UIImage(systemName: kind == "video" ? "play.circle.fill" : "doc.fill"), for: .normal)
++                media.setTitle("  " + (record.mediaTitle ?? (kind == "video" ? item.data.strings.Message_Video : item.data.strings.Message_File)), for: .normal)
++                media.titleLabel?.lineBreakMode = .byTruncatingMiddle
++                media.frame = CGRect(x: 14, y: bottom, width: contentWidth, height: 52)
++                media.accessibilityLabel = media.title(for: .normal)
++                bottom += 62
++            }
++            media.tintColor = accent
++            media.isHidden = false
++        }
++        let formatter = DateFormatter()
++        formatter.locale = Locale(identifier: locale)
++        formatter.dateStyle = .short
++        formatter.timeStyle = .short
++        time.text = (record.event == "deleted" ? "🗑︎ " : "↺ ") + formatter.string(from: Date(timeIntervalSince1970: TimeInterval(record.timestamp)))
++        time.font = UIFont.systemFont(ofSize: 11)
++        time.textColor = secondary
++        time.textAlignment = .right
++        time.frame = CGRect(x: 14, y: bottom, width: contentWidth, height: 18)
++        bottom += 26
++        chat.frame = CGRect(x: leftInset + 24, y: 4, width: available, height: 25)
++        bubble.frame = CGRect(x: leftInset + 24, y: 33, width: available, height: bottom)
++        return ListViewItemNodeLayout(contentSize: CGSize(width: width, height: bottom + 45), insets: .zero)
++    }
++}
+diff --git a/submodules/Display/Source/AyuGramAppBadge.swift b/submodules/Display/Source/AyuGramAppBadge.swift
+--- a/submodules/Display/Source/AyuGramAppBadge.swift
++++ b/submodules/Display/Source/AyuGramAppBadge.swift
+@@ -1,18 +1,57 @@
+ import UIKit
+ 
++private func ayuPlane(_ rect: CGRect, foreground: UIColor, secondary: UIColor) {
++    let shapes: [([(CGFloat, CGFloat)], UIColor)] = [
++        ([(0.02, 0.65), (0.43, 0.02), (0.45, 0.02), (0.31, 0.65)], foreground),
++        ([(0.36, 0.69), (0.46, 0.30), (0.48, 0.28), (0.48, 0.98)], foreground),
++        ([(0.56, 0.02), (0.59, 0.02), (0.99, 0.65), (0.72, 0.65)], secondary),
++        ([(0.54, 0.28), (0.57, 0.31), (0.68, 0.69), (0.54, 0.98)], secondary)
++    ]
++    for (points, color) in shapes {
++        let path = UIBezierPath()
++        for (index, point) in points.enumerated() {
++            let value = CGPoint(x: rect.minX + point.0 * rect.width, y: rect.minY + point.1 * rect.height)
++            if index == 0 { path.move(to: value) } else { path.addLine(to: value) }
++        }
++        path.close()
++        color.setFill()
++        path.fill()
++    }
++}
++
++public func ayuGramOwnerBadgeImage() -> UIImage {
++    return UIGraphicsImageRenderer(size: CGSize(width: 22, height: 22)).image { _ in
++        let seal = UIBezierPath()
++        for index in 0 ..< 32 {
++            let angle = CGFloat(index) * .pi / 16 - .pi / 2
++            let radius: CGFloat = index % 2 == 0 ? 10.8 : 9.6
++            let point = CGPoint(x: 11 + cos(angle) * radius, y: 11 + sin(angle) * radius)
++            if index == 0 { seal.move(to: point) } else { seal.addLine(to: point) }
++        }
++        seal.close()
++        UIColor(red: 0.56, green: 0.38, blue: 0.95, alpha: 1).setFill()
++        seal.fill()
++        ayuPlane(CGRect(x: 4.5, y: 4.2, width: 13, height: 13), foreground: .white, secondary: UIColor(red: 0.85, green: 0.77, blue: 1, alpha: 1))
++    }
++}
++
+ func ayuGramAppBadgeImage() -> UIImage {
+-    let name: String
+     let color: UIColor
+     switch UIApplication.shared.alternateIconName {
+-    case "AyuRed": name = "AyuRed"; color = UIColor(red: 0.91, green: 0.15, blue: 0.17, alpha: 1)
+-    case "AyuPurple": name = "AyuPurple"; color = UIColor(red: 0.50, green: 0.25, blue: 0.96, alpha: 1)
+-    default: name = "AyuClassic"; color = UIColor(red: 0.19, green: 0.15, blue: 0.28, alpha: 1)
++    case "AyuRed": color = UIColor(red: 0.91, green: 0.15, blue: 0.17, alpha: 1)
++    case "AyuPurple": color = UIColor(red: 0.50, green: 0.25, blue: 0.96, alpha: 1)
++    default: color = UIColor(red: 0.19, green: 0.15, blue: 0.28, alpha: 1)
+     }
+     let size = CGSize(width: 108, height: 23)
+-    return UIGraphicsImageRenderer(size: size).image { _ in
++    return UIGraphicsImageRenderer(size: size).image { renderer in
++        let capsule = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 11.5)
+         color.setFill()
+-        UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 11.5).fill()
+-        UIImage(bundleImageName: name + "Mark")?.draw(in: CGRect(x: 7, y: 3, width: 17, height: 17))
++        capsule.fill()
++        renderer.cgContext.saveGState()
++        capsule.addClip()
++        ayuPlane(CGRect(x: -3, y: -10, width: 116, height: 45), foreground: UIColor.black.withAlphaComponent(0.20), secondary: UIColor.black.withAlphaComponent(0.13))
++        renderer.cgContext.restoreGState()
++        ayuPlane(CGRect(x: 7, y: 3, width: 17, height: 17), foreground: .white, secondary: UIColor(red: 0.83, green: 0.73, blue: 1, alpha: 1))
+         ("AYUGRAM" as NSString).draw(at: CGPoint(x: 28, y: 4), withAttributes: [.font: UIFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: UIColor.white])
+     }
+ }
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+@@ -1,5 +1,7 @@
+ import Foundation
+ import UIKit
++import AVKit
++import QuickLook
+ import Display
+ import SwiftSignalKit
+ import TelegramCore
+@@ -12,10 +14,26 @@
+ import SGStrings
+ 
+ private enum HistorySection: Int32, SGItemListSection { case options, chats, actions, entries }
+-private enum HistoryAction: Hashable { case clear, selectChats, removeChat(Int64), photo(String) }
+-private typealias HistoryEntry = SGItemListUIEntry<HistorySection, Int, Int, Int, Int, HistoryAction>
++private enum HistoryAction: Hashable { case clear, selectChats, removeChat(Int64), media(String, String), author(Int64), chat(Int64, Int32) }
++private typealias HistorySettingsEntry = SGItemListUIEntry<HistorySection, Int, Int, Int, Int, HistoryAction>
+ 
+-func ayuGramHistoryController(context: AccountContext) -> ViewController {
++private enum HistoryEntry: ItemListNodeEntry {
++    case setting(HistorySettingsEntry)
++    case record(Int, AyuGramHistoryEntry)
++    var section: ItemListSectionId { switch self { case let .setting(value): return value.section; case .record: return HistorySection.entries.rawValue } }
++    var stableId: Int { switch self { case let .setting(value): return value.stableId; case let .record(id, _): return id } }
++    static func < (lhs: HistoryEntry, rhs: HistoryEntry) -> Bool { lhs.stableId < rhs.stableId }
++    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
++        switch self {
++        case let .setting(value): return value.item(presentationData: presentationData, arguments: arguments)
++        case let .record(_, record):
++            let args = arguments as! SGItemListArguments<Int, Int, Int, Int, HistoryAction>
++            return AyuGramHistoryCardItem(context: args.context, data: presentationData, record: record, sectionId: section, openAuthor: { if let id = record.authorId { args.action(.author(id)) } }, openChat: { args.action(.chat(record.peerId, record.messageId)) }, openMedia: { if let name = record.photoFileName { args.action(.media(name, record.mediaKind ?? "photo")) } })
++        }
++    }
++}
++
++public func ayuGramHistoryController(context: AccountContext, messageId: MessageId? = nil) -> ViewController {
+     let records = Promise<[AyuGramHistoryEntry]>()
+     let policy = Promise<(AyuGramHistoryPolicy, [EnginePeer])>()
+     records.set(context.engine.ayuGramMessageHistory())
+@@ -32,30 +50,23 @@
+     |> deliverOnMainQueue
+     |> map { presentationData, records, policyData -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<Int, Int, Int, Int, HistoryAction>)) in
+         let locale = presentationData.strings.baseLanguageCode
++        let records = records.filter { messageId == nil || ($0.peerId == messageId?.peerId.toInt64() && $0.messageId == messageId?.id) }
+         let current = policyData.0
+-        var entries: [HistoryEntry] = [
++        var options: [HistorySettingsEntry] = [
+             .header(id: 0, section: .options, text: i18n("Ayu.History", locale), badge: nil),
+-            .toggle(id: 1, section: .options, settingName: 0, value: current.savePhotos, text: i18n("Ayu.SavePhotos", locale), enabled: true),
++            .toggle(id: 1, section: .options, settingName: 0, value: current.savePhotos, text: i18n("Ayu.SaveMedia", locale), enabled: true),
+             .notice(id: 2, section: .options, text: i18n("Ayu.HistoryInfo", locale)),
+             .header(id: 3, section: .chats, text: presentationData.strings.ChatListFolder_IncludeChatsTitle, badge: nil),
+             .action(id: 4, section: .chats, actionType: .selectChats, text: presentationData.strings.ChatListFolder_AddChats, kind: .generic)
+         ]
+         for (index, peer) in policyData.1.enumerated() {
+-            entries.append(.action(id: 10 + index, section: .chats, actionType: .removeChat(peer.id.toInt64()), text: "− " + peer.debugDisplayTitle, kind: .generic))
++            options.append(.action(id: 10 + index, section: .chats, actionType: .removeChat(peer.id.toInt64()), text: "− " + peer.debugDisplayTitle, kind: .generic))
+         }
+-        entries.append(.action(id: 10000, section: .actions, actionType: .clear, text: i18n("Ayu.ClearHistory", locale), kind: .destructive))
+-        let formatter = DateFormatter()
+-        formatter.locale = Locale(identifier: locale)
+-        formatter.dateStyle = .short
+-        formatter.timeStyle = .short
+-        if records.isEmpty { entries.append(.notice(id: 10001, section: .entries, text: i18n("Ayu.EmptyHistory", locale))) }
++        options.append(.action(id: 10000, section: .actions, actionType: .clear, text: i18n("Ayu.ClearHistory", locale), kind: .destructive))
++        var entries: [HistoryEntry] = messageId == nil ? options.map(HistoryEntry.setting) : []
++        if records.isEmpty { entries.append(.setting(.notice(id: 10001, section: .entries, text: i18n("Ayu.EmptyHistory", locale)))) }
+         for (index, record) in records.enumerated() {
+-            let event = i18n(record.event == "edited" ? "Ayu.BeforeEdit" : "Ayu.Deleted", locale)
+-            let date = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(record.timestamp)))
+-            entries.append(.notice(id: 10002 + index * 2, section: .entries, text: "\(record.peerTitle) · \(record.author)\n\(event) · \(date)\n\(record.text)"))
+-            if let name = record.photoFileName {
+-                entries.append(.action(id: 10003 + index * 2, section: .entries, actionType: .photo(name), text: presentationData.strings.Settings_ViewPhoto, kind: .generic))
+-            }
++            entries.append(.record(10002 + index, record))
+         }
+         let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(i18n("Ayu.History", locale)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+         return (state, (ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks), arguments))
+@@ -84,8 +95,26 @@
+                 updated.selectedChats.removeAll { $0 == id }
+                 policy.set(context.engine.ayuGramSetHistoryPolicy(updated) |> mapToSignal { context.engine.ayuGramHistoryPolicy() })
+             })
+-        case let .photo(name):
+-            guard let url = context.engine.ayuGramArchivedPhotoURL(name), let image = UIImage(contentsOfFile: url.path) else { return }
++        case let .author(id):
++            let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: PeerId(id))) |> deliverOnMainQueue).startStandalone(next: { peer in
++                if let peer, let profile = context.sharedContext.makePeerInfoController(context: context, updatedPresentationData: nil, peer: peer, mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
++                    (controller.navigationController as? NavigationController)?.pushViewController(profile)
++                }
++            })
++        case let .chat(peer, id):
++            context.sharedContext.navigateToChat(accountId: context.account.id, peerId: PeerId(peer), messageId: MessageId(peerId: PeerId(peer), namespace: Namespaces.Message.Cloud, id: id))
++        case let .media(name, kind):
++            guard let url = context.engine.ayuGramArchivedPhotoURL(name), FileManager.default.fileExists(atPath: url.path) else { return }
++            if kind == "video" {
++                let video = AVPlayerViewController()
++                video.player = AVPlayer(url: url)
++                controller.present(video, animated: true) { video.player?.play() }
++                return
++            }
++            guard let image = UIImage(contentsOfFile: url.path) else {
++                controller.present(UINavigationController(rootViewController: AyuArchiveDocumentController(url: url, strings: data.strings)), animated: true)
++                return
++            }
+             let photo = AyuArchivePhotoController(image: image, url: url, strings: data.strings)
+             controller.present(UINavigationController(rootViewController: photo), animated: true)
+         case .clear:
+@@ -132,3 +161,22 @@
+         present(activity, animated: true)
+     }
+ }
++
++private final class AyuArchiveDocumentController: QLPreviewController, QLPreviewControllerDataSource {
++    private let url: URL
++    private let strings: PresentationStrings
++    init(url: URL, strings: PresentationStrings) {
++        self.url = url
++        self.strings = strings
++        super.init(nibName: nil, bundle: nil)
++        self.dataSource = self
++    }
++    required init?(coder: NSCoder) { fatalError() }
++    override func viewDidLoad() {
++        super.viewDidLoad()
++        navigationItem.leftBarButtonItem = UIBarButtonItem(title: strings.Common_Close, style: .plain, target: self, action: #selector(closePreview))
++    }
++    func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
++    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { url as NSURL }
++    @objc private func closePreview() { dismiss(animated: true) }
++}
+diff --git a/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift b/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift
+--- a/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift
++++ b/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift
+@@ -48,13 +48,13 @@
+ }
+ 
+ public final class SGItemListArguments<BoolSetting: Hashable, SliderSetting: Hashable, OneFromManySetting: Hashable, DisclosureLink: Hashable, ActionType: Hashable> {
+-    let context: AccountContext
++    public let context: AccountContext
+     //
+     let setBoolValue: (BoolSetting, Bool) -> Void
+     let updateSliderValue: (SliderSetting, Int32) -> Void
+     let setOneFromManyValue: (OneFromManySetting) -> Void
+     let openDisclosureLink: (DisclosureLink) -> Void
+-    let action: (ActionType) -> Void
++    public let action: (ActionType) -> Void
+     let searchInput: (String) -> Void
+ 
+     
+diff --git a/Swiftgram/SGSettingsUI/BUILD b/Swiftgram/SGSettingsUI/BUILD
+--- a/Swiftgram/SGSettingsUI/BUILD
++++ b/Swiftgram/SGSettingsUI/BUILD
+@@ -24,6 +24,7 @@
+         "//Swiftgram/SGAPIToken:SGAPIToken",
+         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
+         "//submodules/Display:Display",
++        "//submodules/AsyncDisplayKit:AsyncDisplayKit",
+         "//submodules/Postbox:Postbox",
+         "//submodules/TelegramCore:TelegramCore",
+         "//submodules/MtProtoKit:MtProtoKit",
+diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+--- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
++++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+@@ -1,3 +1,4 @@
++import SGSettingsUI
+ import SGStrings
+ import SGSimpleSettings
+ import PeerInfoUI
+@@ -1045,6 +1046,17 @@
+                     ]), nil)
+                 })))
+             }
++        }
++        if messages.count == 1, message.ayuHistory != nil {
++            actions.append(.action(ContextMenuActionItem(text: i18n("Ayu.History", chatPresentationInterfaceState.strings.baseLanguageCode), icon: { theme in
++                generateTintedImage(image: UIImage(systemName: "clock.arrow.circlepath"), color: theme.actionSheet.primaryTextColor)
++            }, action: { _, complete in
++                complete(.default)
++                Queue.mainQueue().after(0.2) {
++                    let history = ayuGramHistoryController(context: context, messageId: message.id)
++                    controllerInteraction.navigationController()?.pushViewController(history)
++                }
++            })))
+         }
+         var sgActions: [ContextMenuItem] = []
+ 
+diff --git a/submodules/LocalizedPeerData/Sources/PeerTitle.swift b/submodules/LocalizedPeerData/Sources/PeerTitle.swift
+--- a/submodules/LocalizedPeerData/Sources/PeerTitle.swift
++++ b/submodules/LocalizedPeerData/Sources/PeerTitle.swift
+@@ -29,14 +29,6 @@
+     }
+ 
+     func displayTitle(strings: PresentationStrings, displayOrder: PresentationPersonNameOrder) -> String {
+-        let title = ayuUnbadgedDisplayTitle(strings: strings, displayOrder: displayOrder)
+-        if case let .user(user) = self, user.id.id._internalGetInt64Value() == 1272887902 {
+-            return title + " 👑"
+-        }
+-        return title
+-    }
+-
+-    private func ayuUnbadgedDisplayTitle(strings: PresentationStrings, displayOrder: PresentationPersonNameOrder) -> String {
+         switch self {
+         case let .user(user):
+             if user.id.isReplies {
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+@@ -125,6 +125,8 @@
+     let regularContentNode: PeerInfoHeaderRegularContentNode
+     let editingContentNode: PeerInfoHeaderEditingContentNode
+     let avatarOverlayNode: PeerInfoEditingAvatarOverlayNode
++    private let ayuOwnerBadge = UIImageView(image: ayuGramOwnerBadgeImage())
++    private let ayuExpandedOwnerBadge = UIImageView(image: ayuGramOwnerBadgeImage())
+     let titleNodeContainer: ASDisplayNode
+     let titleNodeRawContainer: ASDisplayNode
+     let titleNode: MultiScaleTextNode
+@@ -318,6 +320,8 @@
+         }
+         
+         self.view.addSubview(self.backgroundBannerView)
++        self.titleNode.stateNode(forKey: TitleNodeStateRegular)?.view.addSubview(self.ayuOwnerBadge)
++        self.titleNode.stateNode(forKey: TitleNodeStateExpanded)?.view.addSubview(self.ayuExpandedOwnerBadge)
+         self.titleNodeContainer.addSubnode(self.titleNode)
+         self.subtitleNodeContainer.addSubnode(self.subtitleNode)
+         self.subtitleNodeContainer.addSubnode(self.panelSubtitleNode)
+@@ -1654,6 +1658,16 @@
+             }
+         }
+         
++        let ayuOwner = peer?.id.namespace == Namespaces.Peer.CloudUser && peer?.id.id._internalGetInt64Value() == 1272887902
++        self.ayuOwnerBadge.isHidden = !ayuOwner
++        self.ayuExpandedOwnerBadge.isHidden = !ayuOwner
++        if ayuOwner {
++            let badgeSize = CGSize(width: 22, height: 22)
++            transition.updateFrame(view: self.ayuOwnerBadge, frame: CGRect(x: nextIconX + 4, y: floor((titleSize.height - 22) / 2), width: badgeSize.width, height: badgeSize.height))
++            transition.updateFrame(view: self.ayuExpandedOwnerBadge, frame: CGRect(x: nextExpandedIconX + 4, y: floor((titleExpandedSize.height - 22) / 2), width: badgeSize.width, height: badgeSize.height))
++            titleHorizontalOffset -= 13
++            titleExpandedHorizontalOffset -= 13
++        }
+         var titleFrame: CGRect
+         var subtitleFrame: CGRect
+         let usernameFrame: CGRect
+diff --git a/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift b/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift
+--- a/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift
++++ b/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift
+@@ -204,6 +204,7 @@
+     public let titleRightIconNode: ASImageNode
+     public let titleCredibilityIconView: ComponentHostView<Empty>
+     public let titleVerifiedIconView: ComponentHostView<Empty>
++    private let ayuOwnerBadge = UIImageView(image: ayuGramOwnerBadgeImage())
+     public let titleStatusIconView: ComponentHostView<Empty>
+     public let activityNode: ChatTitleActivityNode
+     
+@@ -1006,6 +1007,13 @@
+             }
+         }
+         
++        var ayuOwner = false
++        if case let .peer(peerData, _, _, _, _, _, _, _, _) = self.titleContent, let peer = peerData.peer {
++            ayuOwner = peer.id.namespace == Namespaces.Peer.CloudUser && peer.id.id._internalGetInt64Value() == 1272887902
++        }
++        self.ayuOwnerBadge.isHidden = !ayuOwner
++        if ayuOwner { self.titleTextNode.view.addSubview(self.ayuOwnerBadge) }
++        let ayuOwnerWidth: CGFloat = ayuOwner ? 21 : 0
+         if let image = self.titleRightIconNode.image {
+             if self.titleRightIconNode.supernode == nil {
+                 self.titleTextNode.addSubnode(self.titleRightIconNode)
+@@ -1029,7 +1037,8 @@
+             titleInsets.left = verifiedIconWidth
+         }
+         
+-        var titleSize = self.titleTextNode.updateLayout(size: CGSize(width: size.width - leftIconWidth - credibilityIconWidth - verifiedIconWidth - statusIconWidth - rightIconWidth - titleSideInset * 2.0, height: size.height), insets: titleInsets, animated: titleTransition.isAnimated)
++        var titleSize = self.titleTextNode.updateLayout(size: CGSize(width: size.width - leftIconWidth - credibilityIconWidth - verifiedIconWidth - statusIconWidth - rightIconWidth - ayuOwnerWidth - titleSideInset * 2.0, height: size.height), insets: titleInsets, animated: titleTransition.isAnimated)
++        titleSize.width += ayuOwnerWidth
+         titleSize.width += credibilityIconWidth
+         titleSize.width += verifiedIconWidth
+         if statusIconWidth > 0.0 {
+@@ -1073,6 +1082,10 @@
+         }
+         
+         var nextIconX: CGFloat = titleFrame.width
++        if ayuOwner {
++            self.ayuOwnerBadge.frame = CGRect(x: nextIconX - 18, y: floor((titleFrame.height - 18) / 2), width: 18, height: 18)
++            nextIconX -= ayuOwnerWidth
++        }
+         
+         titleTransition.updateFrame(view: self.titleVerifiedIconView, frame: CGRect(origin: CGPoint(x: 0.0, y: floor((titleFrame.height - titleVerifiedSize.height) / 2.0)), size: titleVerifiedSize))
+         
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+@@ -751,6 +751,7 @@
+     private var ephemeralBadgeTextNode: TextNode?
+     private var ephemeralBadgeIconNode: UIImageView?
+ 
++    private let ayuOwnerBadge = UIImageView(image: ayuGramOwnerBadgeImage())
+     private var credibilityIconView: ComponentHostView<Empty>?
+     private var credibilityIconComponent: EmojiStatusComponent?
+     private var credibilityIconContent: EmojiStatusComponent.Content?
+@@ -2121,6 +2122,7 @@
+             }
+         }
+         
++        let ayuOwner = effectiveAuthor?.id.namespace == Namespaces.Peer.CloudUser && effectiveAuthor?.id.id._internalGetInt64Value() == 1272887902
+         var authorNameString: String?
+         var authorRank: CachedChannelAdminRank?
+         var authorIsChannel: Bool = false
+@@ -2877,7 +2879,7 @@
+                     attributedString = NSAttributedString(string: "", font: nameFont, textColor: inlineBotNameColor)
+                 }
+                 
+-                var credibilityIconWidth: CGFloat = 0.0
++                var credibilityIconWidth: CGFloat = ayuOwner ? 22 : 0
+                 if let (currentCredibilityIcon, _) = currentCredibilityIcon {
+                     credibilityIconWidth += 4.0
+                     switch currentCredibilityIcon {
+@@ -4414,6 +4416,12 @@
+                 strongSelf.boostBadgeNode = nil
+             }
+             
++            strongSelf.ayuOwnerBadge.isHidden = !ayuOwner || nameNode.bounds.width == 0
++            if !strongSelf.ayuOwnerBadge.isHidden {
++                strongSelf.clippingNode.view.addSubview(strongSelf.ayuOwnerBadge)
++                let afterPremium = strongSelf.credibilityIconView?.frame.maxX ?? nameNode.frame.maxX
++                animation.animator.updateFrame(layer: strongSelf.ayuOwnerBadge.layer, frame: CGRect(x: afterPremium + 3, y: nameNode.frame.midY - 9, width: 18, height: 18), completion: nil)
++            }
+             if boostCount > 0 {
+                 var boostTotalWidth: CGFloat = 22.0
+                 if boostNodeSizeApply.0.width > 0.0 {
+diff --git a/submodules/ChatListUI/Sources/Node/ChatListItem.swift b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+--- a/submodules/ChatListUI/Sources/Node/ChatListItem.swift
++++ b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+@@ -1429,6 +1429,7 @@
+     var secretIconNode: ASImageNode?
+     var verifiedIconView: ComponentHostView<Empty>?
+     var verifiedIconComponent: EmojiStatusComponent?
++    private let ayuOwnerBadge = UIImageView(image: ayuGramOwnerBadgeImage())
+     var credibilityIconView: ComponentHostView<Empty>?
+     var credibilityIconComponent: EmojiStatusComponent?
+     var statusIconView: ComponentHostView<Empty>?
+@@ -3517,7 +3518,11 @@
+                 statusWidth += dateIconImage.size.width + 4.0
+             }
+             
+-            var titleIconsWidth: CGFloat = 0.0
++            var ayuOwner = false
++            if case let .chat(itemPeer) = contentPeer, let peer = itemPeer.chatOrMonoforumMainPeer {
++                ayuOwner = peer.id.namespace == Namespaces.Peer.CloudUser && peer.id.id._internalGetInt64Value() == 1272887902
++            }
++            var titleIconsWidth: CGFloat = ayuOwner ? 22 : 0
+             if let currentHiddenIconImage = currentHiddenIconImage {
+                 if titleIconsWidth.isZero {
+                     titleIconsWidth += 4.0
+@@ -5367,6 +5372,12 @@
+                         verifiedIconView.removeFromSuperview()
+                     }
+                     
++                    strongSelf.ayuOwnerBadge.isHidden = !ayuOwner
++                    if ayuOwner {
++                        strongSelf.mainContentContainerNode.view.addSubview(strongSelf.ayuOwnerBadge)
++                        transition.updateFrame(view: strongSelf.ayuOwnerBadge, frame: CGRect(x: nextTitleIconOrigin, y: titleFrame.maxY - lastLineRect.height * 0.5 - 9, width: 18, height: 18))
++                        nextTitleIconOrigin += 22
++                    }
+                     if let currentHiddenIconImage = currentHiddenIconImage {
+                         strongSelf.hiddenPeerIconNode.image = currentHiddenIconImage
+                         strongSelf.hiddenPeerIconNode.isHidden = false
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Stoor foto's";
+ "Ayu.ClearHistory" = "Maak geskiedenis skoon";
+ "Ayu.EmptyHistory" = "Nog geen geskiedenis nie";
++"Ayu.SaveMedia" = "Stoor gekaste media";
+ "Ayu.BeforeEdit" = "Voor wysiging";
+ "Ayu.Deleted" = "Geskrap";
+ "Ayu.LocalPremium" = "Plaaslike Premium";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "حفظ الصور";
+ "Ayu.ClearHistory" = "مسح السجل";
+ "Ayu.EmptyHistory" = "لا يوجد سجل بعد";
++"Ayu.SaveMedia" = "حفظ الوسائط المخزنة مؤقتًا";
+ "Ayu.BeforeEdit" = "قبل التعديل";
+ "Ayu.Deleted" = "محذوف";
+ "Ayu.LocalPremium" = "Premium محلي";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Desa les fotos";
+ "Ayu.ClearHistory" = "Esborra l'historial";
+ "Ayu.EmptyHistory" = "Encara no hi ha historial";
++"Ayu.SaveMedia" = "Desa els fitxers en memòria cau";
+ "Ayu.BeforeEdit" = "Abans de l'edició";
+ "Ayu.Deleted" = "Eliminat";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Ukládat fotografie";
+ "Ayu.ClearHistory" = "Vymazat historii";
+ "Ayu.EmptyHistory" = "Historie je zatím prázdná";
++"Ayu.SaveMedia" = "Ukládat média z mezipaměti";
+ "Ayu.BeforeEdit" = "Před úpravou";
+ "Ayu.Deleted" = "Smazáno";
+ "Ayu.LocalPremium" = "Místní Premium";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Gem billeder";
+ "Ayu.ClearHistory" = "Ryd historik";
+ "Ayu.EmptyHistory" = "Ingen historik endnu";
++"Ayu.SaveMedia" = "Gem cachelagrede medier";
+ "Ayu.BeforeEdit" = "Før redigering";
+ "Ayu.Deleted" = "Slettet";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Fotos speichern";
+ "Ayu.ClearHistory" = "Verlauf löschen";
+ "Ayu.EmptyHistory" = "Noch kein Verlauf";
++"Ayu.SaveMedia" = "Medien aus dem Cache speichern";
+ "Ayu.BeforeEdit" = "Vor Bearbeitung";
+ "Ayu.Deleted" = "Gelöscht";
+ "Ayu.LocalPremium" = "Lokales Premium";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Αποθήκευση φωτογραφιών";
+ "Ayu.ClearHistory" = "Εκκαθάριση ιστορικού";
+ "Ayu.EmptyHistory" = "Δεν υπάρχει ακόμη ιστορικό";
++"Ayu.SaveMedia" = "Αποθήκευση μέσων από την κρυφή μνήμη";
+ "Ayu.BeforeEdit" = "Πριν την επεξεργασία";
+ "Ayu.Deleted" = "Διαγράφηκε";
+ "Ayu.LocalPremium" = "Τοπικό Premium";
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -290,6 +290,7 @@
+ "Ayu.SavePhotos" = "Save photos";
+ "Ayu.ClearHistory" = "Clear history";
+ "Ayu.EmptyHistory" = "No history yet";
++"Ayu.SaveMedia" = "Save cached media";
+ "Ayu.BeforeEdit" = "Before edit";
+ "Ayu.Deleted" = "Deleted";
+ "Ayu.LocalPremium" = "Local Premium";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Guardar fotos";
+ "Ayu.ClearHistory" = "Borrar historial";
+ "Ayu.EmptyHistory" = "Sin historial todavía";
++"Ayu.SaveMedia" = "Guardar multimedia en caché";
+ "Ayu.BeforeEdit" = "Antes de editar";
+ "Ayu.Deleted" = "Eliminado";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -20,6 +20,7 @@
+ "Ayu.SavePhotos" = "ذخیره عکس‌ها";
+ "Ayu.ClearHistory" = "پاک کردن تاریخچه";
+ "Ayu.EmptyHistory" = "هنوز تاریخچه‌ای نیست";
++"Ayu.SaveMedia" = "ذخیرهٔ رسانه‌های کش‌شده";
+ "Ayu.BeforeEdit" = "پیش از ویرایش";
+ "Ayu.Deleted" = "حذف‌شده";
+ "Ayu.LocalPremium" = "Premium محلی";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -241,6 +241,7 @@
+ "Ayu.SavePhotos" = "Tallenna kuvat";
+ "Ayu.ClearHistory" = "Tyhjennä historia";
+ "Ayu.EmptyHistory" = "Ei vielä historiaa";
++"Ayu.SaveMedia" = "Tallenna välimuistin media";
+ "Ayu.BeforeEdit" = "Ennen muokkausta";
+ "Ayu.Deleted" = "Poistettu";
+ "Ayu.LocalPremium" = "Paikallinen Premium";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -148,6 +148,7 @@
+ "Ayu.SavePhotos" = "Conserver les photos";
+ "Ayu.ClearHistory" = "Effacer l'historique";
+ "Ayu.EmptyHistory" = "Aucun historique";
++"Ayu.SaveMedia" = "Enregistrer les médias en cache";
+ "Ayu.BeforeEdit" = "Avant modification";
+ "Ayu.Deleted" = "Supprimé";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "שמור תמונות";
+ "Ayu.ClearHistory" = "נקה היסטוריה";
+ "Ayu.EmptyHistory" = "אין עדיין היסטוריה";
++"Ayu.SaveMedia" = "שמירת מדיה מהמטמון";
+ "Ayu.BeforeEdit" = "לפני עריכה";
+ "Ayu.Deleted" = "נמחק";
+ "Ayu.LocalPremium" = "Premium מקומי";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "फ़ोटो सहेजें";
+ "Ayu.ClearHistory" = "इतिहास साफ़ करें";
+ "Ayu.EmptyHistory" = "अभी कोई इतिहास नहीं";
++"Ayu.SaveMedia" = "कैश किए गए मीडिया सहेजें";
+ "Ayu.BeforeEdit" = "संपादन से पहले";
+ "Ayu.Deleted" = "हटाया गया";
+ "Ayu.LocalPremium" = "स्थानीय Premium";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Fotók mentése";
+ "Ayu.ClearHistory" = "Előzmények törlése";
+ "Ayu.EmptyHistory" = "Még nincsenek előzmények";
++"Ayu.SaveMedia" = "Gyorsítótárazott média mentése";
+ "Ayu.BeforeEdit" = "Szerkesztés előtt";
+ "Ayu.Deleted" = "Törölve";
+ "Ayu.LocalPremium" = "Helyi Premium";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Simpan foto";
+ "Ayu.ClearHistory" = "Hapus riwayat";
+ "Ayu.EmptyHistory" = "Belum ada riwayat";
++"Ayu.SaveMedia" = "Simpan media dalam cache";
+ "Ayu.BeforeEdit" = "Sebelum diedit";
+ "Ayu.Deleted" = "Dihapus";
+ "Ayu.LocalPremium" = "Premium lokal";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Salva foto";
+ "Ayu.ClearHistory" = "Cancella cronologia";
+ "Ayu.EmptyHistory" = "Nessuna cronologia";
++"Ayu.SaveMedia" = "Salva i media nella cache";
+ "Ayu.BeforeEdit" = "Prima della modifica";
+ "Ayu.Deleted" = "Eliminato";
+ "Ayu.LocalPremium" = "Premium locale";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -257,6 +257,7 @@
+ "Ayu.SavePhotos" = "写真を保存";
+ "Ayu.ClearHistory" = "履歴を消去";
+ "Ayu.EmptyHistory" = "履歴はまだありません";
++"Ayu.SaveMedia" = "キャッシュ済みメディアを保存";
+ "Ayu.BeforeEdit" = "編集前";
+ "Ayu.Deleted" = "削除済み";
+ "Ayu.LocalPremium" = "ローカル Premium";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -19,6 +19,7 @@
+ "Ayu.SavePhotos" = "រក្សាទុករូបថត";
+ "Ayu.ClearHistory" = "សម្អាតប្រវត្តិ";
+ "Ayu.EmptyHistory" = "មិនទាន់មានប្រវត្តិ";
++"Ayu.SaveMedia" = "រក្សាទុកមេឌៀក្នុងឃ្លាំងសម្ងាត់";
+ "Ayu.BeforeEdit" = "មុនពេលកែសម្រួល";
+ "Ayu.Deleted" = "បានលុប";
+ "Ayu.LocalPremium" = "Premium ក្នុងឧបករណ៍";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "사진 저장";
+ "Ayu.ClearHistory" = "기록 지우기";
+ "Ayu.EmptyHistory" = "아직 기록이 없습니다";
++"Ayu.SaveMedia" = "캐시된 미디어 저장";
+ "Ayu.BeforeEdit" = "수정 전";
+ "Ayu.Deleted" = "삭제됨";
+ "Ayu.LocalPremium" = "로컬 Premium";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -21,6 +21,7 @@
+ "Ayu.SavePhotos" = "Tomarkirina wêneyan";
+ "Ayu.ClearHistory" = "Paqijkirina dîrokê";
+ "Ayu.EmptyHistory" = "Hê dîrok tune ye";
++"Ayu.SaveMedia" = "Medyaya di keşê de tomar bike";
+ "Ayu.BeforeEdit" = "Berî guherandinê";
+ "Ayu.Deleted" = "Jêbirî";
+ "Ayu.LocalPremium" = "Premium herêmî";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Foto's bewaren";
+ "Ayu.ClearHistory" = "Geschiedenis wissen";
+ "Ayu.EmptyHistory" = "Nog geen geschiedenis";
++"Ayu.SaveMedia" = "Media uit de cache opslaan";
+ "Ayu.BeforeEdit" = "Voor bewerking";
+ "Ayu.Deleted" = "Verwijderd";
+ "Ayu.LocalPremium" = "Lokale Premium";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Lagre bilder";
+ "Ayu.ClearHistory" = "Tøm historikk";
+ "Ayu.EmptyHistory" = "Ingen historikk ennå";
++"Ayu.SaveMedia" = "Lagre hurtigbufrede medier";
+ "Ayu.BeforeEdit" = "Før redigering";
+ "Ayu.Deleted" = "Slettet";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -256,6 +256,7 @@
+ "Ayu.SavePhotos" = "Zapisuj zdjęcia";
+ "Ayu.ClearHistory" = "Wyczyść historię";
+ "Ayu.EmptyHistory" = "Brak historii";
++"Ayu.SaveMedia" = "Zapisuj multimedia z pamięci podręcznej";
+ "Ayu.BeforeEdit" = "Przed edycją";
+ "Ayu.Deleted" = "Usunięto";
+ "Ayu.LocalPremium" = "Lokalne Premium";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -285,6 +285,7 @@
+ "Ayu.SavePhotos" = "Guardar fotos";
+ "Ayu.ClearHistory" = "Limpar histórico";
+ "Ayu.EmptyHistory" = "Ainda sem histórico";
++"Ayu.SaveMedia" = "Guardar mídia em cache";
+ "Ayu.BeforeEdit" = "Antes da edição";
+ "Ayu.Deleted" = "Apagado";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Salvează fotografii";
+ "Ayu.ClearHistory" = "Șterge istoricul";
+ "Ayu.EmptyHistory" = "Încă nu există istoric";
++"Ayu.SaveMedia" = "Salvează fișierele media din cache";
+ "Ayu.BeforeEdit" = "Înainte de editare";
+ "Ayu.Deleted" = "Șters";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -285,6 +285,7 @@
+ "Ayu.SavePhotos" = "Сохранять фото";
+ "Ayu.ClearHistory" = "Очистить историю";
+ "Ayu.EmptyHistory" = "История пока пуста";
++"Ayu.SaveMedia" = "Сохранять медиа из кэша";
+ "Ayu.BeforeEdit" = "До изменения";
+ "Ayu.Deleted" = "Удалено";
+ "Ayu.LocalPremium" = "Локальный Premium";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -13,6 +13,7 @@
+ "Ayu.SavePhotos" = "ඡායාරූප සුරකින්න";
+ "Ayu.ClearHistory" = "ඉතිහාසය හිස් කරන්න";
+ "Ayu.EmptyHistory" = "තවම ඉතිහාසයක් නැත";
++"Ayu.SaveMedia" = "හැඹිලිගත මාධ්‍ය සුරකින්න";
+ "Ayu.BeforeEdit" = "සංස්කරණයට පෙර";
+ "Ayu.Deleted" = "මකා දමන ලදී";
+ "Ayu.LocalPremium" = "දේශීය Premium";
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -15,6 +15,7 @@
+ "Ayu.SavePhotos" = "Ukladať fotografie";
+ "Ayu.ClearHistory" = "Vymazať históriu";
+ "Ayu.EmptyHistory" = "Zatiaľ žiadna história";
++"Ayu.SaveMedia" = "Ukladať médiá z vyrovnávacej pamäte";
+ "Ayu.BeforeEdit" = "Pred úpravou";
+ "Ayu.Deleted" = "Odstránené";
+ "Ayu.LocalPremium" = "Miestne Premium";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Сачувај фотографије";
+ "Ayu.ClearHistory" = "Обриши историју";
+ "Ayu.EmptyHistory" = "Још нема историје";
++"Ayu.SaveMedia" = "Сачувај медије из кеша";
+ "Ayu.BeforeEdit" = "Пре измене";
+ "Ayu.Deleted" = "Обрисано";
+ "Ayu.LocalPremium" = "Локални Premium";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Spara foton";
+ "Ayu.ClearHistory" = "Rensa historik";
+ "Ayu.EmptyHistory" = "Ingen historik ännu";
++"Ayu.SaveMedia" = "Spara cachelagrade medier";
+ "Ayu.BeforeEdit" = "Före redigering";
+ "Ayu.Deleted" = "Raderat";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Fotoğrafları kaydet";
+ "Ayu.ClearHistory" = "Geçmişi temizle";
+ "Ayu.EmptyHistory" = "Henüz geçmiş yok";
++"Ayu.SaveMedia" = "Önbellekteki medyayı kaydet";
+ "Ayu.BeforeEdit" = "Düzenlemeden önce";
+ "Ayu.Deleted" = "Silindi";
+ "Ayu.LocalPremium" = "Yerel Premium";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -256,6 +256,7 @@
+ "Ayu.SavePhotos" = "Зберігати фото";
+ "Ayu.ClearHistory" = "Очистити історію";
+ "Ayu.EmptyHistory" = "Історія поки порожня";
++"Ayu.SaveMedia" = "Зберігати медіа з кешу";
+ "Ayu.BeforeEdit" = "До зміни";
+ "Ayu.Deleted" = "Видалено";
+ "Ayu.LocalPremium" = "Локальний Premium";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Rasmlarni saqlash";
+ "Ayu.ClearHistory" = "Tarixni tozalash";
+ "Ayu.EmptyHistory" = "Hali tarix yo‘q";
++"Ayu.SaveMedia" = "Keshdagi mediani saqlash";
+ "Ayu.BeforeEdit" = "Tahrirdan oldin";
+ "Ayu.Deleted" = "O‘chirilgan";
+ "Ayu.LocalPremium" = "Mahalliy Premium";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -163,6 +163,7 @@
+ "Ayu.SavePhotos" = "Lưu ảnh";
+ "Ayu.ClearHistory" = "Xóa lịch sử";
+ "Ayu.EmptyHistory" = "Chưa có lịch sử";
++"Ayu.SaveMedia" = "Lưu nội dung trong bộ nhớ đệm";
+ "Ayu.BeforeEdit" = "Trước khi sửa";
+ "Ayu.Deleted" = "Đã xóa";
+ "Ayu.LocalPremium" = "Premium cục bộ";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -260,6 +260,7 @@
+ "Ayu.SavePhotos" = "保存照片";
+ "Ayu.ClearHistory" = "清空历史";
+ "Ayu.EmptyHistory" = "暂无历史记录";
++"Ayu.SaveMedia" = "保存已缓存的媒体";
+ "Ayu.BeforeEdit" = "编辑前";
+ "Ayu.Deleted" = "已删除";
+ "Ayu.LocalPremium" = "本地 Premium";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -260,6 +260,7 @@
+ "Ayu.SavePhotos" = "儲存照片";
+ "Ayu.ClearHistory" = "清除歷史";
+ "Ayu.EmptyHistory" = "尚無歷史紀錄";
++"Ayu.SaveMedia" = "儲存已快取的媒體";
+ "Ayu.BeforeEdit" = "編輯前";
+ "Ayu.Deleted" = "已刪除";
+ "Ayu.LocalPremium" = "本機 Premium";
