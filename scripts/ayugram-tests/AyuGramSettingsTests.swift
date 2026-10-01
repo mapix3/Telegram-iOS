@@ -44,6 +44,23 @@ struct AyuGramSettingsTests {
         store.update { $0.storyPrivacy = true }
         NotificationCenter.default.removeObserver(observer)
         assert(observed)
+        #if AYUGRAM_CLIENT_EXTRAS
+        let privacyBefore = store.snapshot
+        assert(store.client == AyuGramClientSettings())
+        store.updateClient { $0.localPremium = true; $0.maxPinnedChats = 99 }
+        assert(store.client.localPremium && store.client.pinnedChatLimit == 30)
+        assert(store.snapshot == privacyBefore, "Client preferences must preserve existing privacy settings")
+        assert(AyuGramSettings(defaults: defaults).client == store.client)
+        store.updateClient { $0.maxPinnedChats = -10 }
+        assert(store.client.pinnedChatLimit == 5)
+        DispatchQueue.concurrentPerform(iterations: 2) { index in
+            if index == 0 { store.updateClient { $0.maxPinnedChats = 17 } }
+            else { store.update { $0.messageHistory = true } }
+        }
+        assert(store.client.pinnedChatLimit == 17 && store.client.localPremium)
+        assert(store.snapshot.messageHistory && store.snapshot.antiRead)
+        print("AyuGram client preferences: persistence, bounds and privacy preservation passed")
+        #endif
         print("AyuGram settings: persistence, Ghost Mode, concurrency and observer tests passed")
     }
 }
