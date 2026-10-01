@@ -3,6 +3,11 @@ name: AyuGram iOS — Standard + Custom
 on:
   workflow_dispatch:
     inputs:
+      variant:
+        description: 'Versions to build'
+        type: choice
+        options: [both, standard, custom]
+        default: both
       stage:
         description: 'Apply patches up to this stage and build the full app'
         type: choice
@@ -32,7 +37,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        variant: [standard, custom]
+        variant: ${{ fromJSON(inputs.variant == 'custom' && '["custom"]' || inputs.variant == 'standard' && '["standard"]' || '["standard","custom"]') }}
     # Set repository variable AYUGRAM_RUNNER to a larger macOS runner label if needed.
     runs-on: ${{ vars.AYUGRAM_RUNNER || 'macos-26' }}
     timeout-minutes: 360
