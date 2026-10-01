@@ -81,7 +81,7 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift b/
 new file mode 100644
 --- /dev/null
 +++ b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,119 @@
 +import Foundation
 +import UIKit
 +import UniformTypeIdentifiers
@@ -92,7 +92,6 @@ new file mode 100644
 +import SGSimpleSettings
 +import SGStrings
 +
-+// UIKit owns this modal's layout; chat nodes retain all native interaction.
 +final class AyuGramAppearanceController: UIViewController, PHPickerViewControllerDelegate {
 +    private let context: AccountContext
 +    private var stack: UIStackView!
@@ -206,13 +205,12 @@ diff --git a/submodules/Display/Source/AyuGramBackdropView.swift b/submodules/Di
 new file mode 100644
 --- /dev/null
 +++ b/submodules/Display/Source/AyuGramBackdropView.swift
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,93 @@
 +import Foundation
 +import UIKit
 +import AVFoundation
 +import SGSimpleSettings
 +
-+/// Passive decoration: never receives touches or covers native rows and bubbles.
 +public final class AyuGramBackdropView: UIView {
 +    public enum Scope { case chatList, conversation }
 +    private let scope: Scope
@@ -491,7 +489,7 @@ diff --git a/submodules/TelegramUI/Sources/ChatControllerNode.swift b/submodules
 diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
-@@ -299,3 +299,6 @@
+@@ -298,3 +298,6 @@
  "Ayu.HistoryInfo" = "Selected chats only. Cached photos and text, 30 days, up to 200 entries. Secret and disappearing messages are excluded.";
  "Ayu.ReadWarning" = "Send a read receipt for this chat up to this message?";
  "Ayu.ViewWarning" = "Send a view receipt and start the disappearing media timer?";
@@ -501,7 +499,7 @@ diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
-@@ -294,3 +294,6 @@
+@@ -293,3 +293,6 @@
  "Ayu.HistoryInfo" = "Только выбранные чаты. Загруженные фото и текст: 30 дней, до 200 записей. Без секретных и исчезающих сообщений.";
  "Ayu.ReadWarning" = "Отправить отчёт о прочтении чата до этого сообщения?";
  "Ayu.ViewWarning" = "Отправить отчёт о просмотре и запустить таймер исчезающего медиа?";
@@ -511,7 +509,7 @@ diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
-@@ -265,3 +265,6 @@
+@@ -264,3 +264,6 @@
  "Ayu.HistoryInfo" = "Лише вибрані чати. Завантажені фото й текст: 30 днів, до 200 записів. Без секретних і зникаючих повідомлень.";
  "Ayu.ReadWarning" = "Надіслати звіт про прочитання чату до цього повідомлення?";
  "Ayu.ViewWarning" = "Надіслати звіт про перегляд і запустити таймер зникаючого медіа?";
@@ -521,7 +519,7 @@ diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Nur ausgewählte Chats. Zwischengespeicherte Fotos und Text: 30 Tage, bis zu 200 Einträge. Keine geheimen oder selbstlöschenden Nachrichten.";
  "Ayu.ReadWarning" = "Lesebestätigung für diesen Chat bis zu dieser Nachricht senden?";
  "Ayu.ViewWarning" = "Ansicht bestätigen und den Timer für selbstlöschende Medien starten?";
@@ -531,7 +529,7 @@ diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
-@@ -157,3 +157,6 @@
+@@ -156,3 +156,6 @@
  "Ayu.HistoryInfo" = "Discussions sélectionnées uniquement. Photos en cache et texte : 30 jours, 200 entrées maximum. Sans messages secrets ou éphémères.";
  "Ayu.ReadWarning" = "Confirmer la lecture de cette discussion jusqu'à ce message ?";
  "Ayu.ViewWarning" = "Confirmer la vue et démarrer le minuteur du média éphémère ?";
@@ -541,7 +539,7 @@ diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Solo chats seleccionados. Fotos en caché y texto: 30 días, hasta 200 registros. Sin mensajes secretos ni temporales.";
  "Ayu.ReadWarning" = "¿Confirmar la lectura de este chat hasta este mensaje?";
  "Ayu.ViewWarning" = "¿Confirmar la vista e iniciar el temporizador del contenido temporal?";
@@ -551,7 +549,7 @@ diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Solo chat selezionate. Foto in cache e testo: 30 giorni, fino a 200 voci. Esclusi messaggi segreti e temporanei.";
  "Ayu.ReadWarning" = "Confermare la lettura della chat fino a questo messaggio?";
  "Ayu.ViewWarning" = "Confermare la visualizzazione e avviare il timer del contenuto temporaneo?";
@@ -561,7 +559,7 @@ diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
-@@ -294,3 +294,6 @@
+@@ -293,3 +293,6 @@
  "Ayu.HistoryInfo" = "Apenas conversas selecionadas. Fotos em cache e texto: 30 dias, até 200 registos. Sem mensagens secretas ou temporárias.";
  "Ayu.ReadWarning" = "Confirmar a leitura da conversa até esta mensagem?";
  "Ayu.ViewWarning" = "Confirmar a visualização e iniciar o temporizador do conteúdo temporário?";
@@ -571,7 +569,7 @@ diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
-@@ -265,3 +265,6 @@
+@@ -264,3 +264,6 @@
  "Ayu.HistoryInfo" = "Tylko wybrane czaty. Zdjęcia w pamięci i tekst: 30 dni, do 200 wpisów. Bez wiadomości tajnych i znikających.";
  "Ayu.ReadWarning" = "Wysłać potwierdzenie odczytu czatu do tej wiadomości?";
  "Ayu.ViewWarning" = "Potwierdzić wyświetlenie i uruchomić licznik znikających multimediów?";
@@ -581,7 +579,7 @@ diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Yalnızca seçilen sohbetler. Önbellekteki fotoğraf ve metin: 30 gün, en fazla 200 kayıt. Gizli ve kaybolan mesajlar hariç.";
  "Ayu.ReadWarning" = "Bu mesaja kadar sohbet için okundu bilgisi gönderilsin mi?";
  "Ayu.ViewWarning" = "Görüntüleme bilgisi gönderilip kaybolan medya zamanlayıcısı başlatılsın mı?";
@@ -591,7 +589,7 @@ diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "المحادثات المحددة فقط. الصور المخزنة والنصوص: 30 يومًا، حتى 200 سجل. باستثناء الرسائل السرية والمؤقتة.";
  "Ayu.ReadWarning" = "إرسال إشعار قراءة للمحادثة حتى هذه الرسالة؟";
  "Ayu.ViewWarning" = "إرسال إشعار مشاهدة وبدء مؤقت الوسائط المؤقتة؟";
@@ -601,7 +599,7 @@ diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
-@@ -29,3 +29,6 @@
+@@ -28,3 +28,6 @@
  "Ayu.HistoryInfo" = "فقط گفتگوهای انتخاب‌شده. عکس‌های ذخیره‌شده و متن: ۳۰ روز، تا ۲۰۰ مورد. بدون پیام‌های محرمانه و ناپدیدشونده.";
  "Ayu.ReadWarning" = "رسید خواندن گفتگو تا این پیام ارسال شود؟";
  "Ayu.ViewWarning" = "رسید مشاهده ارسال و زمان‌سنج رسانه ناپدیدشونده شروع شود؟";
@@ -611,7 +609,7 @@ diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "רק צ'אטים נבחרים. תמונות במטמון וטקסט: 30 ימים, עד 200 רשומות. ללא הודעות סודיות ונעלמות.";
  "Ayu.ReadWarning" = "לשלוח אישור קריאה לצ׳אט עד ההודעה הזו?";
  "Ayu.ViewWarning" = "לשלוח אישור צפייה ולהפעיל את טיימר המדיה הנעלמת?";
@@ -621,7 +619,7 @@ diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
-@@ -269,3 +269,6 @@
+@@ -268,3 +268,6 @@
  "Ayu.HistoryInfo" = "仅限所选聊天。缓存照片和文字保留30天，最多200条。不包括秘密聊天和阅后即焚消息。";
  "Ayu.ReadWarning" = "发送此聊天截至这条消息的已读回执？";
  "Ayu.ViewWarning" = "发送浏览回执并启动阅后即焚媒体计时器？";
@@ -631,7 +629,7 @@ diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/S
 diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
-@@ -269,3 +269,6 @@
+@@ -268,3 +268,6 @@
  "Ayu.HistoryInfo" = "僅限所選聊天。快取照片和文字保留30天，最多200筆。不包括秘密聊天和閱後即焚訊息。";
  "Ayu.ReadWarning" = "傳送此聊天截至這則訊息的已讀回條？";
  "Ayu.ViewWarning" = "傳送瀏覽回條並啟動閱後即焚媒體計時器？";
@@ -641,7 +639,7 @@ diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/S
 diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
-@@ -266,3 +266,6 @@
+@@ -265,3 +265,6 @@
  "Ayu.HistoryInfo" = "選択したチャットのみ。キャッシュされた写真とテキストを30日間、最大200件保存。秘密・消えるメッセージは対象外。";
  "Ayu.ReadWarning" = "このメッセージまでの既読通知を送信しますか？";
  "Ayu.ViewWarning" = "閲覧通知を送信し、消えるメディアのタイマーを開始しますか？";
@@ -651,7 +649,7 @@ diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "선택한 채팅만 저장합니다. 캐시된 사진과 텍스트: 30일, 최대 200개. 비밀 및 사라지는 메시지는 제외됩니다.";
  "Ayu.ReadWarning" = "이 메시지까지 채팅의 읽음 확인을 보낼까요?";
  "Ayu.ViewWarning" = "조회 확인을 보내고 사라지는 미디어 타이머를 시작할까요?";
@@ -661,7 +659,7 @@ diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Hanya obrolan terpilih. Foto dalam cache dan teks: 30 hari, hingga 200 entri. Tanpa pesan rahasia dan sementara.";
  "Ayu.ReadWarning" = "Kirim tanda dibaca untuk obrolan hingga pesan ini?";
  "Ayu.ViewWarning" = "Kirim tanda dilihat dan mulai penghitung media sementara?";
@@ -671,7 +669,7 @@ diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Chỉ các cuộc trò chuyện đã chọn. Ảnh được lưu đệm và văn bản: 30 ngày, tối đa 200 mục. Không gồm tin nhắn bí mật và tự hủy.";
  "Ayu.ReadWarning" = "Gửi xác nhận đã đọc cuộc trò chuyện đến tin nhắn này?";
  "Ayu.ViewWarning" = "Gửi xác nhận đã xem và bắt đầu bộ đếm cho nội dung tự hủy?";
@@ -681,7 +679,7 @@ diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "केवल चुने हुए चैट। कैश किए फ़ोटो और टेक्स्ट: 30 दिन, अधिकतम 200 रिकॉर्ड। गुप्त और गायब होने वाले संदेश शामिल नहीं हैं।";
  "Ayu.ReadWarning" = "इस संदेश तक चैट पढ़ने की पुष्टि भेजें?";
  "Ayu.ViewWarning" = "देखने की पुष्टि भेजें और गायब होने वाले मीडिया का टाइमर शुरू करें?";
@@ -691,7 +689,7 @@ diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Alleen geselecteerde chats. Foto's in cache en tekst: 30 dagen, maximaal 200 items. Geen geheime of verdwijnende berichten.";
  "Ayu.ReadWarning" = "Leesbevestiging voor deze chat tot dit bericht versturen?";
  "Ayu.ViewWarning" = "Weergave bevestigen en de timer voor verdwijnende media starten?";
@@ -701,7 +699,7 @@ diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Endast valda chattar. Cachade foton och text: 30 dagar, högst 200 poster. Inga hemliga eller försvinnande meddelanden.";
  "Ayu.ReadWarning" = "Skicka läskvitto för chatten fram till detta meddelande?";
  "Ayu.ViewWarning" = "Bekräfta visning och starta timern för försvinnande media?";
@@ -711,7 +709,7 @@ diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Bare valgte chatter. Bufrede bilder og tekst: 30 dager, opptil 200 oppføringer. Ingen hemmelige eller forsvinnende meldinger.";
  "Ayu.ReadWarning" = "Sende lesebekreftelse for chatten frem til denne meldingen?";
  "Ayu.ViewWarning" = "Bekrefte visning og starte tidtakeren for forsvinnende medier?";
@@ -721,7 +719,7 @@ diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Kun valgte chats. Cachelagrede billeder og tekst: 30 dage, op til 200 poster. Ingen hemmelige eller forsvindende beskeder.";
  "Ayu.ReadWarning" = "Send læsekvittering for chatten frem til denne besked?";
  "Ayu.ViewWarning" = "Bekræft visning og start timeren for forsvindende medier?";
@@ -731,7 +729,7 @@ diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
-@@ -250,3 +250,6 @@
+@@ -249,3 +249,6 @@
  "Ayu.HistoryInfo" = "Vain valitut keskustelut. Välimuistissa olevat kuvat ja teksti: 30 päivää, enintään 200 merkintää. Ei salaisia tai katoavia viestejä.";
  "Ayu.ReadWarning" = "Lähetetäänkö lukukuittaus tämän keskustelun viesteistä tähän asti?";
  "Ayu.ViewWarning" = "Vahvistetaanko katselu ja käynnistetäänkö katoavan median ajastin?";
@@ -741,7 +739,7 @@ diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Pouze vybrané chaty. Fotografie z mezipaměti a text: 30 dní, nejvýše 200 záznamů. Bez tajných a mizejících zpráv.";
  "Ayu.ReadWarning" = "Odeslat potvrzení o přečtení chatu až po tuto zprávu?";
  "Ayu.ViewWarning" = "Potvrdit zobrazení a spustit časovač mizejících médií?";
@@ -751,7 +749,7 @@ diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
-@@ -24,3 +24,6 @@
+@@ -23,3 +23,6 @@
  "Ayu.HistoryInfo" = "Iba vybrané čety. Fotografie z vyrovnávacej pamäte a text: 30 dní, najviac 200 záznamov. Bez tajných a miznúcich správ.";
  "Ayu.ReadWarning" = "Odoslať potvrdenie o prečítaní četu až po túto správu?";
  "Ayu.ViewWarning" = "Potvrdiť zobrazenie a spustiť časovač miznúcich médií?";
@@ -761,7 +759,7 @@ diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Doar conversațiile selectate. Fotografii în cache și text: 30 de zile, până la 200 de înregistrări. Fără mesaje secrete sau temporare.";
  "Ayu.ReadWarning" = "Trimiți confirmarea de citire a conversației până la acest mesaj?";
  "Ayu.ViewWarning" = "Confirmi vizualizarea și pornești temporizatorul conținutului temporar?";
@@ -771,7 +769,7 @@ diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Csak a kijelölt csevegések. Gyorsítótárazott fotók és szöveg: 30 nap, legfeljebb 200 bejegyzés. Titkos és eltűnő üzenetek nélkül.";
  "Ayu.ReadWarning" = "Olvasási visszajelzés küldése erről a beszélgetésről eddig az üzenetig?";
  "Ayu.ViewWarning" = "Megtekintés visszajelzése és az eltűnő média időzítőjének indítása?";
@@ -781,7 +779,7 @@ diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Μόνο επιλεγμένες συνομιλίες. Φωτογραφίες στην κρυφή μνήμη και κείμενο: 30 ημέρες, έως 200 εγγραφές. Χωρίς μυστικά ή προσωρινά μηνύματα.";
  "Ayu.ReadWarning" = "Αποστολή απόδειξης ανάγνωσης της συνομιλίας έως αυτό το μήνυμα;";
  "Ayu.ViewWarning" = "Επιβεβαίωση προβολής και έναρξη χρονομέτρου προσωρινών πολυμέσων;";
@@ -791,7 +789,7 @@ diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Només els xats seleccionats. Fotos en memòria cau i text: 30 dies, fins a 200 registres. Sense missatges secrets ni temporals.";
  "Ayu.ReadWarning" = "Confirma la lectura del xat fins a aquest missatge?";
  "Ayu.ViewWarning" = "Confirma la visualització i inicia el temporitzador del contingut temporal?";
@@ -801,7 +799,7 @@ diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Само изабрани разговори. Кеширане фотографије и текст: 30 дана, до 200 записа. Без тајних и нестајућих порука.";
  "Ayu.ReadWarning" = "Послати потврду читања разговора до ове поруке?";
  "Ayu.ViewWarning" = "Потврдити преглед и покренути тајмер нестајућих медија?";
@@ -811,7 +809,7 @@ diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Slegs gekose geselsies. Gekaste foto's en teks: 30 dae, tot 200 inskrywings. Geen geheime of verdwynende boodskappe nie.";
  "Ayu.ReadWarning" = "Stuur 'n leesbewys vir die geselsie tot by hierdie boodskap?";
  "Ayu.ViewWarning" = "Bevestig die kyk en begin die tydhouer vir verdwynende media?";
@@ -821,7 +819,7 @@ diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
-@@ -172,3 +172,6 @@
+@@ -171,3 +171,6 @@
  "Ayu.HistoryInfo" = "Faqat tanlangan chatlar. Keshdagi rasmlar va matn: 30 kun, 200 tagacha yozuv. Maxfiy va yo‘qoladigan xabarlar kiritilmaydi.";
  "Ayu.ReadWarning" = "Chatning shu xabargacha o‘qilgani haqida hisobot yuborilsinmi?";
  "Ayu.ViewWarning" = "Ko‘rish hisoboti yuborilib, yo‘qoladigan media taymeri boshlansinmi?";
@@ -831,7 +829,7 @@ diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
-@@ -30,3 +30,6 @@
+@@ -29,3 +29,6 @@
  "Ayu.HistoryInfo" = "Tenê sohbetên hilbijartî. Wêneyên di bîrê de û nivîs: 30 roj, heta 200 tomar. Peyamên veşartî û winda dibin nayên tomarkirin.";
  "Ayu.ReadWarning" = "Pejirandina xwendinê ji bo vê sohbetê heta vê peyamê bişîne?";
  "Ayu.ViewWarning" = "Dîtinê bipejirîne û demjimêra medyaya winda dibe dest pê bike?";
@@ -841,7 +839,7 @@ diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
-@@ -28,3 +28,6 @@
+@@ -27,3 +27,6 @@
  "Ayu.HistoryInfo" = "តែការជជែកដែលបានជ្រើស។ រូបថតក្នុងឃ្លាំងនិងអត្ថបទ៖ ៣០ ថ្ងៃ រហូតដល់ ២០០ កំណត់ត្រា។ មិនរាប់បញ្ចូលសារសម្ងាត់និងសារបាត់ខ្លួន។";
  "Ayu.ReadWarning" = "ផ្ញើការបញ្ជាក់ថាបានអានការជជែករហូតដល់សារនេះ?";
  "Ayu.ViewWarning" = "ផ្ញើការបញ្ជាក់ថាបានមើល ហើយចាប់ផ្តើមកម្មវិធីកំណត់ពេលមេឌៀបាត់ខ្លួន?";
@@ -851,7 +849,7 @@ diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
-@@ -22,3 +22,6 @@
+@@ -21,3 +21,6 @@
  "Ayu.HistoryInfo" = "තෝරාගත් කතාබස් පමණි. හැඹිලි ඡායාරූප සහ පෙළ: දින 30ක්, වාර්තා 200ක් දක්වා. රහස් සහ අතුරුදහන් වන පණිවිඩ ඇතුළත් නොවේ.";
  "Ayu.ReadWarning" = "මෙම පණිවිඩය දක්වා කතාබස කියවූ බව දන්වන්නද?";
  "Ayu.ViewWarning" = "නැරඹූ බව දන්වා අතුරුදහන් වන මාධ්‍ය කාලකය අරඹන්නද?";
