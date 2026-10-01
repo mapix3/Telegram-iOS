@@ -1,4 +1,4 @@
-name: AyuGram iOS (unsigned)
+name: AyuGram iOS — Standard + Custom
 
 on:
   workflow_dispatch:
@@ -27,6 +27,12 @@ concurrency:
 
 jobs:
   build:
+    name: AyuGram ${{ matrix.variant }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        variant: [standard, custom]
     # Set repository variable AYUGRAM_RUNNER to a larger macOS runner label if needed.
     runs-on: ${{ vars.AYUGRAM_RUNNER || 'macos-26' }}
     timeout-minutes: 360
@@ -93,6 +99,7 @@ jobs:
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APP_BUNDLE_ID: ${{ secrets.APP_BUNDLE_ID }}
+          AYUGRAM_VARIANT: ${{ matrix.variant }}
           AYUGRAM_STAGE: ${{ inputs.stage }}
           AYUGRAM_CONFIGURATION: ${{ inputs.configuration }}
           AYUGRAM_BUILD_INTERMEDIATE: ${{ inputs.build_intermediate }}
@@ -102,12 +109,12 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ayugram-unsigned-${{ inputs.stage }}-${{ github.run_number }}-${{ github.run_attempt }}
+          name: ayugram-${{ matrix.variant }}-${{ inputs.stage }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
             artifacts/*.ipa
             artifacts/build-manifest.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 30
 
       - name: Remove generated credential files
         if: ${{ always() }}
