@@ -201,6 +201,9 @@ def build(source, ci, output, env):
                     run(['git', 'apply', followup], cwd=source)
                     swift_paths.update(re.findall(r'^diff --git a/(.+\.swift) b/.+$',
                                                   followup.read_text(encoding='utf-8'), re.M))
+                if variant == "custom":
+                    from ayugram_compatibility import check_custom_compatibility
+                    check_custom_compatibility(source)
                 from ayugram_branding import prepare_branding
                 prepare_branding(source)
                 # Parse the final versions of all changed files before the full build.
