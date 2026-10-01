@@ -326,11 +326,12 @@ diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManu
 new file mode 100644
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,94 @@
 +import Foundation
 +import Postbox
 +import SwiftSignalKit
 +import TelegramApi
++import MtProtoKit
 +import SGSimpleSettings
 +
 +/// Only a transient display copy is changed. The Postbox message retains its
