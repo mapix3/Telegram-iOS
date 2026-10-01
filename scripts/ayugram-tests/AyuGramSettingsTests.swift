@@ -59,6 +59,24 @@ struct AyuGramSettingsTests {
         }
         assert(store.client.pinnedChatLimit == 17 && store.client.localPremium)
         assert(store.snapshot.messageHistory && store.snapshot.antiRead)
+        #if AYUGRAM_REFINEMENTS
+        store.setLocalStatus(peerId: 1001, status: AyuGramLocalStatus(fileId: 9001, expirationDate: nil))
+        store.setLocalStatus(peerId: 1002, status: AyuGramLocalStatus(fileId: 9002, expirationDate: nil))
+        assert(store.localStatus(peerId: 1001)?.fileId == 9001)
+        assert(store.localStatus(peerId: 1002)?.fileId == 9002)
+        assert(AyuGramSettings(defaults: defaults).localStatus(peerId: 1001)?.fileId == 9001)
+        store.setLocalStatus(peerId: 1001, status: AyuGramLocalStatus(fileId: nil, expirationDate: nil))
+        assert(store.localStatus(peerId: 1001) != nil && store.localStatus(peerId: 1001)?.fileId == nil)
+        store.setLocalStatus(peerId: 1002, status: AyuGramLocalStatus(fileId: 9002, expirationDate: 1))
+        assert(store.localStatus(peerId: 1002) == nil)
+        store.updateClient { $0.localPremium = false }
+        assert(store.localStatus(peerId: 1001) == nil)
+        store.updateClient { $0.localPremium = true }
+        store.setLocalStatus(peerId: 1001, status: nil)
+        assert(store.localStatus(peerId: 1001) == nil)
+        assert(store.client.pinnedChatLimit == 17 && store.snapshot.antiRead)
+        print("Local emoji status: account isolation, persistence, expiration and disabling passed")
+        #endif
         print("AyuGram client preferences: persistence, bounds and privacy preservation passed")
         #endif
         print("AyuGram settings: persistence, Ghost Mode, concurrency and observer tests passed")
