@@ -1,0 +1,626 @@
+diff --git a/submodules/Postbox/Sources/Postbox.swift b/submodules/Postbox/Sources/Postbox.swift
+--- a/submodules/Postbox/Sources/Postbox.swift
++++ b/submodules/Postbox/Sources/Postbox.swift
+@@ -231,10 +231,10 @@
+         self.postbox?.applyOutgoingReadMaxId(messageId)
+     }
+     
+-    public func applyInteractiveReadMaxIndex(_ messageIndex: MessageIndex) -> [MessageId] {
++    public func applyInteractiveReadMaxIndex(_ messageIndex: MessageIndex, synchronize: Bool = true) -> [MessageId] {
+         assert(!self.disposed)
+         if let postbox = self.postbox {
+-            return postbox.applyInteractiveReadMaxIndex(messageIndex: messageIndex)
++            return postbox.applyInteractiveReadMaxIndex(messageIndex: messageIndex, synchronize: synchronize)
+         } else {
+             return []
+         }
+@@ -2348,25 +2348,25 @@
+         self.messageHistoryTable.applyOutgoingReadMaxId(messageId, operationsByPeerId: &self.currentOperationsByPeerId, updatedPeerReadStateOperations: &self.currentUpdatedSynchronizeReadStateOperations)
+     }
+     
+-    fileprivate func applyInteractiveReadMaxIndex(messageIndex: MessageIndex) -> [MessageId] {
++    fileprivate func applyInteractiveReadMaxIndex(messageIndex: MessageIndex, synchronize: Bool) -> [MessageId] {
+         let peerIds = self.peerIdsForLocation(.peer(peerId: messageIndex.id.peerId, threadId: nil), ignoreRelatedChats: false)
+         switch peerIds {
+         case let .associated(_, messageId):
+             if let messageId = messageId, let readState = self.readStateTable.getCombinedState(messageId.peerId), readState.count != 0 {
+                 if let topMessage = self.messageHistoryTable.topMessage(peerId: messageId.peerId) {
+-                    let _ = self.messageHistoryTable.applyInteractiveMaxReadIndex(postbox: self, messageIndex: topMessage.index, operationsByPeerId: &self.currentOperationsByPeerId, updatedPeerReadStateOperations: &self.currentUpdatedSynchronizeReadStateOperations)
++                    let _ = self.messageHistoryTable.applyInteractiveMaxReadIndex(postbox: self, messageIndex: topMessage.index, operationsByPeerId: &self.currentOperationsByPeerId, updatedPeerReadStateOperations: &self.currentUpdatedSynchronizeReadStateOperations, synchronize: synchronize)
+                 }
+             }
+         default:
+             break
+         }
+         let initialCombinedStates = self.readStateTable.getCombinedState(messageIndex.id.peerId)
+-        var resultIds = self.messageHistoryTable.applyInteractiveMaxReadIndex(postbox: self, messageIndex: messageIndex, operationsByPeerId: &self.currentOperationsByPeerId, updatedPeerReadStateOperations: &self.currentUpdatedSynchronizeReadStateOperations)
++        var resultIds = self.messageHistoryTable.applyInteractiveMaxReadIndex(postbox: self, messageIndex: messageIndex, operationsByPeerId: &self.currentOperationsByPeerId, updatedPeerReadStateOperations: &self.currentUpdatedSynchronizeReadStateOperations, synchronize: synchronize)
+         if let states = initialCombinedStates?.states {
+             for (namespace, state) in states {
+                 if namespace != messageIndex.id.namespace && state.count != 0 {
+                     if let item = self.messageHistoryTable.fetch(peerId: messageIndex.id.peerId, namespace: namespace, tag: nil, customTag: nil, threadId: nil, from: MessageIndex(id: MessageId(peerId: messageIndex.id.peerId, namespace: namespace, id: 1), timestamp: messageIndex.timestamp), includeFrom: true, to: MessageIndex.lowerBound(peerId: messageIndex.id.peerId, namespace: namespace), ignoreMessagesInTimestampRange: nil, ignoreMessageIds: Set(), limit: 1).first {
+-                        resultIds.append(contentsOf:  self.messageHistoryTable.applyInteractiveMaxReadIndex(postbox: self, messageIndex: item.index, operationsByPeerId: &self.currentOperationsByPeerId, updatedPeerReadStateOperations: &self.currentUpdatedSynchronizeReadStateOperations))
++                        resultIds.append(contentsOf:  self.messageHistoryTable.applyInteractiveMaxReadIndex(postbox: self, messageIndex: item.index, operationsByPeerId: &self.currentOperationsByPeerId, updatedPeerReadStateOperations: &self.currentUpdatedSynchronizeReadStateOperations, synchronize: synchronize))
+                     }
+                 }
+             }
+diff --git a/submodules/Postbox/Sources/MessageHistoryTable.swift b/submodules/Postbox/Sources/MessageHistoryTable.swift
+--- a/submodules/Postbox/Sources/MessageHistoryTable.swift
++++ b/submodules/Postbox/Sources/MessageHistoryTable.swift
+@@ -715,7 +715,7 @@
+         return messageIds
+     }
+     
+-    func applyInteractiveMaxReadIndex(postbox: PostboxImpl, messageIndex: MessageIndex, operationsByPeerId: inout [PeerId: [MessageHistoryOperation]], updatedPeerReadStateOperations: inout [PeerId: PeerReadStateSynchronizationOperation?]) -> [MessageId] {
++    func applyInteractiveMaxReadIndex(postbox: PostboxImpl, messageIndex: MessageIndex, operationsByPeerId: inout [PeerId: [MessageHistoryOperation]], updatedPeerReadStateOperations: inout [PeerId: PeerReadStateSynchronizationOperation?], synchronize: Bool = true) -> [MessageId] {
+         var topMessageId: (MessageId.Id, Bool)?
+         if let index = self.topIndexEntry(peerId: messageIndex.id.peerId, namespace: messageIndex.id.namespace) {
+             if let message = self.getMessage(index) {
+@@ -745,11 +745,13 @@
+             }
+         }
+         
+-        switch result {
+-            case let .Push(thenSync):
+-                self.synchronizeReadStateTable.set(messageIndex.id.peerId, operation: .Push(state: self.readStateTable.getCombinedState(messageIndex.id.peerId), thenSync: thenSync), operations: &updatedPeerReadStateOperations)
+-            case .None:
+-                break
++        if synchronize {
++            switch result {
++                case let .Push(thenSync):
++                    self.synchronizeReadStateTable.set(messageIndex.id.peerId, operation: .Push(state: self.readStateTable.getCombinedState(messageIndex.id.peerId), thenSync: thenSync), operations: &updatedPeerReadStateOperations)
++                case .None:
++                    break
++            }
+         }
+         
+         return messageIds
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
+@@ -12,8 +12,8 @@
+ }
+     
+ func _internal_applyMaxReadIndexInteractively(transaction: Transaction, stateManager: AccountStateManager, index: MessageIndex) {
+-    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+-    let messageIds = transaction.applyInteractiveReadMaxIndex(index)
++    let suppressRead = AyuGramSettings.shared.snapshot.suppressRead
++    let messageIds = transaction.applyInteractiveReadMaxIndex(index, synchronize: !suppressRead)
+     
+     if let peer = transaction.getPeer(index.id.peerId), peer.isForumOrMonoForum {
+         if let combinedPeerReadState = transaction.getCombinedPeerReadState(peer.id), combinedPeerReadState.count == 0 {
+@@ -38,6 +38,9 @@
+         }
+     }
+     
++    // Preserve local unread counters, but neither start secret-chat timers nor
++    // notify server-facing state-manager observers while private reading is on.
++    if suppressRead { return }
+     if index.id.peerId.namespace == Namespaces.Peer.SecretChat {
+         let timestamp = Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970)
+         for id in messageIds {
+@@ -142,7 +145,7 @@
+ }
+ 
+ func _internal_toggleForumThreadUnreadMarkInteractively(transaction: Transaction, network: Network, viewTracker: AccountViewTracker, peerId: PeerId, threadId: Int64, setToValue: Bool?) {
+-    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
++    let suppressRead = AyuGramSettings.shared.snapshot.suppressRead
+     guard let peer = transaction.getPeer(peerId) else {
+         return
+     }
+@@ -166,7 +169,7 @@
+         
+         if peer.isForum {
+         } else if peer.isMonoForum {
+-            if let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer) {
++            if !suppressRead, let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer) {
+                 let _ = network.request(Api.functions.messages.markDialogUnread(flags: 1 << 0, parentPeer: inputPeer, peer: .inputDialogPeer(.init(peer: subPeer)))).start()
+             }
+         }
+@@ -182,11 +185,11 @@
+             }
+             
+             if peer.isForum {
+-                if let inputPeer = apiInputPeer(peer) {
++                if !suppressRead, let inputPeer = apiInputPeer(peer) {
+                     let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
+                 }
+             } else if peer.isMonoForum {
+-                if let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer) {
++                if !suppressRead, let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer) {
+                     let _ = network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeer, maxId: messageIndex.id.id)).start()
+                 }
+             }
+@@ -195,7 +198,7 @@
+ }
+ 
+ func _internal_markForumThreadAsReadInteractively(transaction: Transaction, network: Network, viewTracker: AccountViewTracker, peerId: PeerId, threadId: Int64) {
+-    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
++    let suppressRead = AyuGramSettings.shared.snapshot.suppressRead
+     guard let peer = transaction.getPeer(peerId) else {
+         return
+     }
+@@ -219,11 +222,11 @@
+         }
+         
+         if peer.isForum {
+-            if let inputPeer = apiInputPeer(peer) {
++            if !suppressRead, let inputPeer = apiInputPeer(peer) {
+                 let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
+             }
+         } else if peer.isMonoForum {
+-            if let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer) {
++            if !suppressRead, let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer) {
+                 let _ = network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeer, maxId: messageIndex.id.id)).start()
+             }
+         }
+@@ -231,7 +234,7 @@
+ }
+ 
+ func _internal_togglePeerUnreadMarkInteractively(transaction: Transaction, network: Network, viewTracker: AccountViewTracker, peerId: PeerId, setToValue: Bool? = nil) {
+-    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
++    let suppressRead = AyuGramSettings.shared.snapshot.suppressRead
+     guard let peer = transaction.getPeer(peerId) else {
+         return
+     }
+@@ -262,11 +265,11 @@
+                 }
+                 
+                 if peer.isForum {
+-                    if let inputPeer = apiInputPeer(peer) {
++                    if !suppressRead, let inputPeer = apiInputPeer(peer) {
+                         let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: item.threadId), readMaxId: messageIndex.id.id)).start()
+                     }
+                 } else if peer.isMonoForum {
+-                    if let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(item.threadId)).flatMap(apiInputPeer) {
++                    if !suppressRead, let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(item.threadId)).flatMap(apiInputPeer) {
+                         let _ = network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeer, maxId: messageIndex.id.id)).start()
+                     }
+                 }
+@@ -300,15 +303,15 @@
+         if hasUnread {
+             if setToValue == nil || !(setToValue!) {
+                 if let index = transaction.getTopPeerMessageIndex(peerId: peerId) {
+-                    let _ = transaction.applyInteractiveReadMaxIndex(index)
++                    let _ = transaction.applyInteractiveReadMaxIndex(index, synchronize: !suppressRead)
+                 } else {
+-                    transaction.applyMarkUnread(peerId: peerId, namespace: principalNamespace, value: false, interactive: true)
+-                }
+-                viewTracker.updateMarkAllMentionsSeen(peerId: peerId, threadId: nil)
++                    transaction.applyMarkUnread(peerId: peerId, namespace: principalNamespace, value: false, interactive: !suppressRead)
++                }
++                if !suppressRead { viewTracker.updateMarkAllMentionsSeen(peerId: peerId, threadId: nil) }
+             }
+         } else {
+             if setToValue == nil || setToValue! {
+-                transaction.applyMarkUnread(peerId: peerId, namespace: principalNamespace, value: true, interactive: true)
++                transaction.applyMarkUnread(peerId: peerId, namespace: principalNamespace, value: true, interactive: !suppressRead)
+             }
+         }
+     }
+@@ -335,7 +338,6 @@
+ }
+ 
+ func _internal_markAllChatsAsReadInteractively(transaction: Transaction, network: Network, viewTracker: AccountViewTracker, groupId: PeerGroupId, filterPredicate: ChatListFilterPredicate?) {
+-    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+     for peerId in transaction.getUnreadChatListPeerIds(groupId: groupId, filterPredicate: filterPredicate, additionalFilter: nil, stopOnFirstMatch: false) {
+         _internal_togglePeerUnreadMarkInteractively(transaction: transaction, network: network, viewTracker: viewTracker, peerId: peerId, setToValue: false)
+     }
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift
+@@ -316,7 +316,6 @@
+     }
+     
+     func applyMaxReadIndex(messageIndex: MessageIndex) {
+-    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+         let peerId = self.peerId
+         let threadId = self.threadId
+         
+@@ -599,7 +598,6 @@
+     }
+     
+     public func applyMaxReadIndex(messageIndex: MessageIndex) {
+-    guard !AyuGramSettings.shared.snapshot.suppressRead else { return }
+         self.impl.with { impl in
+             impl.applyMaxReadIndex(messageIndex: messageIndex)
+         }
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/MarkMessageContentAsConsumedInteractively.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/MarkMessageContentAsConsumedInteractively.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/MarkMessageContentAsConsumedInteractively.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/MarkMessageContentAsConsumedInteractively.swift
+@@ -1,12 +1,17 @@
+ import Foundation
++import SGSimpleSettings
+ import Postbox
+ import TelegramApi
+ import SwiftSignalKit
+ 
+-func _internal_markMessageContentAsConsumedInteractively(postbox: Postbox, messageId: MessageId) -> Signal<Void, NoError> {
++func _internal_markMessageContentAsConsumedInteractively(postbox: Postbox, messageId: MessageId, reportToServer: Bool = true, allowPrivateConsumption: Bool = false) -> Signal<Void, NoError> {
+     return postbox.transaction { transaction -> Void in
+         if let message = transaction.getMessage(messageId), message.flags.contains(.Incoming) {
++            let privateRead = AyuGramSettings.shared.snapshot.suppressRead
++            if privateRead && message.containsSecretMedia && !allowPrivateConsumption { return }
++            let synchronize = reportToServer && (!privateRead || allowPrivateConsumption)
+             var updateMessage = false
++            var updatedTags = message.tags
+             var updatedAttributes = message.attributes
+             
+             for i in 0 ..< updatedAttributes.count {
+@@ -15,7 +20,9 @@
+                         updatedAttributes[i] = ConsumableContentMessageAttribute(consumed: true)
+                         updateMessage = true
+                         
+-                        if message.id.peerId.namespace == Namespaces.Peer.SecretChat {
++                        if !synchronize {
++                            // Local playback state only; no queued server report.
++                        } else if message.id.peerId.namespace == Namespaces.Peer.SecretChat {
+                             if let state = transaction.getPeerChatState(message.id.peerId) as? SecretChatState {
+                                 var layer: SecretChatLayer?
+                                 switch state.embeddedState {
+@@ -42,8 +49,14 @@
+                         }
+                     }
+                 } else if let attribute = updatedAttributes[i] as? ConsumablePersonalMentionMessageAttribute, !attribute.consumed {
+-                    transaction.setPendingMessageAction(type: .consumeUnseenPersonalMessage, id: messageId, action: ConsumePersonalMessageAction())
+-                    updatedAttributes[i] = ConsumablePersonalMentionMessageAttribute(consumed: attribute.consumed, pending: true)
++                    if synchronize {
++                        transaction.setPendingMessageAction(type: .consumeUnseenPersonalMessage, id: messageId, action: ConsumePersonalMessageAction())
++                        updatedAttributes[i] = ConsumablePersonalMentionMessageAttribute(consumed: attribute.consumed, pending: true)
++                    } else {
++                        updatedAttributes[i] = ConsumablePersonalMentionMessageAttribute(consumed: true, pending: false)
++                        updatedTags.remove(.unseenPersonalMessage)
++                        updateMessage = true
++                    }
+                 }
+             }
+             
+@@ -58,7 +71,7 @@
+                         updatedAttributes[i] = AutoremoveTimeoutMessageAttribute(timeout: timeout, countdownBeginTime: timestamp)
+                         updateMessage = true
+                         
+-                        if messageId.peerId.namespace == Namespaces.Peer.SecretChat {
++                        if synchronize && messageId.peerId.namespace == Namespaces.Peer.SecretChat {
+                             var layer: SecretChatLayer?
+                             let state = transaction.getPeerChatState(message.id.peerId) as? SecretChatState
+                             if let state = state {
+@@ -89,7 +102,7 @@
+                         updatedAttributes[i] = AutoclearTimeoutMessageAttribute(timeout: timeout, countdownBeginTime: timestamp)
+                         updateMessage = true
+                         
+-                        if messageId.peerId.namespace == Namespaces.Peer.SecretChat {
++                        if synchronize && messageId.peerId.namespace == Namespaces.Peer.SecretChat {
+                             var layer: SecretChatLayer?
+                             let state = transaction.getPeerChatState(message.id.peerId) as? SecretChatState
+                             if let state = state {
+@@ -120,7 +133,7 @@
+                     if let forwardInfo = currentMessage.forwardInfo {
+                         storeForwardInfo = StoreMessageForwardInfo(authorId: forwardInfo.author?.id, sourceId: forwardInfo.source?.id, sourceMessageId: forwardInfo.sourceMessageId, date: forwardInfo.date, authorSignature: forwardInfo.authorSignature, psaType: forwardInfo.psaType, flags: forwardInfo.flags)
+                     }
+-                    return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: storeForwardInfo, authorId: currentMessage.author?.id, text: currentMessage.text, attributes: updatedAttributes, media: currentMessage.media))
++                    return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: updatedTags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: storeForwardInfo, authorId: currentMessage.author?.id, text: currentMessage.text, attributes: updatedAttributes, media: currentMessage.media))
+                 })
+             }
+         }
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift
+@@ -97,6 +97,16 @@
+ 
+         public func clearCloudDraftsInteractively() -> Signal<Void, NoError> {
+         	return _internal_clearCloudDraftsInteractively(postbox: self.account.postbox, network: self.account.network, accountPeerId: self.account.peerId)
++        }
++
++        /// Explicit user action: Telegram readHistory is cumulative up to this ID.
++        public func ayuReportRead(messageId: MessageId) -> Signal<Bool, NoError> {
++            return _internal_ayuReportRead(account: self.account, messageId: messageId)
++        }
++
++        /// Explicit content-view receipt; intentionally starts the native expiry.
++        public func ayuReportContentViewed(messageId: MessageId) -> Signal<Bool, NoError> {
++            return _internal_ayuReportContentViewed(account: self.account, messageId: messageId)
+         }
+ 
+         public func applyMaxReadIndexInteractively(index: MessageIndex) -> Signal<Void, NoError> {
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift
+new file mode 100644
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift
+@@ -0,0 +1,93 @@
++import Foundation
++import Postbox
++import SwiftSignalKit
++import TelegramApi
++import SGSimpleSettings
++
++/// Only a transient display copy is changed. The Postbox message retains its
++/// lifetime attributes, and server expiry/deletions still update it normally.
++public func ayuPrivateMediaDisplayMessage(_ message: Message) -> Message? {
++    guard AyuGramSettings.shared.snapshot.suppressRead,
++          message.flags.contains(.Incoming), message.containsSecretMedia,
++          message.id.peerId.namespace == Namespaces.Peer.CloudUser,
++          message.id.namespace == Namespaces.Message.Cloud,
++          message.media.contains(where: { $0 is TelegramMediaImage }) else { return nil }
++    let attributes = message.attributes.filter {
++        !($0 is AutoclearTimeoutMessageAttribute) && !($0 is AutoremoveTimeoutMessageAttribute)
++        && !($0 is ConsumableContentMessageAttribute)
++    }
++    return message.withUpdatedAttributes(attributes)
++}
++
++func _internal_ayuReportRead(account: Account, messageId: MessageId) -> Signal<Bool, NoError> {
++    guard messageId.namespace == Namespaces.Message.Cloud else { return .single(false) }
++    return account.postbox.transaction { transaction -> (Peer?, Message?) in
++        return (transaction.getPeer(messageId.peerId), transaction.getMessage(messageId))
++    }
++    |> mapToSignal { peer, message -> Signal<Bool, NoError> in
++        guard let peer, let message, message.flags.contains(.Incoming) else { return .single(false) }
++        let request: Signal<Bool, MTRpcError>
++        if let threadId = message.threadId, let inputPeer = apiInputPeer(peer) {
++            if peer.isMonoForum {
++                return account.postbox.transaction { transaction -> Api.InputPeer? in
++                    transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer)
++                }
++                |> mapToSignal { subPeer -> Signal<Bool, NoError> in
++                    guard let subPeer else { return .single(false) }
++                    return account.network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeer, maxId: messageId.id))
++                    |> map { result in if case .boolTrue = result { return true }; return false }
++                    |> `catch` { _ in .single(false) }
++                }
++            }
++            request = account.network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageId.id))
++            |> map { result in if case .boolTrue = result { return true }; return false }
++        } else if let channel = peer as? TelegramChannel, let inputChannel = apiInputChannel(channel) {
++            request = account.network.request(Api.functions.channels.readHistory(channel: inputChannel, maxId: messageId.id))
++            |> map { result in if case .boolTrue = result { return true }; return false }
++        } else if let inputPeer = apiInputPeer(peer) {
++            request = account.network.request(Api.functions.messages.readHistory(peer: inputPeer, maxId: messageId.id))
++            |> map { affected in
++                if case let .affectedMessages(data) = affected {
++                    account.stateManager.addUpdateGroups([.updatePts(pts: data.pts, ptsCount: data.ptsCount)])
++                }
++                return true
++            }
++        } else {
++            return .single(false)
++        }
++        return request
++        |> `catch` { _ in .single(false) }
++        |> mapToSignal { success -> Signal<Bool, NoError> in
++            guard success else { return .single(false) }
++            return account.postbox.transaction { transaction -> Bool in
++                let _ = transaction.applyInteractiveReadMaxIndex(message.index, synchronize: false)
++                return true
++            }
++        }
++    }
++}
++
++func _internal_ayuReportContentViewed(account: Account, messageId: MessageId) -> Signal<Bool, NoError> {
++    guard messageId.namespace == Namespaces.Message.Cloud,
++          messageId.peerId.namespace == Namespaces.Peer.CloudUser else { return .single(false) }
++    return account.postbox.transaction { transaction -> Bool in
++        guard let message = transaction.getMessage(messageId), message.flags.contains(.Incoming) else { return false }
++        return message.media.contains(where: { $0 is TelegramMediaImage }) && message.containsSecretMedia
++    }
++    |> mapToSignal { available -> Signal<Bool, NoError> in
++        guard available else { return .single(false) }
++        return account.network.request(Api.functions.messages.readMessageContents(id: [messageId.id]))
++        |> map { affected -> Bool in
++            if case let .affectedMessages(data) = affected {
++                account.stateManager.addUpdateGroups([.updatePts(pts: data.pts, ptsCount: data.ptsCount)])
++            }
++            return true
++        }
++        |> `catch` { _ in .single(false) }
++        |> mapToSignal { success -> Signal<Bool, NoError> in
++            guard success else { return .single(false) }
++            return _internal_markMessageContentAsConsumedInteractively(postbox: account.postbox, messageId: messageId, reportToServer: false, allowPrivateConsumption: true)
++            |> map { true }
++        }
++    }
++}
+diff --git a/submodules/GalleryData/Sources/GalleryData.swift b/submodules/GalleryData/Sources/GalleryData.swift
+--- a/submodules/GalleryData/Sources/GalleryData.swift
++++ b/submodules/GalleryData/Sources/GalleryData.swift
+@@ -314,6 +314,11 @@
+                 }, baseNavigationController: navigationController, actionInteraction: actionInteraction)
+                 gallery.temporaryDoNotWaitForReady = autoplayingVideo
+                 return .gallery(.single(gallery))
++            } else if let displayMessage = ayuPrivateMediaDisplayMessage(message) {
++                let gallery = GalleryController(context: context, source: .standaloneMessage(displayMessage, mediaSubject), invertItemOrder: reverseMessageGalleryOrder, streamSingleVideo: false, fromPlayingVideo: false, landscape: false, timecode: nil, synchronousLoad: synchronousLoad, replaceRootController: { [weak navigationController] controller, ready in
++                    navigationController?.replaceTopController(controller, animated: false, ready: ready)
++                }, baseNavigationController: navigationController, actionInteraction: nil)
++                return .gallery(.single(gallery))
+             } else if message.containsSecretMedia {
+                 let gallery = SecretMediaPreviewController(context: context, messageId: message.id)
+                 return .secretGallery(gallery)
+diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+--- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
++++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+@@ -1003,6 +1003,48 @@
+                     }
+                 })
+             })))
++        }
++        if messages.count == 1, message.flags.contains(.Incoming), message.id.namespace == Namespaces.Message.Cloud {
++            actions.append(.action(ContextMenuActionItem(text: "Отправить отчёт о прочтении", icon: { theme in
++                generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Read"), color: theme.actionSheet.primaryTextColor)
++            }, action: { _, f in
++                f(.default)
++                let data = context.sharedContext.currentPresentationData.with { $0 }
++                controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: "Отправить отчёт?", text: "Собеседник увидит прочтение этого сообщения и всех более ранних сообщений в этом чате. Режим приватности останется включён.", actions: [
++                    TextAlertAction(type: .genericAction, title: data.strings.Common_Cancel, action: {}),
++                    TextAlertAction(type: .defaultAction, title: "Отправить", action: {
++                        let _ = (context.engine.messages.ayuReportRead(messageId: message.id)
++                        |> deliverOnMainQueue).startStandalone(next: { success in
++                            controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: success ? "Отчёт отправлен" : "Не удалось отправить", text: success ? "Отчёт о прочтении передан серверу." : "Проверь подключение и попробуй ещё раз.", actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
++                        })
++                    })
++                ]), nil)
++            })))
++            if ayuPrivateMediaDisplayMessage(message) != nil {
++                actions.append(.action(ContextMenuActionItem(text: "Посмотреть без отчёта", icon: { theme in
++                    generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Message"), color: theme.actionSheet.primaryTextColor)
++                }, action: { _, f in
++                    f(.default)
++                    Queue.mainQueue().after(0.2) {
++                        let _ = controllerInteraction.openMessage(message, OpenMessageParams(mode: .default))
++                    }
++                })))
++                actions.append(.action(ContextMenuActionItem(text: "Сообщить о просмотре фото", icon: { theme in
++                    generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Read"), color: theme.actionSheet.primaryTextColor)
++                }, action: { _, f in
++                    f(.default)
++                    let data = context.sharedContext.currentPresentationData.with { $0 }
++                    controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: "Сообщить о просмотре?", text: "Отправитель узнает о просмотре. Запустится таймер удаления, а одноразовое фото может исчезнуть сразу. Сначала сохрани фото, если оно нужно.", actions: [
++                        TextAlertAction(type: .genericAction, title: data.strings.Common_Cancel, action: {}),
++                        TextAlertAction(type: .defaultAction, title: "Сообщить", action: {
++                            let _ = (context.engine.messages.ayuReportContentViewed(messageId: message.id)
++                            |> deliverOnMainQueue).startStandalone(next: { success in
++                                controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: success ? "Отчёт отправлен" : "Не удалось отправить", text: success ? "Сервер получил отметку о просмотре фото." : "Фото уже недоступно или нет подключения.", actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
++                            })
++                        })
++                    ]), nil)
++                })))
++            }
+         }
+         var sgActions: [ContextMenuItem] = []
+ 
+@@ -1496,12 +1538,12 @@
+             }
+         }
+         
+-        if resourceAvailable, !message.containsSecretMedia && !isCopyProtected {
++        if (resourceAvailable && !message.containsSecretMedia || ayuPrivateMediaDisplayMessage(message) != nil) && !isCopyProtected {
+             var mediaReference: AnyMediaReference?
+             var isVideo = false
+             for media in message.effectiveMedia {
+                 if let image = media as? TelegramMediaImage, let _ = largestImageRepresentation(image.representations) {
+-                    mediaReference = ImageMediaReference.standalone(media: image).abstract
++                    mediaReference = ayuPrivateMediaDisplayMessage(message) != nil ? ImageMediaReference.message(message: MessageReference(message), media: image).abstract : ImageMediaReference.standalone(media: image).abstract
+                     break
+                 } else if let file = media as? TelegramMediaFile, file.isVideo {
+                     mediaReference = FileMediaReference.standalone(media: file).abstract
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Peers/TelegramEnginePeers.swift b/submodules/TelegramCore/Sources/TelegramEngine/Peers/TelegramEnginePeers.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Peers/TelegramEnginePeers.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Peers/TelegramEnginePeers.swift
+@@ -140,6 +140,17 @@
+     }
+ 
+     final class Peers {
++        public func ayuAccountServerPresence() -> Signal<EnginePeer.Presence?, NoError> {
++            return self.account.network.request(Api.functions.users.getUsers(id: [.inputUserSelf]))
++            |> map { users -> EnginePeer.Presence? in
++                guard let user = users.first, case let .user(data) = user, let status = data.status else { return nil }
++                if case .userStatusEmpty = status { return nil }
++                let presence = TelegramUserPresence(apiStatus: status)
++                return EnginePeer.Presence(presence)
++            }
++            |> `catch` { _ in .single(nil) }
++        }
++
+         private let account: Account
+ 
+         init(account: Account) {
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+@@ -97,6 +97,11 @@
+     
+     private let isOpenedFromChat: Bool
+     private let isSettings: Bool
++    private let ayuPresenceLabel = UILabel()
++    private let ayuPresenceDisposable = MetaDisposable()
++    private var ayuPresenceTimer: SwiftSignalKit.Timer?
++    private var ayuServerPresence: EnginePeer.Presence?
++    private var ayuPresenceReceivedAt: Date?
+     private let isMyProfile: Bool
+     private let videoCallsEnabled: Bool
+     private let forumTopicThreadId: Int64?
+@@ -322,6 +327,10 @@
+         
+         self.regularContentNode.addSubnode(self.avatarListNode.listContainerNode.controlsClippingOffsetNode)
+         self.regularContentNode.addSubnode(self.titleNodeContainer)
++        self.ayuPresenceLabel.font = UIFont.systemFont(ofSize: 14.0)
++        self.ayuPresenceLabel.textAlignment = .center
++        self.ayuPresenceLabel.isAccessibilityElement = true
++        self.regularContentNode.view.addSubview(self.ayuPresenceLabel)
+         self.regularContentNode.addSubnode(self.subtitleNodeContainer)
+         self.regularContentNode.addSubnode(self.subtitleNodeRawContainer)
+         self.regularContentNode.addSubnode(self.usernameNodeContainer)
+@@ -385,10 +394,31 @@
+     
+     deinit {
+         self.emojiStatusPackDisposable.dispose()
++        self.ayuPresenceDisposable.dispose()
++        self.ayuPresenceTimer?.invalidate()
+     }
+     
++    private func refreshAyuPresence() {
++        self.ayuPresenceDisposable.set((self.context.engine.peers.ayuAccountServerPresence()
++        |> deliverOnMainQueue).start(next: { [weak self] presence in
++            guard let self else { return }
++            self.ayuServerPresence = presence
++            self.ayuPresenceReceivedAt = presence == nil ? nil : Date()
++            self.requestUpdateLayout?(false)
++        }))
++    }
++
+     override func didLoad() {
+         super.didLoad()
++        if self.isSettings || self.isMyProfile {
++            self.refreshAyuPresence()
++            let timer = SwiftSignalKit.Timer(timeout: 30.0, repeat: true, completion: { [weak self] in
++                guard let self, self.view.window != nil else { return }
++                self.refreshAyuPresence()
++            }, queue: .mainQueue())
++            self.ayuPresenceTimer = timer
++            timer.start()
++        }
+         
+         let usernameGestureRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(self.handleUsernameLongPress(_:)))
+         self.usernameNodeRawContainer.view.addGestureRecognizer(usernameGestureRecognizer)
+@@ -1691,6 +1721,24 @@
+             }
+         }
+         
++        if self.isSettings || self.isMyProfile {
++            let text: String
++            if let presence = self.ayuServerPresence, let receivedAt = self.ayuPresenceReceivedAt, Date().timeIntervalSince(receivedAt) < 90.0 {
++                let (status, _) = stringAndActivityForUserPresence(strings: presentationData.strings, dateTimeFormat: presentationData.dateTimeFormat, presence: presence, relativeTo: Int32(Date().timeIntervalSince1970), expanded: true)
++                text = "На сервере: " + status
++            } else {
++                text = "Статус сервера недоступен"
++            }
++            self.ayuPresenceLabel.text = text
++            self.ayuPresenceLabel.accessibilityLabel = text
++            self.ayuPresenceLabel.textColor = navigationContentsSecondaryColor
++            self.ayuPresenceLabel.lineBreakMode = .byTruncatingTail
++            let frame = CGRect(x: 24.0, y: subtitleFrame.maxY + titleOffset + 9.0, width: max(0.0, width - 48.0), height: 20.0)
++            transition.updateFrame(view: self.ayuPresenceLabel, frame: frame)
++            transition.updateAlpha(layer: self.ayuPresenceLabel.layer, alpha: state.isEditing || self.isAvatarExpanded || isSearching ? 0.0 : 1.0 - titleCollapseFraction)
++        } else {
++            self.ayuPresenceLabel.isHidden = true
++        }
+         let titleMinScale: CGFloat = 0.6
+         let subtitleMinScale: CGFloat = 0.8
+         let avatarMinScale: CGFloat = 0.55
+@@ -2019,7 +2067,7 @@
+             rawHeight = navigationHeight + panelWithAvatarHeight
+             var expandablePart: CGFloat = panelWithAvatarHeight - contentOffset
+             if self.isSettings || self.isMyProfile {
+-                expandablePart += 20.0
++                expandablePart += 48.0
+             } else {
+                 if case let .replyThread(replyThreadMessage) = self.chatLocation, replyThreadMessage.peerId == self.context.account.peerId {
+                     expandablePart = 0.0
+@@ -2468,7 +2516,7 @@
+         if self.isAvatarExpanded {
+             resolvedRegularHeight = expandedAvatarListSize.height
+         } else {
+-            resolvedRegularHeight = panelWithAvatarHeight + navigationHeight + bottomInset
++            resolvedRegularHeight = panelWithAvatarHeight + navigationHeight + bottomInset + ((self.isSettings || self.isMyProfile) ? 28.0 : 0.0)
+         }
+         
+         let backgroundFrame: CGRect
