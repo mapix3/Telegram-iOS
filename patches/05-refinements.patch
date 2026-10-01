@@ -978,12 +978,11 @@ diff --git a/submodules/TelegramUI/Components/EmojiStatusSelectionComponent/BUIL
 diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
-@@ -277,3 +277,25 @@
+@@ -277,3 +277,24 @@
  "Settings.NY.Style.snow" = "Snow";
  "Settings.NY.Style.lightning" = "Lightning";
  "Settings.NY.Notice" = "Available for a limited time only!";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Ghost mode";
 +"Ayu.HideRead" = "Hide read receipts";
 +"Ayu.HideOnline" = "Hide online status";
@@ -1007,12 +1006,11 @@ diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
-@@ -272,3 +272,25 @@
+@@ -272,3 +272,24 @@
  "Settings.NY.Style.snow" = "Снег";
  "Settings.NY.Style.lightning" = "Молнии";
  "Settings.NY.Notice" = "Доступны только на ограниченное время!";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Режим призрака";
 +"Ayu.HideRead" = "Скрывать прочтение";
 +"Ayu.HideOnline" = "Скрывать онлайн";
@@ -1036,12 +1034,11 @@ diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
-@@ -243,3 +243,25 @@
+@@ -243,3 +243,24 @@
  "PayWall.ValidationError" = "Помилка валідації";
  "PayWall.ValidationError.TryAgain" = "Щось пішло не так під час перевірки покупки. Не хвилюйтеся! Спробуйте відновити покупки трохи пізніше.";
  "PayWall.ValidationError.Expired" = "Ваша підписка застаріла. Підпишіться, щоб відновити доступ до Pro-можливостей.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Режим привида";
 +"Ayu.HideRead" = "Приховувати прочитання";
 +"Ayu.HideOnline" = "Приховувати онлайн";
@@ -1065,12 +1062,11 @@ diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP mit Wischen";
  "Settings.swipeForVideoPIP.Notice" = "Wenn aktiviert, öffnet das Wischen des Videos es im Bild-in-Bild-Modus.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Geistmodus";
 +"Ayu.HideRead" = "Lesebestätigungen verbergen";
 +"Ayu.HideOnline" = "Online-Status verbergen";
@@ -1094,12 +1090,11 @@ diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
-@@ -135,3 +135,25 @@
+@@ -135,3 +135,24 @@
  "Settings.forceBuiltInMic.Notice" = "Si activé, l'application utilisera uniquement le microphone de l'appareil même si des écouteurs sont connectés.";
  
  "Settings.hideChannelBottomButton" = "Masquer le panneau inférieur du canal";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Mode fantôme";
 +"Ayu.HideRead" = "Masquer les confirmations de lecture";
 +"Ayu.HideOnline" = "Masquer le statut en ligne";
@@ -1123,12 +1118,11 @@ diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP con deslizamiento";
  "Settings.swipeForVideoPIP.Notice" = "Si está habilitado, deslizar el video lo abrirá en modo imagen en imagen.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Modo fantasma";
 +"Ayu.HideRead" = "Ocultar confirmaciones de lectura";
 +"Ayu.HideOnline" = "Ocultar estado en línea";
@@ -1152,12 +1146,11 @@ diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP con scorrimento";
  "Settings.swipeForVideoPIP.Notice" = "Se abilitato, scorrendo il video si aprirà in modalità Picture-in-Picture.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Modalità fantasma";
 +"Ayu.HideRead" = "Nascondi conferme di lettura";
 +"Ayu.HideOnline" = "Nascondi stato online";
@@ -1181,7 +1174,7 @@ diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
-@@ -271,4 +271,26 @@
+@@ -271,4 +271,25 @@
  "Settings.NY.Style.default" = "Desativado";
  "Settings.NY.Style.snow" = "Neve";
  "Settings.NY.Style.lightning" = "Raio";
@@ -1189,7 +1182,6 @@ diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftg
 \ No newline at end of file
 +"Settings.NY.Notice" = "Disponível por tempo limitado!";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Modo fantasma";
 +"Ayu.HideRead" = "Ocultar confirmações de leitura";
 +"Ayu.HideOnline" = "Ocultar estado online";
@@ -1213,12 +1205,11 @@ diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
-@@ -243,3 +243,25 @@
+@@ -243,3 +243,24 @@
  "PayWall.ValidationError" = "Błąd weryfikacji";
  "PayWall.ValidationError.TryAgain" = "Coś poszło nie tak podczas weryfikacji zakupu. Nie martw się! Spróbuj przywrócić zakupy trochę później.";
  "PayWall.ValidationError.Expired" = "Twoja subskrypcja wygasła. Subskrybuj ponownie, aby odzyskać dostęp do funkcji Pro.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Tryb ducha";
 +"Ayu.HideRead" = "Ukryj potwierdzenia odczytu";
 +"Ayu.HideOnline" = "Ukryj status online";
@@ -1242,12 +1233,11 @@ diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Videoyu kaydırarak PIP";
  "Settings.swipeForVideoPIP.Notice" = "Eğer etkinleştirildi ise videoyu kaydırmak, Piksel içinde Piksel modunda açılacaktır.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Hayalet modu";
 +"Ayu.HideRead" = "Okundu bilgisini gizle";
 +"Ayu.HideOnline" = "Çevrimiçi durumunu gizle";
@@ -1271,12 +1261,11 @@ diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "فيديو PIP مع السحب";
  "Settings.swipeForVideoPIP.Notice" = "إذا تم تمكينه، سيفتح سحب الفيديو في وضع الصورة في الصورة.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "وضع الشبح";
 +"Ayu.HideRead" = "إخفاء إشعارات القراءة";
 +"Ayu.HideOnline" = "إخفاء حالة الاتصال";
@@ -1300,12 +1289,11 @@ diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
-@@ -7,3 +7,25 @@
+@@ -7,3 +7,24 @@
  "Settings.ShowProfileID" = "نمایش ایدی پروفایل";
  "Settings.Translation.QuickTranslateButton" = "دکمه ترجمه سریع";
  "ContextMenu.SaveToCloud" = "ذخیره در فضای ابری";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "حالت شبح";
 +"Ayu.HideRead" = "پنهان کردن رسید خواندن";
 +"Ayu.HideOnline" = "پنهان کردن وضعیت آنلاین";
@@ -1329,12 +1317,11 @@ diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "וידאו PIP עם החלקה";
  "Settings.swipeForVideoPIP.Notice" = "אם מופעל, החלקת הווידאו תפתח אותו במצב תמונה בתוך תמונה.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "מצב רוח רפאים";
 +"Ayu.HideRead" = "הסתר אישורי קריאה";
 +"Ayu.HideOnline" = "הסתר מצב מקוון";
@@ -1358,12 +1345,11 @@ diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
-@@ -247,3 +247,25 @@
+@@ -247,3 +247,24 @@
  "PayWall.ValidationError" = "验证错误";
  "PayWall.ValidationError.TryAgain" = "购买验证过程中出现问题。不用担心！稍后再试恢复购买。";
  "PayWall.ValidationError.Expired" = "您的订阅已过期。再次订阅以重新获得专业版功能。";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "幽灵模式";
 +"Ayu.HideRead" = "隐藏已读回执";
 +"Ayu.HideOnline" = "隐藏在线状态";
@@ -1387,12 +1373,11 @@ diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/S
 diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
-@@ -247,3 +247,25 @@
+@@ -247,3 +247,24 @@
  "PayWall.ValidationError" = "驗證錯誤";
  "PayWall.ValidationError.TryAgain" = "在購買驗證過程中出錯。別擔心！稍後再試恢復購買。";
  "PayWall.ValidationError.Expired" = "您的訂閱已過期。請重新訂閱以恢復訪問 Pro 功能。";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "幽靈模式";
 +"Ayu.HideRead" = "隱藏已讀回條";
 +"Ayu.HideOnline" = "隱藏上線狀態";
@@ -1416,12 +1401,11 @@ diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/S
 diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
-@@ -244,3 +244,25 @@
+@@ -244,3 +244,24 @@
  "PayWall.ValidationError" = "検証エラー";
  "PayWall.ValidationError.TryAgain" = "購入の検証中に問題が発生しました。心配しないでください！後で購入を復元してみてください。";
  "PayWall.ValidationError.Expired" = "サブスクリプションの有効期限が切れました。Pro機能へのアクセスを取り戻すには、再度サブスクリプションを登録してください。";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "ゴーストモード";
 +"Ayu.HideRead" = "既読通知を隠す";
 +"Ayu.HideOnline" = "オンライン状態を隠す";
@@ -1445,12 +1429,11 @@ diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "비디오 PIP 스와이프";
  "Settings.swipeForVideoPIP.Notice" = "설정이 활성화되면 비디오를 스와이프하면 화면 속 화면 모드로 열립니다.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "고스트 모드";
 +"Ayu.HideRead" = "읽음 확인 숨기기";
 +"Ayu.HideOnline" = "온라인 상태 숨기기";
@@ -1474,12 +1457,11 @@ diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP dengan Geser";
  "Settings.swipeForVideoPIP.Notice" = "Jika diaktifkan, menggeser video akan membukanya dalam mode Gambar-dalam-Gambar.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Mode hantu";
 +"Ayu.HideRead" = "Sembunyikan tanda dibaca";
 +"Ayu.HideOnline" = "Sembunyikan status online";
@@ -1503,12 +1485,11 @@ diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP với Vuốt";
  "Settings.swipeForVideoPIP.Notice" = "Nếu được kích hoạt, việc vuốt video sẽ mở nó ở chế độ Hình trong hình.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Chế độ ẩn";
 +"Ayu.HideRead" = "Ẩn xác nhận đã đọc";
 +"Ayu.HideOnline" = "Ẩn trạng thái trực tuyến";
@@ -1532,12 +1513,11 @@ diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "वीडियो PIP स्वाइप के साथ";
  "Settings.swipeForVideoPIP.Notice" = "यदि सक्षम है, तो वीडियो को स्वाइप करने से यह चित्र-इन-चित्र मोड में खोला जाएगा।";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "घोस्ट मोड";
 +"Ayu.HideRead" = "पढ़ने की पुष्टि छिपाएँ";
 +"Ayu.HideOnline" = "ऑनलाइन स्थिति छिपाएँ";
@@ -1561,12 +1541,11 @@ diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP met veeg";
  "Settings.swipeForVideoPIP.Notice" = "Als ingeschakeld, opent het swipen van video het in de modus Beeld-in-Beeld.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Spookmodus";
 +"Ayu.HideRead" = "Leesbevestigingen verbergen";
 +"Ayu.HideOnline" = "Online-status verbergen";
@@ -1590,12 +1569,11 @@ diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP med svep";
  "Settings.swipeForVideoPIP.Notice" = "Om aktiverat, kommer svepning av video att öppna det i bild-i-bild-läge.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Spökläge";
 +"Ayu.HideRead" = "Dölj läskvitton";
 +"Ayu.HideOnline" = "Dölj onlinestatus";
@@ -1619,12 +1597,11 @@ diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP med sveip";
  "Settings.swipeForVideoPIP.Notice" = "Hvis aktivert, vil sveipingen av video åpne den i bilde-i-bilde-modus.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Spøkelsesmodus";
 +"Ayu.HideRead" = "Skjul lesebekreftelser";
 +"Ayu.HideOnline" = "Skjul nettstatus";
@@ -1648,12 +1625,11 @@ diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP med Swipe";
  "Settings.swipeForVideoPIP.Notice" = "Hvis aktiveret, vil sletning af video åbne den i billede-i-billede-tilstand.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Spøgelsestilstand";
 +"Ayu.HideRead" = "Skjul læsekvitteringer";
 +"Ayu.HideOnline" = "Skjul onlinestatus";
@@ -1677,12 +1653,11 @@ diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
-@@ -228,3 +228,25 @@
+@@ -228,3 +228,24 @@
  "Paywall.Error.Title" = "Virhe";
  "PayWall.ValidationError" = "Vahvistusvirhe";
  "PayWall.ValidationError.TryAgain" = "Ostovahvistuksessa tapahtui jokin virhe. Ei hätää! Yritä palauttaa ostot hieman myöhemmin.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Haamutila";
 +"Ayu.HideRead" = "Piilota lukukuittaukset";
 +"Ayu.HideOnline" = "Piilota online-tila";
@@ -1706,12 +1681,11 @@ diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP s přetahováním";
  "Settings.swipeForVideoPIP.Notice" = "Pokud je povoleno, poslání videa jej otevře v režimu Obraz v obraze.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Režim ducha";
 +"Ayu.HideRead" = "Skrýt potvrzení o přečtení";
 +"Ayu.HideOnline" = "Skrýt stav online";
@@ -1735,12 +1709,11 @@ diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
-@@ -2,3 +2,25 @@
+@@ -2,3 +2,24 @@
  "Settings.Tabs.ShowContacts" = "Zobraziť kontakty";
  "Settings.Tabs.ShowNames" = "Zobraziť názvy záložiek";
  "ContextMenu.SaveToCloud" = "Uložiť na Cloud";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Režim ducha";
 +"Ayu.HideRead" = "Skryť potvrdenia o prečítaní";
 +"Ayu.HideOnline" = "Skryť stav online";
@@ -1764,12 +1737,11 @@ diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP cu gestul de glisare";
  "Settings.swipeForVideoPIP.Notice" = "Dacă este activat, glisarea video va deschide în modul imagine în imagine.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Mod fantomă";
 +"Ayu.HideRead" = "Ascunde confirmările de citire";
 +"Ayu.HideOnline" = "Ascunde starea online";
@@ -1793,12 +1765,11 @@ diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Videó PIP a húzással";
  "Settings.swipeForVideoPIP.Notice" = "Ha engedélyezve van, a videó húzása képet-képben üzemmódban nyitja meg.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Szellem mód";
 +"Ayu.HideRead" = "Olvasási visszajelzések elrejtése";
 +"Ayu.HideOnline" = "Online állapot elrejtése";
@@ -1822,12 +1793,11 @@ diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Βίντεο PIP με Swipe";
  "Settings.swipeForVideoPIP.Notice" = "Αν είναι ενεργοποιημένο, το σ swipe video θα το ανοίξει σε λειτουργία Εικόνα μέσα στην Εικόνα.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Λειτουργία φαντάσματος";
 +"Ayu.HideRead" = "Απόκρυψη αποδείξεων ανάγνωσης";
 +"Ayu.HideOnline" = "Απόκρυψη σύνδεσης";
@@ -1851,12 +1821,11 @@ diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Vídeo PIP amb desplaçament";
  "Settings.swipeForVideoPIP.Notice" = "Si està habilitat, desplaçar el vídeo l'obrirà en mode Imatge en Imatge.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Mode fantasma";
 +"Ayu.HideRead" = "Amaga les confirmacions de lectura";
 +"Ayu.HideOnline" = "Amaga l'estat en línia";
@@ -1880,12 +1849,11 @@ diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Видео PIP са свлачење";
  "Settings.swipeForVideoPIP.Notice" = "Ако је омогућено, померање видеа ће га отворити у режиму слике у слици.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Режим духа";
 +"Ayu.HideRead" = "Сакриј потврде читања";
 +"Ayu.HideOnline" = "Сакриј статус на мрежи";
@@ -1909,12 +1877,11 @@ diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP met Veeg";
  "Settings.swipeForVideoPIP.Notice" = "As geaktiveer, sal die veeg van die video dit in Prent-in-Prent modus oopmaak.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Spookmodus";
 +"Ayu.HideRead" = "Versteek leesbewyse";
 +"Ayu.HideOnline" = "Versteek aanlynstatus";
@@ -1938,12 +1905,11 @@ diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
-@@ -150,3 +150,25 @@
+@@ -150,3 +150,24 @@
  
  "Settings.swipeForVideoPIP" = "Video PIP bilan Surish";
  "Settings.swipeForVideoPIP.Notice" = "Agar yoqilgan bo'lsa, videoni surish uni Tasvir ichida Tasvir rejimida ochadi.";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Arvoh rejimi";
 +"Ayu.HideRead" = "O‘qilganini yashirish";
 +"Ayu.HideOnline" = "Onlayn holatini yashirish";
@@ -1967,12 +1933,11 @@ diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
-@@ -8,3 +8,25 @@
+@@ -8,3 +8,24 @@
  "Settings.Translation.QuickTranslateButton" = "دوگمەی وەرگێڕانی خێرا";
  "Settings.Folders.BottomTab" = "بوخچەکان لە خوارەوە";
  "ContextMenu.SaveToCloud" = "هەڵگرتن لە کڵاود";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "Moda ruhê";
 +"Ayu.HideRead" = "Veşartina pejirandina xwendinê";
 +"Ayu.HideOnline" = "Veşartina rewşa serhêl";
@@ -1996,12 +1961,11 @@ diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
-@@ -6,3 +6,25 @@
+@@ -6,3 +6,24 @@
  "Settings.HidePhoneInSettingsUI" = "លាក់លេខទូរសព្ទក្នុងការកំណត់";
  "Settings.Folders.BottomTab" = "ថតឯបាត";
  "ContextMenu.SaveToCloud" = "រក្សាទុកទៅពពក";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "មុខងារលាក់ខ្លួន";
 +"Ayu.HideRead" = "លាក់ការបញ្ជាក់ថាបានអាន";
 +"Ayu.HideOnline" = "លាក់ស្ថានភាពអនឡាញ";
@@ -2025,11 +1989,10 @@ diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftg
 diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
 --- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
 +++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
-@@ -1,2 +1,24 @@
+@@ -1,2 +1,23 @@
  "Settings.Tabs.Header" = "පටිති";
  "ContextMenu.SaveToCloud" = "මේඝයට සුරකින්න";
 +
-+/* AyuGram: follows the selected application language. */
 +"Ayu.Ghost" = "සැඟවුණු මාදිලිය";
 +"Ayu.HideRead" = "කියවූ බව සඟවන්න";
 +"Ayu.HideOnline" = "මාර්ගගත තත්ත්වය සඟවන්න";
