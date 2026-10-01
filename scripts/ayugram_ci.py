@@ -194,7 +194,7 @@ def build(source, ci, output, env):
                                            ('04-client-extras.patch', 'client_extras_patch_sha256'),
                                            ('05-refinements.patch', 'refinements_patch_sha256')] +
                                           ([('06-customization.patch', 'customization_patch_sha256')] if variant == 'custom' else []) +
-                                          [('07-ayugram-branding.patch', 'branding_patch_sha256')]):
+                                          [('07-ayugram-branding.patch', 'branding_patch_sha256'), ('08-history-and-badges.patch', 'history_ui_patch_sha256')]):
                     followup = ci / 'patches' / filename
                     entry[hash_key] = hashlib.sha256(followup.read_bytes()).hexdigest()
                     run(['git', 'apply', '--check', followup], cwd=source)
@@ -204,6 +204,8 @@ def build(source, ci, output, env):
                 if variant == "custom":
                     from ayugram_compatibility import check_custom_compatibility
                     check_custom_compatibility(source)
+                from ayugram_history_checks import check_history
+                check_history(source)
                 from ayugram_branding import prepare_branding
                 prepare_branding(source)
                 # Parse the final versions of all changed files before the full build.
