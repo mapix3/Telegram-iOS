@@ -37,6 +37,7 @@ final class Transaction {
     func getMessage(_ id: MessageId) -> TestMessage? { messages[id] }
     func deleteMessages(_ ids: [MessageId], forEachMedia: (Int) -> Void) { removed.formUnion(ids); ids.forEach { messages.removeValue(forKey: $0) } }
 }
+func ayuGramClearLocalEditMarker(transaction: Transaction, ids: Set<MessageId>) {}
 func expect(_ condition: @autoclosure () -> Bool, _ description: String) {
     precondition(condition(), description)
 }
@@ -87,7 +88,7 @@ print("History migration, direction/unread flags, path containment, record cap a
     card = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift').read_text()
     controller = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift').read_text()
     keys = sorted(set(re.findall(r'\bstrings\.([A-Za-z0-9_]+)', card + controller)))
-    native = 'import Foundation\nimport UIKit\nimport AVKit\nimport QuickLook\n'
+    native = 'import Foundation\nimport UIKit\nimport AVKit\nimport QuickLook\nimport ImageIO\n'
     native += declaration(core, 'public struct AyuGramHistoryEntry:')
     native += 'struct PresentationStrings {\n' + ''.join(f'    var {key}: String {{ "{key}" }}\n' for key in keys) + '}\n'
     native += '''
