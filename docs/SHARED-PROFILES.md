@@ -6,7 +6,7 @@ Open AyuGram settings → Shared profile → Connect account. The client opens a
 
 The member badge is an outlined purple circle with a plane. The owner ID 1272887902 has a separate filled seal. Updated AyuGram clients show these badges after the normal Telegram Premium/status glyph in profiles, chat titles, chat rows and message author names. Ordinary Telegram clients do not display these overlays. Real Telegram Premium continues to use Telegram's native status and API permissions.
 
-The client refreshes its own profile and visible users at most once per minute while in the foreground. It requests batches of up to 100 visible IDs, caches public profiles for offline rendering, and updates native peer views through a local generation marker. Model getters do not start network requests. Disappearing status deadlines refresh the visible model as they expire. Network failures use a backoff of 5–60 seconds.
+The client refreshes its own profile and up to 100 recently displayed users at most once per minute while in the foreground. It caches public profiles for offline rendering and updates native peer views through a local generation marker. Model getters do not start network requests. Status deadlines refresh the model as they expire. Network failures use a backoff of 5–60 seconds.
 
 Each installation's bearer token is stored in the system Keychain and scoped to an installation UUID and Telegram ID. Public profile caches contain no bearer tokens. Account switching cancels requests and ignores late responses from the previous account. HTTP redirects are rejected. A revision conflict loads the newer remote profile instead of overwriting it. Disconnect revokes this installation only; it preserves the shared member profile.
 
