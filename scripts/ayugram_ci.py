@@ -23,6 +23,21 @@ def run(args, cwd=None, capture=False):
                           text=True, stdout=subprocess.PIPE if capture else None).stdout
 
 
+class PatchApplyError(RuntimeError):
+    pass
+
+
+def apply_patch(path, source):
+    for check in [True, False]:
+        args = ['git', 'apply'] + (['--check'] if check else []) + [str(path)]
+        print('+ ' + ' '.join(args), flush=True)
+        result = subprocess.run(args, cwd=source, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.stdout:
+            print(result.stdout, flush=True)
+        if result.returncode:
+            raise PatchApplyError(path.name + ': ' + result.stdout[:16000])
+
+
 def build_configuration(env):
     required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'APPLE_TEAM_ID', 'APP_BUNDLE_ID']
     missing = [key for key in required if not env.get(key, '').strip()]
@@ -177,8 +192,7 @@ def build(source, ci, output, env):
             if patch:
                 path = ci / 'patches' / patch
                 entry['patch_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
-                run(['git', 'apply', '--check', path], cwd=source)
-                run(['git', 'apply', path], cwd=source)
+                apply_patch(path, source)
                 if name == 'privacy':
                     # Small Foundation-only executable tests storage and concurrent updates.
                     test = source / 'build-input/ayu-settings-tests'
@@ -197,8 +211,7 @@ def build(source, ci, output, env):
                                           [('07-ayugram-branding.patch', 'branding_patch_sha256'), ('08-history-and-badges.patch', 'history_ui_patch_sha256')]):
                     followup = ci / 'patches' / filename
                     entry[hash_key] = hashlib.sha256(followup.read_bytes()).hexdigest()
-                    run(['git', 'apply', '--check', followup], cwd=source)
-                    run(['git', 'apply', followup], cwd=source)
+                    apply_patch(followup, source)
                     swift_paths.update(re.findall(r'^diff --git a/(.+\.swift) b/.+$',
                                                   followup.read_text(encoding='utf-8'), re.M))
                 if variant == "custom":
@@ -249,6 +262,8 @@ def build(source, ci, output, env):
         manifest['status'] = 'failed'
         # Avoid serializing arbitrary tool output that might contain credentials.
         manifest['failure_type'] = type(error).__name__
+        if isinstance(error, PatchApplyError):
+            manifest['patch_error'] = str(error)
         if manifest['stages'] and manifest['stages'][-1]['status'] == 'building':
             manifest['stages'][-1]['status'] = 'failed'
         raise
