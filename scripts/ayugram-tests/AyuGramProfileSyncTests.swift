@@ -86,7 +86,7 @@ struct ProfileSyncTests {
         defer { defaults.removePersistentDomain(forName: suite); secondDefaults.removePersistentDomain(forName: secondSuite); session.invalidateAndCancel() }
         let tokens = MemoryTokenStore()
         defaults.set("installation-one", forKey: "ayugram.shared-profiles.installation.v1")
-        tokens.write(token, accountId: 123, installationId: "installation-one")
+        expect(tokens.write(token, accountId: 123, installationId: "installation-one"), "Session fixture is stored")
         let sync = AyuGramProfileSync(defaults: defaults, tokenStore: tokens, session: session)
         let notifications = NotificationCount()
         let observer = NotificationCenter.default.addObserver(forName: AyuGramProfileSync.didChange, object: sync, queue: .main) { notification in
@@ -125,6 +125,13 @@ struct ProfileSyncTests {
         wait("Confirmed second installation fetches the existing account profile") { second.profile(peerId: 123)?.emojiId == "99" }
         expect(second.hasPremium(peerId: 123) && AyuGramSettings.shared.client.localPremium, "Remote Premium selection survives changing data folders")
         apiLock.lock(); expect(writes == 3, "Connecting never uploads stale local settings"); apiLock.unlock()
+        second.setActiveAccount(123)
+        second.observe(peerId: 999, accountId: 456)
+        let selectionApplied = NotificationCount()
+        DispatchQueue.main.async { selectionApplied.value = 1 }
+        wait("Primary selection is applied before inactive views refresh") { selectionApplied.value == 1 }
+        expect(second.isConnected(accountId: 123) && AyuGramSettings.shared.client.localPremium, "Inactive views cannot switch the synchronization account")
+        second.setActiveAccount(456)
         second.observe(peerId: 999, accountId: 456)
         wait("An unconfirmed different account does not inherit authorization") { second.state(accountId: 456) == "disconnected" && !AyuGramSettings.shared.client.localPremium }
         expect(!second.isConnected(accountId: 456) && !AyuGramSettings.shared.client.localPremium, "Account switch resets account-specific Premium")
