@@ -65,7 +65,7 @@ for index in 1 ... 205 {
     entries.append(entry)
     transaction.messages[MessageId(peerId: PeerId(1), namespace: 0, id: Int32(index))] = TestMessage(ayuHistory: HistoryAttribute(deletedAt: now))
 }
-var history = AyuGramHistory(entries: entries)
+private var history = AyuGramHistory(entries: entries)
 pruneHistory(&history, transaction: transaction, mediaBox: box)
 expect(history.entries.count == 200 && transaction.removed.count == 5, "Record cap also removes local tombstones")
 let expired = AyuGramHistoryEntry(peerId: 1, messageId: 999, peerTitle: "chat", author: "user", text: "old", event: "deleted", timestamp: now - 31 * 86400, photoFileName: "old.jpg", photoResourceId: nil)
