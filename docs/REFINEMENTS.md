@@ -1,12 +1,12 @@
 # AyuGram: Standard and Custom
 
-Both variants use the same audited Swiftgram source and common patches 01–05, 07, 08 and 10. Custom additionally applies patches 06 and 09. GitHub Actions starts two independent, concurrent full iPhone arm64 builds. A failure of one job does not cancel the other.
+Both variants use the same audited Swiftgram source and common patches 01–05, 07, 08, 10, 11, 13 and 14, with a variant-specific settings patch 12. Custom additionally applies patches 06 and 09. GitHub Actions starts two independent, concurrent full iPhone arm64 builds. A failure of one job does not cancel the other.
 
 ## Common changes
 
 - Local root-chat pins use a keyed Postbox Codable object. A top-level Int64 array was encoded as Int64Array and never read by PreferencesEntry.get, which only decodes Object. The local list previously disappeared from the application's perspective and it reverted to Telegram's 5/10 pin limit. Pins remain device-local after increasing the slider.
-- Real Telegram Premium accounts preserve native custom emoji when sending. The ordinary-emoji/pack-link conversion only runs for non-Premium accounts that enable Local Premium.
-- Pack-link previews are disabled when converting emoji. Receiving clients replace AyuGram marker links with animated emoji for display, independently of their own Local Premium setting; raw entities remain available for network serialization. Existing matching pack previews are hidden in the bubble content renderer.
+- Real Telegram Premium accounts preserve native custom emoji when sending. Non-Premium accounts with Local Premium send the ordinary emoji text without paid entities or generated pack links. Explicit user-authored links and other formatting remain intact.
+- The sender's animation is stored as local message metadata, preserved on delivery and matching-text server refreshes, and excluded from outgoing entity serialization. Recipients see ordinary emoji; a message edit with different text drops an obsolete overlay. Older marker messages remain readable, but new messages no longer create markers or previews. Shared Premium/status profiles remain separate from this local message animation.
 - Emoji packs and emoji search honour Local Premium. Premium stickers and other paid server entitlements are unchanged.
 - Non-Premium local emoji statuses persist separately by account and survive subsequent Telegram peer updates. Native peer serialization and paid-account status changes continue using the actual server status.
 - Message History has per-account chat selection using the native folder-style multiselection controller and search. Collection starts only after choosing chats. Already cached ordinary photos are copied before the deletion update removes their cache resource. Secret, disappearing and copy-protected messages are excluded. Uncached photos cannot be recovered.
