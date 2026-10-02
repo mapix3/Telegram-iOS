@@ -208,12 +208,14 @@ def build(source, ci, output, env):
                                            ('04-client-extras.patch', 'client_extras_patch_sha256'),
                                            ('05-refinements.patch', 'refinements_patch_sha256')] +
                                           ([('06-customization.patch', 'customization_patch_sha256')] if variant == 'custom' else []) +
-                                          [('07-ayugram-branding.patch', 'branding_patch_sha256'), ('08-history-and-badges.patch', 'history_ui_patch_sha256')] + ([('09-appearance-refinements.patch', 'appearance_ui_patch_sha256')] if variant == 'custom' else []) + [('10-menu-and-icon-selection.patch', 'icon_selection_patch_sha256')]):
+                                          [('07-ayugram-branding.patch', 'branding_patch_sha256'), ('08-history-and-badges.patch', 'history_ui_patch_sha256')] + ([('09-appearance-refinements.patch', 'appearance_ui_patch_sha256')] if variant == 'custom' else []) + [('10-menu-and-icon-selection.patch', 'icon_selection_patch_sha256'), ('11-shared-profiles.patch', 'shared_profiles_patch_sha256'), ('12-profile-settings-' + variant + '.patch', 'profile_settings_patch_sha256')]):
                     followup = ci / 'patches' / filename
                     entry[hash_key] = hashlib.sha256(followup.read_bytes()).hexdigest()
                     apply_patch(followup, source)
                     swift_paths.update(re.findall(r'^diff --git a/(.+\.swift) b/.+$',
                                                   followup.read_text(encoding='utf-8'), re.M))
+                from ayugram_profile_checks import check_shared_profiles
+                check_shared_profiles(source, ci)
                 if variant == "custom":
                     from ayugram_compatibility import check_custom_compatibility
                     check_custom_compatibility(source)
