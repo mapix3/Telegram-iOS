@@ -14,6 +14,45 @@ def declaration(text, start):
     return text[first:end] + '\n'
 
 
+def attribute_retention_test_code(source: Path):
+    table = (source / 'submodules/Postbox/Sources/MessageHistoryTable.swift').read_text()
+    function = declaration(table, '    private func justUpdate(')
+    start = function.index('            var updatedAttributes = message.attributes')
+    end = function.index('            self.seedConfiguration.mergeMessageAttributes', start)
+    retained_attributes = function[start:end]
+    return '''
+protocol MessageAttribute: AnyObject { var retainedOnServerRefresh: Bool { get } }
+final class RetainedAttribute: MessageAttribute {
+    let value: Int
+    var retainedOnServerRefresh: Bool { true }
+    init(_ value: Int) { self.value = value }
+}
+final class ServerAttribute: MessageAttribute {
+    var retainedOnServerRefresh: Bool { false }
+}
+struct AttributeRefreshMessage { let attributes: [MessageAttribute] }
+enum MessageHistoryTable {
+    static func renderMessageAttributes(_ attributes: [MessageAttribute]) -> [MessageAttribute] { attributes }
+}
+func refreshAttributes(previousMessage: [MessageAttribute], incoming: [MessageAttribute]) -> [MessageAttribute] {
+    let message = AttributeRefreshMessage(attributes: incoming)
+    let type: Int8 = 0
+''' + retained_attributes + '''
+    precondition(type == 0)
+    return updatedAttributes
+}
+let previousMarker = RetainedAttribute(1)
+let serverAttribute = ServerAttribute()
+let retained = refreshAttributes(previousMessage: [previousMarker, serverAttribute], incoming: [])
+expect(retained.count == 1 && retained[0] === previousMarker, "Refresh preserves local history without stale server attributes")
+let replacementMarker = RetainedAttribute(2)
+let refreshed = refreshAttributes(previousMessage: [previousMarker], incoming: [serverAttribute, replacementMarker])
+expect(refreshed.count == 2 && refreshed[1] === replacementMarker, "Refresh keeps the incoming marker without a duplicate")
+expect(refreshAttributes(previousMessage: [], incoming: [serverAttribute]).count == 1, "Refresh preserves normal server attributes")
+print("Attribute retention passed with a local Int8 named type")
+'''
+
+
 def check_history(source: Path):
     output = source / 'build-input/ayu-history-checks'
     output.mkdir(parents=True, exist_ok=True)
@@ -77,6 +116,7 @@ expect(transaction.removed.contains(MessageId(peerId: PeerId(1), namespace: 0, i
 expect(!FileManager.default.fileExists(atPath: archiveFile(box, name: "old.jpg")!.path), "Retention removes archived media")
 print("History migration, direction/unread flags, path containment, record cap and expiry passed")
 '''
+    code += attribute_retention_test_code(source)
     tests = output / 'HistoryTests.swift'
     tests.write_text(code)
     binary = output / 'history-tests'
