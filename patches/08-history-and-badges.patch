@@ -324,7 +324,7 @@ diff --git a/submodules/Postbox/Sources/MessageHistoryTable.swift b/submodules/P
              
              var updatedAttributes = message.attributes
 +            for attribute in MessageHistoryTable.renderMessageAttributes(previousMessage) where attribute.retainedOnServerRefresh {
-+                if !updatedAttributes.contains(where: { ObjectIdentifier(type(of: $0)) == ObjectIdentifier(type(of: attribute)) }) {
++                if !updatedAttributes.contains(where: { ObjectIdentifier(Swift.type(of: $0)) == ObjectIdentifier(Swift.type(of: attribute)) }) {
 +                    updatedAttributes.append(attribute)
 +                }
 +            }
