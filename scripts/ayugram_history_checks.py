@@ -53,6 +53,48 @@ print("Attribute retention passed with a local Int8 named type")
 '''
 
 
+def owner_badge_test_code(source: Path):
+    bubble = (source / 'submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift').read_text(encoding='utf-8')
+    apply = declaration(bubble, '    private static func applyLayout(')
+    signature = apply[:apply.index(') -> Void {')]
+    parameter = re.search(r'^\s+(ayuOwner: Bool),\s*$', signature, re.M)
+    layout = bubble[:bubble.index('    private static func applyLayout(')]
+    invocation = layout[layout.index('return ChatMessageBubbleItemNode.applyLayout('):]
+    argument = re.search(r'^\s+(ayuOwner: ayuOwner),\s*$', invocation, re.M)
+    if parameter is None or argument is None:
+        raise ValueError('Owner badge must pass its author flag from layout calculation to applyLayout')
+    reset = '        strongSelf.ayuOwnerBadge.isHidden = true'
+    if reset not in apply or apply.index(reset) > apply.index('if let nameNode ='):
+        raise ValueError('Owner badge must be hidden before a reused bubble applies its author name')
+    start = apply.index('            strongSelf.ayuOwnerBadge.isHidden = !ayuOwner')
+    end = apply.index('            if boostCount > 0 {', start)
+    badge = apply[start:end]
+    return '''
+import UIKit
+final class CompatibilityBubbleNode {
+    let ayuOwnerBadge = UIImageView()
+    let clippingNode = CompatibilityClippingNode()
+    var credibilityIconView: UIView?
+}
+final class CompatibilityClippingNode { let view = UIView() }
+struct CompatibilityAnimator {
+    func updateFrame(layer: CALayer, frame: CGRect, completion: (() -> Void)?) { layer.frame = frame }
+}
+struct CompatibilityAnimation { let animator = CompatibilityAnimator() }
+enum OwnerBadgeCompatibility {
+    static func applyLayout(''' + parameter.group(1) + ''', strongSelf: CompatibilityBubbleNode, nameNode: UIView?, animation: CompatibilityAnimation) {
+''' + reset + '''
+        if let nameNode = nameNode {
+''' + badge + '''
+        }
+    }
+    static func layout(ayuOwner: Bool, node: CompatibilityBubbleNode, nameNode: UIView?) {
+        Self.applyLayout(''' + argument.group(1) + ''', strongSelf: node, nameNode: nameNode, animation: CompatibilityAnimation())
+    }
+}
+'''
+
+
 def check_history(source: Path):
     output = source / 'build-input/ayu-history-checks'
     output.mkdir(parents=True, exist_ok=True)
@@ -132,6 +174,10 @@ print("History migration, direction/unread flags, path containment, record cap a
         badge_inputs = [icon_settings, sdk_badge]
     subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-ios13.0', '-sdk', sdk, '-typecheck', *badge_inputs], check=True)
     print('Badge artwork typechecked against the native iOS 13 SDK')
+    owner_badge = output / 'OwnerBadgeCompatibility.swift'
+    owner_badge.write_text(owner_badge_test_code(source))
+    subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-ios13.0', '-sdk', sdk, '-typecheck', owner_badge], check=True)
+    print('Bubble owner flag reaches applyLayout; badge rendering typechecked with real UIKit')
     card = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift').read_text()
     controller = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift').read_text()
     keys = sorted(set(re.findall(r'\bstrings\.([A-Za-z0-9_]+)', card + controller)))
