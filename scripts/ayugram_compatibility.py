@@ -3,12 +3,68 @@ import subprocess
 from pathlib import Path
 
 
+def settings_search_test_code(source: Path):
+    text = (source / 'Swiftgram/SGItemListUI/Sources/SGItemListUI.swift').read_text(encoding='utf-8')
+
+    def declaration(start):
+        first = text.index(start)
+        opening = text.index('{', first)
+        depth = 1
+        end = opening + 1
+        while depth:
+            depth += (text[end] == '{') - (text[end] == '}')
+            end += 1
+        return text[first:end] + '\n'
+
+    entry = declaration('public enum SGItemListUIEntry<')
+    rendering = declaration('    public func item(presentationData:')
+    if entry.count(rendering.rstrip('\n')) != 1:
+        raise ValueError('Settings entry rendering method must be removed once from the native search check')
+    entry = entry.replace(rendering.rstrip('\n'), '').replace(': ItemListNodeEntry {', ': Comparable {', 1)
+    search = declaration('public func filterSGItemListUIEntrires<')
+    return '''import Foundation
+public typealias ItemListSectionId = Int32
+public struct UIColor: Equatable {}
+public enum ItemListActionKind: Equatable { case generic, destructive }
+''' + declaration('public protocol SGItemListSection:') + entry + search + '''
+enum TestSection: Int32, SGItemListSection { case search, background, unrelated }
+enum TestSetting: Hashable { case dim }
+typealias TestEntry = SGItemListUIEntry<TestSection, TestSetting, TestSetting, TestSetting, TestSetting, TestSetting>
+let search: TestEntry = .searchInput(id: 0, section: .search, title: NSAttributedString(string: ""), text: "", placeholder: "Search")
+let header: TestEntry = .header(id: 1, section: .background, text: "Background Dimming", badge: nil)
+let slider: TestEntry = .rangedPercentageSlider(id: 2, section: .background, settingName: .dim, value: 60, minimum: 20, maximum: 90)
+let notice: TestEntry = .notice(id: 3, section: .background, text: "Adjust the background contrast")
+let unrelated: TestEntry = .toggle(id: 4, section: .unrelated, settingName: .dim, value: true, text: "Notifications", enabled: true)
+let entries = [search, header, slider, notice, unrelated]
+func expect(_ value: @autoclosure () -> Bool, _ message: String) { precondition(value(), message) }
+expect(filterSGItemListUIEntrires(entries: entries, by: nil) == entries, "Missing query preserves all settings")
+expect(filterSGItemListUIEntrires(entries: entries, by: "") == entries, "Empty query preserves all settings")
+expect(filterSGItemListUIEntrires(entries: entries, by: "BACKGROUND") == [search, header, slider, notice], "Matching section includes its ranged slider")
+expect(filterSGItemListUIEntrires(entries: entries, by: "contrast") == [search, header, slider, notice], "Matching description retains its preceding slider")
+expect(filterSGItemListUIEntrires(entries: entries, by: "notifications") == [search, unrelated], "Unrelated section excludes slider")
+expect(filterSGItemListUIEntrires(entries: entries, by: "missing") == [search], "No match preserves only search input")
+expect(slider.section == TestSection.background.rawValue && slider.stableId == 2, "Ranged slider preserves section and identity")
+let changedRange: TestEntry = .rangedPercentageSlider(id: 2, section: .background, settingName: .dim, value: 60, minimum: 30, maximum: 90)
+expect(slider != changedRange, "A range change refreshes the slider")
+print("Settings entry switches and search passed with ranged sliders")
+'''
+
+
+def check_settings_search(source: Path, output: Path):
+    tests = output / 'SettingsSearchTests.swift'
+    tests.write_text(settings_search_test_code(source), encoding='utf-8')
+    binary = output / 'settings-search-tests'
+    subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', tests, '-o', binary], check=True)
+    subprocess.run([binary], check=True)
+
+
 def check_custom_compatibility(source: Path):
     minimum = re.search(r'^minimum_os_version\s*=\s*"([0-9.]+)"', (source / 'Telegram/BUILD').read_text(), re.M)
     if not minimum:
         raise ValueError('Minimum iOS version is missing')
     output = source / 'build-input/ayu-compatibility'
     output.mkdir(parents=True, exist_ok=True)
+    check_settings_search(source, output)
     paths = [
         'Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift',
         'Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift',
