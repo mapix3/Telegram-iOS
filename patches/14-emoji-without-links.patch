@@ -1,0 +1,190 @@
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramEmojiLinks.swift
+@@ -14,4 +14,2 @@
+ 
+-/// Convert only new text/caption entities. Files, other formatting and ranges
+-/// stay untouched; the original text already contains the native emoji alt.
+ func ayuPrepareEmojiLinks(account: Account, peerId: PeerId, messages: [(Bool, EnqueueMessage)]) -> Signal<[(Bool, EnqueueMessage)], NoError> {
+@@ -22,5 +20,15 @@
+     }
+-    |> mapToSignal { isPremium -> Signal<[(Bool, EnqueueMessage)], NoError> in
+-        if isPremium { return .single(messages) }
+-        return ayuPrepareFreeEmojiLinks(account: account, messages: messages)
++    |> map { isPremium in
++        if isPremium { return messages }
++        return messages.map { transformed, message in
++            guard case let .message(text, _, _, _, _, _, _, _, _, _) = message else { return (transformed, message) }
++            return (transformed, message.withUpdatedAttributes { attributes in
++                attributes.map { attribute -> MessageAttribute in
++                    guard let attribute = attribute as? TextEntitiesMessageAttribute else { return attribute }
++                    let entities = attribute.entities
++                    guard entities.contains(where: { if case .CustomEmoji = $0.type { return true }; return false }) else { return attribute }
++                    return TextEntitiesMessageAttribute(entities: entities, ayuLocalEmojiText: text)
++                }
++            })
++        }
+     }
+@@ -28,64 +36,14 @@
+ 
+-private func ayuPrepareFreeEmojiLinks(account: Account, messages: [(Bool, EnqueueMessage)]) -> Signal<[(Bool, EnqueueMessage)], NoError> {
+-    var ids = Set<Int64>()
+-    for (_, message) in messages {
+-        if case .message = message {
+-            for attribute in message.attributes {
+-                if let attribute = attribute as? TextEntitiesMessageAttribute {
+-                    for entity in attribute.ayuWireEntities {
+-                        if case let .CustomEmoji(_, fileId) = entity.type { ids.insert(fileId) }
+-                    }
+-                }
+-            }
+-        }
+-    }
+-    guard !ids.isEmpty else { return .single(messages) }
+-    return _internal_resolveInlineStickers(postbox: account.postbox, network: account.network, fileIds: Array(ids))
+-    |> mapToSignal { files -> Signal<[(Bool, EnqueueMessage)], NoError> in
+-        var nameSignals: [Signal<(Int64, String?), NoError>] = []
+-        for fileId in ids.sorted() {
+-            var reference: StickerPackReference?
+-            for attribute in files[fileId]?.attributes ?? [] {
+-                if case let .CustomEmoji(_, _, _, pack) = attribute { reference = pack }
+-            }
+-            guard let reference else { nameSignals.append(.single((fileId, nil))); continue }
+-            nameSignals.append(_internal_loadedStickerPack(postbox: account.postbox, network: account.network, reference: reference, forceActualized: false)
+-            |> filter { pack in if case .fetching = pack { return false }; return true }
+-            |> take(1)
+-            |> map { pack -> (Int64, String?) in
+-                if case let .result(info, _, _) = pack, !info.shortName.isEmpty { return (fileId, info.shortName) }
+-                return (fileId, nil)
+-            })
+-        }
+-        return combineLatest(nameSignals)
+-        |> map { pairs in
+-            var names: [Int64: String] = [:]
+-            for (id, name) in pairs { if let name { names[id] = name } }
+-            return messages.map { transformed, message in
+-                guard case .message = message else { return (transformed, message) }
+-                return (transformed, message.withUpdatedAttributes { attributes in
+-                    var converted = false
+-                    var result = attributes.map { attribute -> MessageAttribute in
+-                        guard let attribute = attribute as? TextEntitiesMessageAttribute else { return attribute }
+-                        let entities = attribute.ayuWireEntities.compactMap { entity -> MessageTextEntity? in
+-                            guard case let .CustomEmoji(_, fileId) = entity.type else { return entity }
+-                            // Offline/unavailable pack: retain ordinary alt emoji,
+-                            // never send a premium entity or invent a broken URL.
+-                            guard let name = names[fileId] else { return nil }
+-                            converted = true
+-                            return MessageTextEntity(range: entity.range, type: .TextUrl(url: "https://t.me/addemoji/" + name + "#ayuemoji_" + String(fileId)))
+-                        }
+-                        return TextEntitiesMessageAttribute(entities: entities)
+-                    }
+-                    if converted {
+-                        if let index = result.firstIndex(where: { $0 is OutgoingContentInfoMessageAttribute }), let info = result[index] as? OutgoingContentInfoMessageAttribute {
+-                            result[index] = info.withUpdatedFlags(info.flags.union(.disableLinkPreviews))
+-                        } else {
+-                            result.append(OutgoingContentInfoMessageAttribute(flags: .disableLinkPreviews))
+-                        }
+-                    }
+-                    return result
+-                })
+-            }
+-        }
++func ayuMergeLocalEmojiAttributes(text: String, previous: [MessageAttribute], updated: inout [MessageAttribute]) {
++    guard let local = previous.compactMap({ $0 as? TextEntitiesMessageAttribute }).first(where: { $0.ayuLocalEmojiText == text }) else { return }
++    let native = updated.compactMap { $0 as? TextEntitiesMessageAttribute }.first
++    if native?.ayuLocalEmojiText != nil { return }
++    if native?.ayuWireEntities.contains(where: { if case .CustomEmoji = $0.type { return true }; return false }) == true { return }
++    let custom = local.entities.filter { if case .CustomEmoji = $0.type { return true }; return false }
++    guard !custom.isEmpty else { return }
++    let merged = TextEntitiesMessageAttribute(entities: (native?.ayuWireEntities ?? []) + custom, ayuLocalEmojiText: text)
++    if let index = updated.firstIndex(where: { $0 is TextEntitiesMessageAttribute }) {
++        updated[index] = merged
++    } else {
++        updated.append(merged)
+     }
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift
+--- a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TextEntitiesMessageAttribute.swift
+@@ -365,3 +365,11 @@
+     private let storedEntities: [MessageTextEntity]
+-    public var ayuWireEntities: [MessageTextEntity] { storedEntities }
++    public let ayuLocalEmojiText: String?
++    public var ayuWireEntities: [MessageTextEntity] {
++        guard self.ayuLocalEmojiText != nil else { return storedEntities }
++        return storedEntities.filter { entity in
++            if case .CustomEmoji = entity.type { return false }
++            if case let .TextUrl(url) = entity.type, ayuEmojiFileIdFromLink(url) != nil { return false }
++            return true
++        }
++    }
+     public var entities: [MessageTextEntity] {
+@@ -407,4 +415,5 @@
+     
+-    public init(entities: [MessageTextEntity]) {
++    public init(entities: [MessageTextEntity], ayuLocalEmojiText: String? = nil) {
+         self.storedEntities = entities
++        self.ayuLocalEmojiText = ayuLocalEmojiText
+     }
+@@ -413,2 +422,3 @@
+         self.storedEntities = decoder.decodeObjectArrayWithDecoderForKey("entities")
++        self.ayuLocalEmojiText = decoder.decodeOptionalStringForKey("ayu.localText")
+     }
+@@ -417,2 +427,3 @@
+         encoder.encodeObjectArray(self.storedEntities, forKey: "entities")
++        if let text = self.ayuLocalEmojiText { encoder.encodeString(text, forKey: "ayu.localText") }
+     }
+@@ -420,3 +431,3 @@
+     public static func ==(lhs: TextEntitiesMessageAttribute, rhs: TextEntitiesMessageAttribute) -> Bool {
+-        return lhs.storedEntities == rhs.storedEntities
++        return lhs.storedEntities == rhs.storedEntities && lhs.ayuLocalEmojiText == rhs.ayuLocalEmojiText
+     }
+diff --git a/submodules/Postbox/Sources/SeedConfiguration.swift b/submodules/Postbox/Sources/SeedConfiguration.swift
+--- a/submodules/Postbox/Sources/SeedConfiguration.swift
++++ b/submodules/Postbox/Sources/SeedConfiguration.swift
+@@ -75,2 +75,3 @@
+     public let defaultGlobalNotificationSettings: PostboxGlobalNotificationSettings
++    public let mergeLocalMessageAttributes: (String, [MessageAttribute], inout [MessageAttribute]) -> Void
+     public let mergeMessageAttributes: ([MessageAttribute], inout [MessageAttribute]) -> Void
+@@ -113,3 +114,4 @@
+         customTagsFromAttributes: @escaping ([MessageAttribute]) -> [MemoryBuffer],
+-        displaySavedMessagesAsTopicListPreferencesKey: ValueBoxKey
++        displaySavedMessagesAsTopicListPreferencesKey: ValueBoxKey,
++        mergeLocalMessageAttributes: @escaping (String, [MessageAttribute], inout [MessageAttribute]) -> Void = { _, _, _ in }
+     ) {
+@@ -133,2 +135,3 @@
+         self.mergeMessageAttributes = mergeMessageAttributes
++        self.mergeLocalMessageAttributes = mergeLocalMessageAttributes
+         self.decodeMessageThreadInfo = decodeMessageThreadInfo
+diff --git a/submodules/Postbox/Sources/MessageHistoryTable.swift b/submodules/Postbox/Sources/MessageHistoryTable.swift
+--- a/submodules/Postbox/Sources/MessageHistoryTable.swift
++++ b/submodules/Postbox/Sources/MessageHistoryTable.swift
+@@ -1621,2 +1621,3 @@
+             self.seedConfiguration.mergeMessageAttributes(previousAttributes, &updatedAttributes)
++            self.seedConfiguration.mergeLocalMessageAttributes(message.text, previousAttributes, &updatedAttributes)
+             
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_StandaloneAccountTransaction.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_StandaloneAccountTransaction.swift
+--- a/submodules/TelegramCore/Sources/SyncCore/SyncCore_StandaloneAccountTransaction.swift
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_StandaloneAccountTransaction.swift
+@@ -267,3 +267,4 @@
+         },
+-        displaySavedMessagesAsTopicListPreferencesKey: PreferencesKeys.displaySavedChatsAsTopics()
++        displaySavedMessagesAsTopicListPreferencesKey: PreferencesKeys.displaySavedChatsAsTopics(),
++        mergeLocalMessageAttributes: ayuMergeLocalEmojiAttributes
+     )
+diff --git a/submodules/TelegramCore/Sources/State/ApplyUpdateMessage.swift b/submodules/TelegramCore/Sources/State/ApplyUpdateMessage.swift
+--- a/submodules/TelegramCore/Sources/State/ApplyUpdateMessage.swift
++++ b/submodules/TelegramCore/Sources/State/ApplyUpdateMessage.swift
+@@ -314,2 +314,4 @@
+             
++            ayuMergeLocalEmojiAttributes(text: text, previous: currentMessage.attributes, updated: &attributes)
++
+             let updatedId: MessageId
+@@ -603,3 +605,3 @@
+                 let media: [Media]
+-                let attributes: [MessageAttribute]
++                var attributes: [MessageAttribute]
+                 let text: String
+@@ -609,2 +611,3 @@
+                 text = updatedMessage.text
++                ayuMergeLocalEmojiAttributes(text: text, previous: currentMessage.attributes, updated: &attributes)
+                 
