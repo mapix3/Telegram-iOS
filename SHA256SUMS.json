@@ -12,7 +12,7 @@
   "patches/05-refinements.patch": "e78f8060dc397e6f0152d547174e3e6ad80a721ed71c6527027904bbed3685db",
   "patches/06-customization.patch": "34cc83640b85eb2eb65fbeb9c77566ec77de933d1ec2681a6be01650983c966c",
   "patches/07-ayugram-branding.patch": "5f3fd8855673cce9131ba1eea2c352d31d2dd3b30072d2a1deb82e4ee212b36b",
-  "patches/08-history-and-badges.patch": "59781d8c85b8e419b70563218208460bda262131848eca8ba24c8e8fbeafb51c",
+  "patches/08-history-and-badges.patch": "929c8bdd41a6d7183cd5b6c6d3d48216e6789f66632b7374bb77853ae8b58c76",
   "patches/09-appearance-refinements.patch": "9e092307afec38017bc32b96da8cca5e10eab4969e988fa1e4d7219a1de72511",
   "patches/10-menu-and-icon-selection.patch": "154c05a0013cb4cda630d192f4267c8280d29c1e024153ae481bfdee2ac029e1",
   "scripts/ayugram-tests/AyuGramSettingsTests.swift": "c38ae5e72b9aa0a7bd5923c3cd8d91a3a3cda2bcad6067644de369c613bea05a",
@@ -21,6 +21,6 @@
   "scripts/ayugram_branding.py": "1df06b46cb79d28436a3792949da286266a059797afd0e0ba8736cd99dab55f1",
   "scripts/ayugram_ci.py": "f9ab305c7ba0ed1fe84ea730f18551c88aed7c207504397c90e24c8183cc3061",
   "scripts/ayugram_compatibility.py": "40dcf9b93986d8431e1bfc279e2151a73ec7c397fa7d88edaafae916a44c80bc",
-  "scripts/ayugram_history_checks.py": "3cc70d8ae0ae93935a22e5c96e2db3829f017b042a60f9b732a2ca2e6b3ff55e",
+  "scripts/ayugram_history_checks.py": "1c7a66052fa643f1a57441892e264ec68155048f9bbd73a9ae1b5d7bfd423166",
   "START-HERE.md": "81fc7222d5621d6bcc97517ad7365bf3e05dc470ed7edffde92b546e77750fdf"
 }
