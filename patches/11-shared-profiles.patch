@@ -2,7 +2,7 @@ diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramProfileSync.swift b/Swift
 new file mode 100644
 --- /dev/null
 +++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramProfileSync.swift
-@@ -0,0 +1,435 @@
+@@ -0,0 +1,463 @@
 +import Foundation
 +import Security
 +
@@ -89,6 +89,8 @@ new file mode 100644
 +    private var states: [Int64: String] = [:]
 +    private var connected: Set<Int64> = []
 +    private var accountId: Int64?
++    private var primarySelectionKnown = false
++    private var selectedAccountId: Int64?
 +    private var token: String?
 +    private var foreground = true
 +    private var epoch = 0
@@ -156,12 +158,35 @@ new file mode 100644
 +            if active { self.tick() }
 +        }
 +    }
++    public func setActiveAccount(_ id: Int64?) {
++        DispatchQueue.main.async { [weak self] in
++            guard let self else { return }
++            self.primarySelectionKnown = true
++            self.selectedAccountId = id
++            if let id, id > 0 { self.activate(id); self.tick() }
++            else {
++                self.epoch += 1
++                for task in self.tasks.values { task.cancel() }
++                self.tasks.removeAll()
++                self.accountId = nil; self.token = nil
++                self.pendingLink = nil; self.pendingPublish = nil
++                self.visible.removeAll()
++            }
++        }
++    }
++    private func canUse(_ account: Int64) -> Bool {
++        return !primarySelectionKnown || selectedAccountId == account
++    }
 +    public func observe(peerId: Int64, accountId: Int64) {
 +        guard peerId > 0, accountId > 0 else { return }
 +        DispatchQueue.main.async { [weak self] in
 +            guard let self else { return }
++            guard self.canUse(accountId) else { return }
 +            self.activate(accountId)
 +            self.visible[peerId] = Date().timeIntervalSince1970
++            if self.visible.count > 100 {
++                self.visible = Dictionary(uniqueKeysWithValues: self.visible.sorted { $0.value > $1.value }.prefix(100).map { ($0.key, $0.value) })
++            }
 +            self.tick()
 +        }
 +    }
@@ -269,7 +294,6 @@ new file mode 100644
 +        if pendingLink != nil { poll(account: id); return }
 +        guard token != nil, !refreshing, !saving else { return }
 +        let now = Date().timeIntervalSince1970
-+        visible = visible.filter { now - $0.value < 90 }
 +        if now - lastOwnFetch >= 60 { refreshOwn(account: id); return }
 +        lock.lock()
 +        let ids = visible.keys.filter { now - (cache[String($0)]?.fetchedAt ?? 0) >= 60 }.prefix(100).map(String.init)
@@ -314,6 +338,7 @@ new file mode 100644
 +    public func refresh(accountId: Int64) {
 +        DispatchQueue.main.async { [weak self] in
 +            guard let self else { return }
++            guard self.canUse(accountId) else { return }
 +            self.activate(accountId)
 +            self.lastOwnFetch = 0
 +            self.tick()
@@ -338,6 +363,7 @@ new file mode 100644
 +    public func beginAuthentication(accountId: Int64, completion: @escaping (URL?) -> Void) {
 +        DispatchQueue.main.async { [weak self] in
 +            guard let self else { return }
++            guard self.canUse(accountId) else { completion(nil); return }
 +            self.activate(accountId)
 +            self.setState("connecting", account: accountId)
 +            self.request("v1/auth/start", method: "POST", body: ["telegramId": String(accountId)], authenticated: false) { [weak self] status, data in
@@ -383,6 +409,7 @@ new file mode 100644
 +    public func publish(accountId: Int64, fakePremium: Bool, status: AyuGramLocalStatus?) {
 +        DispatchQueue.main.async { [weak self] in
 +            guard let self else { return }
++            guard self.canUse(accountId) else { return }
 +            self.activate(accountId)
 +            self.publishNow(account: accountId, fakePremium: fakePremium, status: status)
 +        }
@@ -422,6 +449,7 @@ new file mode 100644
 +    public func disconnect(accountId: Int64) {
 +        DispatchQueue.main.async { [weak self] in
 +            guard let self else { return }
++            guard self.canUse(accountId) else { return }
 +            self.activate(accountId)
 +            self.request("v1/session", method: "DELETE") { [weak self] code, _ in
 +                guard let self else { return }
@@ -445,8 +473,9 @@ diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swif
      public let botInfo: BotUserInfo?
      public let restrictionInfo: PeerAccessRestrictionInfo?
      public let flags: UserInfoFlags
+-    private let ayuServerEmojiStatus: PeerEmojiStatus?
 +    public let ayuSharedGeneration: Int64
-     private let ayuServerEmojiStatus: PeerEmojiStatus?
++    let ayuServerEmojiStatus: PeerEmojiStatus?
      public var emojiStatus: PeerEmojiStatus? {
 +        if !flags.contains(.isPremium), let profile = AyuGramProfileSync.shared.profile(peerId: id.toInt64()), profile.registered {
 +            return profile.localStatus?.fileId.map { PeerEmojiStatus(content: .emoji(fileId: $0), expirationDate: profile.statusUntil) }
@@ -486,6 +515,18 @@ diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swif
          self.accessHash = try flatBuffersObject.accessHash.flatMap(TelegramPeerAccessHash.init)
          self.firstName = flatBuffersObject.firstName
          self.lastName = flatBuffersObject.lastName
+diff --git a/submodules/TelegramCore/Sources/ApiUtils/TelegramUser.swift b/submodules/TelegramCore/Sources/ApiUtils/TelegramUser.swift
+--- a/submodules/TelegramCore/Sources/ApiUtils/TelegramUser.swift
++++ b/submodules/TelegramCore/Sources/ApiUtils/TelegramUser.swift
+@@ -352,7 +352,7 @@
+ 
+             let botInfo: BotUserInfo? = rhs.botInfo
+             
+-            let emojiStatus = rhs.emojiStatus
++            let emojiStatus = rhs.ayuServerEmojiStatus
+             
+             let restrictionInfo: PeerAccessRestrictionInfo? = rhs.restrictionInfo
+             
 diff --git a/submodules/TelegramUI/Sources/AccountContext.swift b/submodules/TelegramUI/Sources/AccountContext.swift
 --- a/submodules/TelegramUI/Sources/AccountContext.swift
 +++ b/submodules/TelegramUI/Sources/AccountContext.swift
@@ -510,7 +551,7 @@ diff --git a/submodules/TelegramUI/Sources/AccountContext.swift b/submodules/Tel
 +                for id in ids where id > 0 {
 +                    let peerId = PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(id))
 +                    if let peer = transaction.getPeer(peerId) as? TelegramUser {
-+                        updatePeersCustom(transaction: transaction, peers: [peer.withUpdatedFlags(peer.flags)], update: { _, updated in updated })
++                        transaction.updatePeersInternal([peer.withUpdatedFlags(peer.flags)], update: { _, updated in updated })
 +                    }
 +                }
 +            }.start()
@@ -527,6 +568,17 @@ diff --git a/submodules/TelegramUI/Sources/AccountContext.swift b/submodules/Tel
      }
      
      public func storeSecureIdPassword(password: String) {
+diff --git a/submodules/TelegramUI/Sources/SharedAccountContext.swift b/submodules/TelegramUI/Sources/SharedAccountContext.swift
+--- a/submodules/TelegramUI/Sources/SharedAccountContext.swift
++++ b/submodules/TelegramUI/Sources/SharedAccountContext.swift
+@@ -822,6 +822,7 @@
+                 if hadUpdates {
+                     self.activeAccountsValue!.accounts.sort(by: { $0.2 < $1.2 })
+                     self.activeAccountsPromise.set(.single(self.activeAccountsValue!))
++                    AyuGramProfileSync.shared.setActiveAccount(self.activeAccountsValue!.primary?.account.peerId.toInt64())
+                     
+                     self.performAccountSettingsImportIfNecessary()
+                 }
 diff --git a/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift b/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift
 --- a/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift
 +++ b/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift

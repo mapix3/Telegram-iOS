@@ -1,7 +1,7 @@
 diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
 --- a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
 +++ b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
-@@ -11,19 +11,28 @@
+@@ -11,19 +11,30 @@
  import SGSimpleSettings
  import SGStrings
  
@@ -18,8 +18,10 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Sw
 +    AyuGramProfileSync.shared.observe(peerId: accountId, accountId: accountId)
 +    let syncChanged = Signal<Int, NoError> { subscriber in
 +        subscriber.putNext(0)
-+        let observer = NotificationCenter.default.addObserver(forName: AyuGramProfileSync.didChange, object: nil, queue: .main) { _ in subscriber.putNext(0) }
-+        return ActionDisposable { NotificationCenter.default.removeObserver(observer) }
++        let observers = [AyuGramProfileSync.didChange, AyuGramSettings.didChange].map { name in
++            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in subscriber.putNext(0) }
++        }
++        return ActionDisposable { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
 +    }
      var openHistory: (() -> Void)?
      var openAppearance: (() -> Void)?
@@ -32,7 +34,7 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Sw
          } else {
              AyuGramSettings.shared.update { settings in
                  switch key {
-@@ -44,15 +53,27 @@
+@@ -44,15 +55,27 @@
          AyuGramSettings.shared.updateClient { $0.maxPinnedChats = value }
          changed.set(0)
      }, openDisclosureLink: { link in
@@ -64,7 +66,7 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Sw
              .header(id: 0, section: .privacy, text: data.strings.Settings_PrivacySettings, badge: nil),
              .toggle(id: 1, section: .privacy, settingName: .ghost, value: settings.ghostMode, text: i18n("Ayu.Ghost", locale), enabled: true),
              .toggle(id: 2, section: .privacy, settingName: .read, value: settings.suppressRead, text: i18n("Ayu.HideRead", locale), enabled: !settings.ghostMode),
-@@ -68,9 +89,15 @@
+@@ -68,9 +91,15 @@
              .toggle(id: 16, section: .client, settingName: .premium, value: client.localPremium, text: i18n("Ayu.LocalPremium", locale), enabled: true),
              .header(id: 18, section: .client, text: i18n("Ayu.Pins", locale), badge: nil),
              .countSlider(id: 19, section: .client, settingName: .pins, value: client.pinnedChatLimit),
