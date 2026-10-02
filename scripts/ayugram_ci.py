@@ -208,7 +208,7 @@ def build(source, ci, output, env):
                                            ('04-client-extras.patch', 'client_extras_patch_sha256'),
                                            ('05-refinements.patch', 'refinements_patch_sha256')] +
                                           ([('06-customization.patch', 'customization_patch_sha256')] if variant == 'custom' else []) +
-                                          [('07-ayugram-branding.patch', 'branding_patch_sha256'), ('08-history-and-badges.patch', 'history_ui_patch_sha256')]):
+                                          [('07-ayugram-branding.patch', 'branding_patch_sha256'), ('08-history-and-badges.patch', 'history_ui_patch_sha256')] + ([('09-appearance-refinements.patch', 'appearance_ui_patch_sha256')] if variant == 'custom' else []) + [('10-menu-and-icon-selection.patch', 'icon_selection_patch_sha256')]):
                     followup = ci / 'patches' / filename
                     entry[hash_key] = hashlib.sha256(followup.read_bytes()).hexdigest()
                     apply_patch(followup, source)

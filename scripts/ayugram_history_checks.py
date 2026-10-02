@@ -83,7 +83,14 @@ print("History migration, direction/unread flags, path containment, record cap a
     subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', tests, '-o', binary], check=True)
     subprocess.run([binary], check=True)
     sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
-    subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-ios13.0', '-sdk', sdk, '-typecheck', source / 'submodules/Display/Source/AyuGramAppBadge.swift'], check=True)
+    badge = source / 'submodules/Display/Source/AyuGramAppBadge.swift'
+    icon_settings = source / 'Swiftgram/SGSimpleSettings/Sources/AyuGramIconSettings.swift'
+    badge_inputs = [badge]
+    if icon_settings.exists():
+        sdk_badge = output / 'BadgeCompatibility.swift'
+        sdk_badge.write_text(badge.read_text().replace('import SGSimpleSettings\n', ''))
+        badge_inputs = [icon_settings, sdk_badge]
+    subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-ios13.0', '-sdk', sdk, '-typecheck', *badge_inputs], check=True)
     print('Badge artwork typechecked against the native iOS 13 SDK')
     card = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift').read_text()
     controller = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift').read_text()

@@ -4,6 +4,7 @@ import json
 import plistlib
 from pathlib import Path
 import subprocess
+import struct
 import zipfile
 
 
@@ -61,3 +62,29 @@ def verify_branding_ipa(path):
         alternates = info.get('CFBundleIcons', {}).get('CFBundleAlternateIcons', {})
         if not {'AyuClassic', 'AyuPurple', 'AyuRed'}.issubset(alternates):
             raise ValueError('AyuGram alternate icons were not included')
+        bundle = mains[0].removesuffix('Info.plist')
+        for name in ['AyuClassic', 'AyuPurple', 'AyuRed']:
+            if alternates[name].get('CFBundleIconFiles') != [name]:
+                raise ValueError('Unexpected alternate icon file reference: ' + name)
+            for scale, pixels in [(2, 120), (3, 180)]:
+                path = bundle + name + '@' + str(scale) + 'x.png'
+                if path not in archive.namelist():
+                    raise ValueError('Missing alternate icon image: ' + path)
+                image = archive.read(path)
+                if png_dimensions(image) != (pixels, pixels):
+                    raise ValueError('Invalid alternate icon image: ' + path)
+
+
+def png_dimensions(image):
+    if image[:8] != b'\x89PNG\r\n\x1a\n':
+        return None
+    offset = 8
+    while offset + 12 <= len(image):
+        length = struct.unpack('>I', image[offset:offset + 4])[0]
+        end = offset + 12 + length
+        if end > len(image):
+            return None
+        if image[offset + 4:offset + 8] == b'IHDR':
+            return struct.unpack('>II', image[offset + 8:offset + 16]) if length == 13 else None
+        offset = end
+    return None

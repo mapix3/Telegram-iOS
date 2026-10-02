@@ -1,0 +1,447 @@
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+@@ -226,11 +226,11 @@
+             interaction.openSettings(.swiftgramPro)
+         }))
+     }
+-    items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: swiftgramLabel, text: "AyuGram", icon: PresentationResourcesSettings.swiftgram, action: {
++    items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: swiftgramLabel, text: "Swiftgram", icon: PresentationResourcesSettings.swiftgram, action: {
+         interaction.openSettings(.swiftgram)
+     }))
+ 
+-    items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 2, text: presentationData.strings.Settings_PrivacySettings, icon: PresentationResourcesSettings.security, action: {
++    items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 2, text: "AyuGram", icon: ayuGramSettingsIcon(), action: {
+         interaction.openSettings(.ayuGramPrivacy)
+     }))
+ 
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramIconSettings.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramIconSettings.swift
+new file mode 100644
+--- /dev/null
++++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramIconSettings.swift
+@@ -0,0 +1,9 @@
++import Foundation
++
++public enum AyuGramIconSettings {
++    private static let key = "swiftgram.ayuGram.iconSelection.v1"
++    public static var selectedName: String? { UserDefaults.standard.string(forKey: key) }
++    public static func select(_ name: String?) {
++        UserDefaults.standard.set(name ?? "AyuClassic", forKey: key)
++    }
++}
+diff --git a/submodules/Display/Source/AyuGramAppBadge.swift b/submodules/Display/Source/AyuGramAppBadge.swift
+--- a/submodules/Display/Source/AyuGramAppBadge.swift
++++ b/submodules/Display/Source/AyuGramAppBadge.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import UIKit
+ 
+ private func ayuPlane(_ rect: CGRect, foreground: UIColor, secondary: UIColor) {
+@@ -37,7 +38,7 @@
+ 
+ func ayuGramAppBadgeImage() -> UIImage {
+     let color: UIColor
+-    switch UIApplication.shared.alternateIconName {
++    switch AyuGramIconSettings.selectedName ?? UIApplication.shared.alternateIconName {
+     case "AyuRed": color = UIColor(red: 0.91, green: 0.15, blue: 0.17, alpha: 1)
+     case "AyuPurple": color = UIColor(red: 0.50, green: 0.25, blue: 0.96, alpha: 1)
+     default: color = UIColor(red: 0.19, green: 0.15, blue: 0.28, alpha: 1)
+@@ -55,3 +56,11 @@
+         ("AYUGRAM" as NSString).draw(at: CGPoint(x: 28, y: 4), withAttributes: [.font: UIFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: UIColor.white])
+     }
+ }
++
++public func ayuGramSettingsIcon() -> UIImage {
++    return UIGraphicsImageRenderer(size: CGSize(width: 29, height: 29)).image { _ in
++        UIColor(red: 0.19, green: 0.15, blue: 0.28, alpha: 1).setFill()
++        UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: 29, height: 29), cornerRadius: 7).fill()
++        ayuPlane(CGRect(x: 5, y: 5, width: 19, height: 19), foreground: .white, secondary: UIColor(red: 0.76, green: 0.65, blue: 1, alpha: 1))
++    }
++}
+diff --git a/submodules/TelegramUI/Sources/AppDelegate.swift b/submodules/TelegramUI/Sources/AppDelegate.swift
+--- a/submodules/TelegramUI/Sources/AppDelegate.swift
++++ b/submodules/TelegramUI/Sources/AppDelegate.swift
+@@ -1018,19 +1018,21 @@
+             }
+         }, getAlternateIconName: {
+             if #available(iOS 10.3, *) {
+-                return application.alternateIconName
++                return AyuGramIconSettings.selectedName ?? application.alternateIconName
+             } else {
+                 return nil
+             }
+         }, requestSetAlternateIconName: { name, completion in
++            AyuGramIconSettings.select(name)
++            NotificationCenter.default.post(name: Notification.Name("AyuGram.AppIcon.didChange"), object: nil)
++            guard application.supportsAlternateIcons else { completion(false); return }
+             application.setAlternateIconName(name, completionHandler: { error in
+                 if let error = error {
+                    Logger.shared.log("App \(self.episodeId)", "failed to set alternate icon with error \(error.localizedDescription)")
+                 }
+-                if error == nil {
+-                    NotificationCenter.default.post(name: Notification.Name("AyuGram.AppIcon.didChange"), object: nil)
+-                }
+-                completion(error == nil)
++                DispatchQueue.main.async {
++                    completion(error == nil)
++                }
+             })
+         }, forceOrientation: { orientation in
+             let value = orientation.rawValue
+diff --git a/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift b/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+--- a/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
++++ b/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+@@ -13,6 +13,7 @@
+ import PresentationDataUtils
+ import MediaResources
+ import WallpaperResources
++import SGStrings
+ 
+ import AccountContext
+ import ContextUI
+@@ -643,7 +644,11 @@
+                 }
+             } else {
+                 currentAppIconName.set(icon.name)
+-                context.sharedContext.applicationBindings.requestSetAlternateIconName(icon.isDefault ? nil : icon.name, { _ in
++                context.sharedContext.applicationBindings.requestSetAlternateIconName(icon.isDefault ? nil : icon.name, { applied in
++                    if !applied {
++                        let data = context.sharedContext.currentPresentationData.with { $0 }
++                        presentControllerImpl?(textAlertController(context: context, title: nil, text: i18n("Ayu.IconChangeUnavailable", data.strings.baseLanguageCode), actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
++                    }
+                 })
+             }
+         })
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Voor wysiging";
+ "Ayu.Deleted" = "Geskrap";
++"Ayu.IconChangeUnavailable" = "Jou keuse is in die toepassing gestoor. iOS kon nie die tuisskermikoon verander nie.";
+ "Ayu.LocalPremium" = "Plaaslike Premium";
+ "Ayu.Pins" = "Maksimum vasgespelde geselsies";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "قبل التعديل";
+ "Ayu.Deleted" = "محذوف";
++"Ayu.IconChangeUnavailable" = "تم حفظ اختيارك في التطبيق. تعذر على iOS تغيير أيقونة الشاشة الرئيسية.";
+ "Ayu.LocalPremium" = "Premium محلي";
+ "Ayu.Pins" = "أقصى عدد للمحادثات المثبتة";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Abans de l'edició";
+ "Ayu.Deleted" = "Eliminat";
++"Ayu.IconChangeUnavailable" = "La selecció està desada a l’aplicació. iOS no ha pogut canviar la icona de la pantalla d’inici.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Màxim de xats fixats";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Před úpravou";
+ "Ayu.Deleted" = "Smazáno";
++"Ayu.IconChangeUnavailable" = "Volba je uložena v aplikaci. iOS nemohl změnit ikonu na ploše.";
+ "Ayu.LocalPremium" = "Místní Premium";
+ "Ayu.Pins" = "Maximum připnutých chatů";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Før redigering";
+ "Ayu.Deleted" = "Slettet";
++"Ayu.IconChangeUnavailable" = "Dit valg er gemt i appen. iOS kunne ikke ændre ikonet på hjemmeskærmen.";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+ "Ayu.Pins" = "Maksimalt antal fastgjorte chats";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Vor Bearbeitung";
+ "Ayu.Deleted" = "Gelöscht";
++"Ayu.IconChangeUnavailable" = "Deine Auswahl wurde in der App gespeichert. iOS konnte das Symbol auf dem Home-Bildschirm nicht ändern.";
+ "Ayu.LocalPremium" = "Lokales Premium";
+ "Ayu.Pins" = "Maximale angeheftete Chats";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Πριν την επεξεργασία";
+ "Ayu.Deleted" = "Διαγράφηκε";
++"Ayu.IconChangeUnavailable" = "Η επιλογή αποθηκεύτηκε στην εφαρμογή. Το iOS δεν μπόρεσε να αλλάξει το εικονίδιο στην αρχική οθόνη.";
+ "Ayu.LocalPremium" = "Τοπικό Premium";
+ "Ayu.Pins" = "Μέγιστος αριθμός καρφιτσωμένων συνομιλιών";
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -295,4 +295,5 @@
+ "Ayu.BeforeEdit" = "Before edit";
+ "Ayu.Deleted" = "Deleted";
++"Ayu.IconChangeUnavailable" = "Your choice is saved in the app. iOS could not change the Home Screen icon.";
+ "Ayu.LocalPremium" = "Local Premium";
+ "Ayu.Pins" = "Maximum pinned chats";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Antes de editar";
+ "Ayu.Deleted" = "Eliminado";
++"Ayu.IconChangeUnavailable" = "Tu elección está guardada en la aplicación. iOS no pudo cambiar el icono de la pantalla de inicio.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Máximo de chats fijados";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -25,4 +25,5 @@
+ "Ayu.BeforeEdit" = "پیش از ویرایش";
+ "Ayu.Deleted" = "حذف‌شده";
++"Ayu.IconChangeUnavailable" = "انتخاب شما در برنامه ذخیره شد. iOS نتوانست نماد صفحهٔ اصلی را تغییر دهد.";
+ "Ayu.LocalPremium" = "Premium محلی";
+ "Ayu.Pins" = "حداکثر گفتگوهای سنجاق‌شده";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -246,4 +246,5 @@
+ "Ayu.BeforeEdit" = "Ennen muokkausta";
+ "Ayu.Deleted" = "Poistettu";
++"Ayu.IconChangeUnavailable" = "Valintasi tallennettiin sovellukseen. iOS ei voinut vaihtaa kotinäytön kuvaketta.";
+ "Ayu.LocalPremium" = "Paikallinen Premium";
+ "Ayu.Pins" = "Kiinnitettyjen keskustelujen enimmäismäärä";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -153,4 +153,5 @@
+ "Ayu.BeforeEdit" = "Avant modification";
+ "Ayu.Deleted" = "Supprimé";
++"Ayu.IconChangeUnavailable" = "Votre choix est enregistré dans l’application. iOS n’a pas pu modifier l’icône de l’écran d’accueil.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Maximum de discussions épinglées";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "לפני עריכה";
+ "Ayu.Deleted" = "נמחק";
++"Ayu.IconChangeUnavailable" = "הבחירה נשמרה באפליקציה. iOS לא הצליח לשנות את הסמל במסך הבית.";
+ "Ayu.LocalPremium" = "Premium מקומי";
+ "Ayu.Pins" = "מספר מרבי של צ'אטים נעוצים";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "संपादन से पहले";
+ "Ayu.Deleted" = "हटाया गया";
++"Ayu.IconChangeUnavailable" = "आपका चयन ऐप में सहेजा गया है। iOS होम स्क्रीन का आइकन नहीं बदल सका।";
+ "Ayu.LocalPremium" = "स्थानीय Premium";
+ "Ayu.Pins" = "पिन किए चैट की अधिकतम संख्या";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Szerkesztés előtt";
+ "Ayu.Deleted" = "Törölve";
++"Ayu.IconChangeUnavailable" = "A választás mentve az alkalmazásban. Az iOS nem tudta megváltoztatni a főképernyő ikonját.";
+ "Ayu.LocalPremium" = "Helyi Premium";
+ "Ayu.Pins" = "Rögzített csevegések maximális száma";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Sebelum diedit";
+ "Ayu.Deleted" = "Dihapus";
++"Ayu.IconChangeUnavailable" = "Pilihan disimpan di aplikasi. iOS tidak dapat mengubah ikon Layar Utama.";
+ "Ayu.LocalPremium" = "Premium lokal";
+ "Ayu.Pins" = "Maksimum obrolan disematkan";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Prima della modifica";
+ "Ayu.Deleted" = "Eliminato";
++"Ayu.IconChangeUnavailable" = "La scelta è salvata nell’app. iOS non ha potuto cambiare l’icona della schermata Home.";
+ "Ayu.LocalPremium" = "Premium locale";
+ "Ayu.Pins" = "Numero massimo di chat fissate";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -262,4 +262,5 @@
+ "Ayu.BeforeEdit" = "編集前";
+ "Ayu.Deleted" = "削除済み";
++"Ayu.IconChangeUnavailable" = "選択はアプリに保存されました。iOSでホーム画面のアイコンを変更できませんでした。";
+ "Ayu.LocalPremium" = "ローカル Premium";
+ "Ayu.Pins" = "固定するチャットの上限";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -24,4 +24,5 @@
+ "Ayu.BeforeEdit" = "មុនពេលកែសម្រួល";
+ "Ayu.Deleted" = "បានលុប";
++"Ayu.IconChangeUnavailable" = "ជម្រើសរបស់អ្នកត្រូវបានរក្សាទុកក្នុងកម្មវិធី។ iOS មិនអាចប្ដូររូបតំណាងលើអេក្រង់ដើមបានទេ។";
+ "Ayu.LocalPremium" = "Premium ក្នុងឧបករណ៍";
+ "Ayu.Pins" = "ចំនួនជជែកដែលបានខ្ទាស់អតិបរមា";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "수정 전";
+ "Ayu.Deleted" = "삭제됨";
++"Ayu.IconChangeUnavailable" = "선택이 앱에 저장되었습니다. iOS에서 홈 화면 아이콘을 변경하지 못했습니다.";
+ "Ayu.LocalPremium" = "로컬 Premium";
+ "Ayu.Pins" = "고정 채팅 최대 개수";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -26,4 +26,5 @@
+ "Ayu.BeforeEdit" = "Berî guherandinê";
+ "Ayu.Deleted" = "Jêbirî";
++"Ayu.IconChangeUnavailable" = "Hilbijartina te di sepanê de hat tomarkirin. iOS nekarî îkona ekrana sereke biguherîne.";
+ "Ayu.LocalPremium" = "Premium herêmî";
+ "Ayu.Pins" = "Herî zêde sohbetên sabîtkirî";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Voor bewerking";
+ "Ayu.Deleted" = "Verwijderd";
++"Ayu.IconChangeUnavailable" = "Je keuze is opgeslagen in de app. iOS kon het pictogram op het beginscherm niet wijzigen.";
+ "Ayu.LocalPremium" = "Lokale Premium";
+ "Ayu.Pins" = "Maximum vastgemaakte chats";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Før redigering";
+ "Ayu.Deleted" = "Slettet";
++"Ayu.IconChangeUnavailable" = "Valget er lagret i appen. iOS kunne ikke endre ikonet på Hjem-skjermen.";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+ "Ayu.Pins" = "Maksimalt antall festede chatter";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -261,4 +261,5 @@
+ "Ayu.BeforeEdit" = "Przed edycją";
+ "Ayu.Deleted" = "Usunięto";
++"Ayu.IconChangeUnavailable" = "Wybór zapisano w aplikacji. iOS nie mógł zmienić ikony na ekranie początkowym.";
+ "Ayu.LocalPremium" = "Lokalne Premium";
+ "Ayu.Pins" = "Maksimum przypiętych czatów";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -290,4 +290,5 @@
+ "Ayu.BeforeEdit" = "Antes da edição";
+ "Ayu.Deleted" = "Apagado";
++"Ayu.IconChangeUnavailable" = "A escolha foi guardada na aplicação. O iOS não conseguiu alterar o ícone do ecrã inicial.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Máximo de conversas fixadas";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Înainte de editare";
+ "Ayu.Deleted" = "Șters";
++"Ayu.IconChangeUnavailable" = "Alegerea este salvată în aplicație. iOS nu a putut schimba pictograma de pe ecranul principal.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Număr maxim de conversații fixate";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -290,4 +290,5 @@
+ "Ayu.BeforeEdit" = "До изменения";
+ "Ayu.Deleted" = "Удалено";
++"Ayu.IconChangeUnavailable" = "Выбор сохранён в приложении. iOS не разрешила изменить значок на главном экране.";
+ "Ayu.LocalPremium" = "Локальный Premium";
+ "Ayu.Pins" = "Максимум закреплённых чатов";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -18,4 +18,5 @@
+ "Ayu.BeforeEdit" = "සංස්කරණයට පෙර";
+ "Ayu.Deleted" = "මකා දමන ලදී";
++"Ayu.IconChangeUnavailable" = "ඔබේ තේරීම යෙදුමේ සුරකින ලදී. iOS හට මුල් තිරයේ නිරූපකය වෙනස් කළ නොහැකි විය.";
+ "Ayu.LocalPremium" = "දේශීය Premium";
+ "Ayu.Pins" = "ඇමිණූ කතාබස් උපරිමය";
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -20,4 +20,5 @@
+ "Ayu.BeforeEdit" = "Pred úpravou";
+ "Ayu.Deleted" = "Odstránené";
++"Ayu.IconChangeUnavailable" = "Voľba je uložená v aplikácii. iOS nemohol zmeniť ikonu na ploche.";
+ "Ayu.LocalPremium" = "Miestne Premium";
+ "Ayu.Pins" = "Maximum pripnutých četov";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Пре измене";
+ "Ayu.Deleted" = "Обрисано";
++"Ayu.IconChangeUnavailable" = "Избор је сачуван у апликацији. iOS није могао да промени икону на почетном екрану.";
+ "Ayu.LocalPremium" = "Локални Premium";
+ "Ayu.Pins" = "Максимум закачених разговора";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Före redigering";
+ "Ayu.Deleted" = "Raderat";
++"Ayu.IconChangeUnavailable" = "Ditt val sparades i appen. iOS kunde inte ändra ikonen på hemskärmen.";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+ "Ayu.Pins" = "Högsta antal fästa chattar";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Düzenlemeden önce";
+ "Ayu.Deleted" = "Silindi";
++"Ayu.IconChangeUnavailable" = "Seçiminiz uygulamada kaydedildi. iOS, Ana Ekran simgesini değiştiremedi.";
+ "Ayu.LocalPremium" = "Yerel Premium";
+ "Ayu.Pins" = "En fazla sabitlenmiş sohbet";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -261,4 +261,5 @@
+ "Ayu.BeforeEdit" = "До зміни";
+ "Ayu.Deleted" = "Видалено";
++"Ayu.IconChangeUnavailable" = "Вибір збережено в застосунку. iOS не дозволила змінити іконку на головному екрані.";
+ "Ayu.LocalPremium" = "Локальний Premium";
+ "Ayu.Pins" = "Максимум закріплених чатів";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Tahrirdan oldin";
+ "Ayu.Deleted" = "O‘chirilgan";
++"Ayu.IconChangeUnavailable" = "Tanlov ilovada saqlandi. iOS bosh ekran belgisini o‘zgartira olmadi.";
+ "Ayu.LocalPremium" = "Mahalliy Premium";
+ "Ayu.Pins" = "Qadalgan chatlar maksimumi";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -168,4 +168,5 @@
+ "Ayu.BeforeEdit" = "Trước khi sửa";
+ "Ayu.Deleted" = "Đã xóa";
++"Ayu.IconChangeUnavailable" = "Lựa chọn đã được lưu trong ứng dụng. iOS không thể thay đổi biểu tượng Màn hình chính.";
+ "Ayu.LocalPremium" = "Premium cục bộ";
+ "Ayu.Pins" = "Số cuộc trò chuyện ghim tối đa";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -265,4 +265,5 @@
+ "Ayu.BeforeEdit" = "编辑前";
+ "Ayu.Deleted" = "已删除";
++"Ayu.IconChangeUnavailable" = "已在应用内保存选择。iOS 未能更改主屏幕图标。";
+ "Ayu.LocalPremium" = "本地 Premium";
+ "Ayu.Pins" = "最多置顶聊天数";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -265,4 +265,5 @@
+ "Ayu.BeforeEdit" = "編輯前";
+ "Ayu.Deleted" = "已刪除";
++"Ayu.IconChangeUnavailable" = "已在 App 內儲存選擇。iOS 未能更改主畫面圖示。";
+ "Ayu.LocalPremium" = "本機 Premium";
+ "Ayu.Pins" = "最多置頂聊天數";

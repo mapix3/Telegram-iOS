@@ -1,8 +1,12 @@
-# Swiftgram + AyuGram Privacy: запуск без Mac
+# AyuGram iOS: Standard и Custom без Mac
 
 Подготовлено для Swiftgram/Telegram-iOS, commit `cf8b23beaaac4126a396337ac2d5be13f9f76b66`.
 Это исходные патчи и CI, **не готовый IPA и не подтверждённая сборка**.
 Локальный Mac не требуется: компилятор запускается на macOS runner в GitHub Actions.
+
+Текущий комплект включает общие патчи 01–05, 07, 08 и 10; Custom дополнительно применяет 06 и 09. Workflow **AyuGram iOS — Standard + Custom** запускает две версии независимо. Подробности текущих функций и ограничений находятся в [REFINEMENTS.md](docs/REFINEMENTS.md); инструкции ниже про первые этапы сохраняются для диагностики исходной сборки.
+
+Для полной актуальной сборки выберите `variant: both`, `stage: history`. Готовые основные файлы — `AyuGram-standard-unsigned.ipa` и `AyuGram-custom-unsigned.ipa`. Проверяйте `build-manifest.json`: наличие архива после завершения job само по себе не подтверждает, что последний этап успешно скомпилировался.
 
 ## Что уже сделано
 

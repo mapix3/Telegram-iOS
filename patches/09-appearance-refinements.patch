@@ -1,0 +1,1451 @@
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift
+@@ -2,90 +2,118 @@
+ import UIKit
+ import PhotosUI
+ import Display
++import SwiftSignalKit
+ import AccountContext
+ import TelegramPresentationData
++import ItemListUI
++import SGItemListUI
+ import SGSimpleSettings
+ import SGStrings
+ 
+-final class AyuGramAppearanceController: UIViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+-    private let context: AccountContext
+-    private var stack: UIStackView!
+-    private var pickingVideo = false
+-    init(context: AccountContext) { self.context = context; super.init(nibName: nil, bundle: nil) }
+-    required init?(coder: NSCoder) { fatalError() }
+-    private var strings: PresentationStrings { context.sharedContext.currentPresentationData.with { $0 }.strings }
+-    override func viewDidLoad() {
+-        super.viewDidLoad()
+-        view.backgroundColor = .systemBackground
+-        title = strings.Appearance_Title
+-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: strings.Common_Close, style: .plain, target: self, action: #selector(close))
+-        let scroll = UIScrollView()
+-        scroll.translatesAutoresizingMaskIntoConstraints = false
+-        view.addSubview(scroll)
+-        stack = UIStackView()
+-        stack.axis = .vertical
+-        stack.spacing = 18
+-        stack.translatesAutoresizingMaskIntoConstraints = false
+-        scroll.addSubview(stack)
+-        NSLayoutConstraint.activate([scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor), scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor), stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 20), stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -20), stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 20), stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -30), stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -40)])
+-        button(strings.Common_ChoosePhoto, action: #selector(choosePhoto))
+-        button(strings.Message_Video, action: #selector(chooseVideo))
+-        let settings = AyuGramAppearance.shared.settings
+-        toggle(strings.DialogList_Title, value: settings.chatList, tag: 0)
+-        toggle(strings.Wallpaper_Title, value: settings.conversations, tag: 1)
+-        toggle(strings.WallpaperPreview_Motion, value: settings.animateVideo, tag: 2)
+-        slider(strings.PhotoEditor_ContrastTool, value: settings.dim, tag: 0, minimum: 0.2, maximum: 0.9)
+-        slider(strings.WallpaperPreview_Blurred, value: settings.blur, tag: 1, minimum: 0, maximum: 1)
+-        slider(i18n("Ayu.RowOpacity", strings.baseLanguageCode), value: settings.rowOpacity, tag: 2, minimum: 0.35, maximum: 1)
+-        button(strings.AutoDownloadSettings_Reset, action: #selector(reset))
++private enum AyuAppearanceSection: Int32, SGItemListSection { case preview, media, visibility, dim, blur, rows, reset }
++private enum AyuAppearanceToggle: Hashable { case enabled, motion }
++private enum AyuAppearanceSlider: Hashable { case dim, blur, rows }
++private enum AyuAppearanceAction: Hashable { case photo, video, wallpaper, reset }
++private enum AyuAppearanceUnused: Hashable { case unused }
++private typealias AyuAppearanceSettingEntry = SGItemListUIEntry<AyuAppearanceSection, AyuAppearanceToggle, AyuAppearanceSlider, AyuAppearanceUnused, AyuAppearanceAction, AyuAppearanceAction>
++private enum AyuAppearanceEntry: ItemListNodeEntry {
++    case preview(AyuGramAppearanceScope, AyuGramAppearanceSettings)
++    case setting(AyuAppearanceSettingEntry)
++    var section: ItemListSectionId {
++        switch self { case .preview: return AyuAppearanceSection.preview.rawValue; case let .setting(value): return value.section }
+     }
+-    private func button(_ title: String, action: Selector) {
+-        let button = UIButton(type: .system)
+-        button.setTitle(title, for: .normal)
+-        button.contentHorizontalAlignment = .leading
+-        button.addTarget(self, action: action, for: .touchUpInside)
+-        stack.addArrangedSubview(button)
++    var stableId: Int {
++        switch self { case .preview: return 0; case let .setting(value): return value.stableId + 1 }
+     }
+-    private func toggle(_ text: String, value: Bool, tag: Int) {
+-        let row = UIStackView()
+-        let label = UILabel()
+-        label.text = text
+-        label.numberOfLines = 0
+-        let control = UISwitch()
+-        control.isOn = value
+-        control.tag = tag
+-        control.addTarget(self, action: #selector(toggleChanged(_:)), for: .valueChanged)
+-        row.addArrangedSubview(label)
+-        row.addArrangedSubview(control)
+-        stack.addArrangedSubview(row)
+-    }
+-    private func slider(_ text: String, value: Float, tag: Int, minimum: Float, maximum: Float) {
+-        let label = UILabel()
+-        label.text = text
+-        label.numberOfLines = 0
+-        stack.addArrangedSubview(label)
+-        let control = UISlider()
+-        control.minimumValue = minimum
+-        control.maximumValue = maximum
+-        control.value = value
+-        control.tag = tag
+-        control.accessibilityLabel = text
+-        control.addTarget(self, action: #selector(sliderChanged(_:)), for: .valueChanged)
+-        stack.addArrangedSubview(control)
+-    }
+-    @objc private func toggleChanged(_ control: UISwitch) {
+-        AyuGramAppearance.shared.update { settings in
+-            switch control.tag { case 0: settings.chatList = control.isOn; case 1: settings.conversations = control.isOn; default: settings.animateVideo = control.isOn }
++    static func < (lhs: AyuAppearanceEntry, rhs: AyuAppearanceEntry) -> Bool { lhs.stableId < rhs.stableId }
++    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
++        switch self {
++        case let .preview(scope, settings): return AyuGramAppearancePreviewItem(data: presentationData, scope: scope, settings: settings, sectionId: section)
++        case let .setting(value): return value.item(presentationData: presentationData, arguments: arguments)
+         }
+     }
+-    @objc private func sliderChanged(_ control: UISlider) {
+-        AyuGramAppearance.shared.update { settings in
+-            switch control.tag { case 0: settings.dim = control.value; case 1: settings.blur = control.value; default: settings.rowOpacity = control.value }
++}
++
++public func ayuGramAppearanceController(context: AccountContext, scope: AyuGramAppearanceScope = .chatList) -> ViewController {
++    let mediaPicker = AyuGramAppearanceMediaPicker(context: context, scope: scope)
++    var openWallpaper: (() -> Void)?
++    let changes = Signal<Int, NoError> { subscriber in
++        subscriber.putNext(0)
++        let observer = NotificationCenter.default.addObserver(forName: AyuGramAppearance.didChange, object: nil, queue: .main) { _ in subscriber.putNext(0) }
++        return ActionDisposable { NotificationCenter.default.removeObserver(observer) }
++    }
++    let arguments = SGItemListArguments<AyuAppearanceToggle, AyuAppearanceSlider, AyuAppearanceUnused, AyuAppearanceAction, AyuAppearanceAction>(context: context, setBoolValue: { key, value in
++        AyuGramAppearance.shared.updateForScope(scope) { settings in
++            switch key {
++            case .enabled:
++                if scope == .chatList { settings.chatList = value } else { settings.conversations = value }
++            case .motion: settings.animateVideo = value
++            }
+         }
++    }, updateSliderValue: { key, value in
++        AyuGramAppearance.shared.updateForScope(scope) { settings in
++            switch key {
++            case .dim: settings.dim = Float(value) / 100
++            case .blur: settings.blur = Float(value) / 100
++            case .rows: settings.rowOpacity = Float(value) / 100
++            }
++        }
++    }, openDisclosureLink: { _ in openWallpaper?() }, action: { action in
++        switch action {
++        case .photo: mediaPicker.choose(video: false)
++        case .video: mediaPicker.choose(video: true)
++        case .wallpaper: openWallpaper?()
++        case .reset: AyuGramAppearance.shared.reset(scope: scope)
++        }
++    })
++    let signal = combineLatest(context.sharedContext.presentationData, changes)
++    |> deliverOnMainQueue
++    |> map { data, _ -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<AyuAppearanceToggle, AyuAppearanceSlider, AyuAppearanceUnused, AyuAppearanceAction, AyuAppearanceAction>)) in
++        let settings = AyuGramAppearance.shared.effectiveSettings(for: scope)
++        let locale = data.strings.baseLanguageCode
++        var settingsEntries: [AyuAppearanceSettingEntry] = [
++            .header(id: 0, section: .media, text: scope == .chatList ? data.strings.DialogList_Title : data.strings.Wallpaper_Title, badge: nil),
++            .action(id: 1, section: .media, actionType: .photo, text: data.strings.Common_ChoosePhoto, kind: .generic),
++            .action(id: 2, section: .media, actionType: .video, text: data.strings.Message_Video, kind: .generic),
++            .toggle(id: 3, section: .visibility, settingName: .enabled, value: scope == .chatList ? settings.chatList : settings.conversations, text: scope == .chatList ? data.strings.DialogList_Title : data.strings.Wallpaper_Title, enabled: true),
++            .toggle(id: 4, section: .visibility, settingName: .motion, value: settings.animateVideo, text: data.strings.WallpaperPreview_Motion, enabled: settings.isVideo),
++            .header(id: 5, section: .dim, text: i18n("Ayu.BackgroundDimming", locale), badge: nil),
++            .rangedPercentageSlider(id: 6, section: .dim, settingName: .dim, value: Int32((settings.dim * 100).rounded()), minimum: 20, maximum: 90),
++            .header(id: 7, section: .blur, text: data.strings.WallpaperPreview_Blurred, badge: nil),
++            .rangedPercentageSlider(id: 8, section: .blur, settingName: .blur, value: Int32((settings.blur * 100).rounded()), minimum: 0, maximum: 100)
++        ]
++        if scope == .chatList {
++            settingsEntries += [
++                .header(id: 9, section: .rows, text: i18n("Ayu.RowOpacity", locale), badge: nil),
++                .rangedPercentageSlider(id: 10, section: .rows, settingName: .rows, value: Int32((settings.rowOpacity * 100).rounded()), minimum: 35, maximum: 100),
++                .disclosure(id: 11, section: .reset, link: .wallpaper, text: data.strings.Wallpaper_Title)
++            ]
++        }
++        settingsEntries.append(.action(id: 12, section: .reset, actionType: .reset, text: data.strings.AutoDownloadSettings_Reset, kind: .destructive))
++        let entries: [AyuAppearanceEntry] = [.preview(scope, settings)] + settingsEntries.map(AyuAppearanceEntry.setting)
++        let state = ItemListControllerState(presentationData: ItemListPresentationData(data), title: .text(scope == .chatList ? data.strings.Appearance_Title : data.strings.Wallpaper_Title), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: data.strings.Common_Back))
++        return (state, (ItemListNodeState(presentationData: ItemListPresentationData(data), entries: entries, style: .blocks), arguments))
+     }
+-    @objc private func choosePhoto() { choose(video: false) }
+-    @objc private func chooseVideo() { choose(video: true) }
+-    private func choose(video: Bool) {
++    let controller = ItemListController(context: context, state: signal)
++    mediaPicker.controller = controller
++    openWallpaper = { [weak controller] in
++        (controller?.navigationController as? NavigationController)?.pushViewController(ayuGramAppearanceController(context: context, scope: .conversation))
++    }
++    return controller
++}
++
++private final class AyuGramAppearanceMediaPicker: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
++    private let context: AccountContext
++    private let scope: AyuGramAppearanceScope
++    weak var controller: UIViewController?
++    private var pickingVideo = false
++    init(context: AccountContext, scope: AyuGramAppearanceScope) {
++        self.context = context
++        self.scope = scope
++        super.init()
++    }
++    private var strings: PresentationStrings { context.sharedContext.currentPresentationData.with { $0 }.strings }
++    func choose(video: Bool) {
+         pickingVideo = video
+         if #available(iOS 14.0, *) {
+             chooseModern(video: video)
+@@ -94,7 +122,7 @@
+             picker.sourceType = .photoLibrary
+             picker.mediaTypes = [video ? "public.movie" : "public.image"]
+             picker.delegate = self
+-            present(picker, animated: true)
++            controller?.present(picker, animated: true)
+         }
+     }
+     @available(iOS 14.0, *)
+@@ -104,7 +132,7 @@
+         configuration.selectionLimit = 1
+         let picker = PHPickerViewController(configuration: configuration)
+         picker.delegate = self
+-        present(picker, animated: true)
++        controller?.present(picker, animated: true)
+     }
+     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+         picker.dismiss(animated: true)
+@@ -113,12 +141,12 @@
+         picker.dismiss(animated: true)
+         do {
+             if let url = info[pickingVideo ? .mediaURL : .imageURL] as? URL {
+-                try AyuGramAppearance.shared.importMedia(url, isVideo: pickingVideo)
++                try AyuGramAppearance.shared.importMedia(url, isVideo: pickingVideo, scope: scope)
+             } else if !pickingVideo, let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.95) {
+                 let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+                 defer { try? FileManager.default.removeItem(at: temporary) }
+                 try data.write(to: temporary, options: .atomic)
+-                try AyuGramAppearance.shared.importMedia(temporary, isVideo: false)
++                try AyuGramAppearance.shared.importMedia(temporary, isVideo: false, scope: scope)
+             } else {
+                 throw CocoaError(.fileReadCorruptFile)
+             }
+@@ -131,23 +159,22 @@
+             guard let self else { return }
+             let alert = UIAlertController(title: nil, message: i18n("Ayu.MediaImportError", self.strings.baseLanguageCode), preferredStyle: .alert)
+             alert.addAction(UIAlertAction(title: self.strings.Common_OK, style: .default))
+-            self.present(alert, animated: true)
++            self.controller?.present(alert, animated: true)
+         }
+     }
+-    @objc private func close() { dismiss(animated: true) }
+-    @objc private func reset() { AyuGramAppearance.shared.reset(); dismiss(animated: true) }
+ }
+ 
+ @available(iOS 14.0, *)
+-extension AyuGramAppearanceController: PHPickerViewControllerDelegate {
++extension AyuGramAppearanceMediaPicker: PHPickerViewControllerDelegate {
+     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+         picker.dismiss(animated: true)
+         guard let provider = results.first?.itemProvider else { return }
+         let video = pickingVideo
++        let scope = self.scope
+         provider.loadFileRepresentation(forTypeIdentifier: video ? "public.movie" : "public.image") { [weak self] url, error in
+             do {
+                 guard error == nil, let url else { throw CocoaError(.fileReadCorruptFile) }
+-                try AyuGramAppearance.shared.importMedia(url, isVideo: video)
++                try AyuGramAppearance.shared.importMedia(url, isVideo: video, scope: scope)
+             } catch {
+                 self?.showImportError()
+             }
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearancePreviewItem.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearancePreviewItem.swift
+new file mode 100644
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearancePreviewItem.swift
+@@ -0,0 +1,86 @@
++import UIKit
++import Display
++import SwiftSignalKit
++import TelegramPresentationData
++import ItemListUI
++import SGSimpleSettings
++
++final class AyuGramAppearancePreviewItem: ListViewItem, ItemListItem {
++    let data: ItemListPresentationData
++    let scope: AyuGramAppearanceScope
++    let settings: AyuGramAppearanceSettings
++    let sectionId: ItemListSectionId
++    var isAlwaysPlain: Bool { true }
++    init(data: ItemListPresentationData, scope: AyuGramAppearanceScope, settings: AyuGramAppearanceSettings, sectionId: ItemListSectionId) {
++        self.data = data
++        self.scope = scope
++        self.settings = settings
++        self.sectionId = sectionId
++    }
++    func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
++        Queue.mainQueue().async {
++            let node = AyuGramAppearancePreviewNode(scope: self.scope)
++            let layout = node.update(self, params: params)
++            node.contentSize = layout.contentSize
++            node.insets = layout.insets
++            completion(node, { (nil, { _ in }) })
++        }
++    }
++    func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, previousItem: ListViewItem?, nextItem: ListViewItem?, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
++        Queue.mainQueue().async {
++            guard let node = node() as? AyuGramAppearancePreviewNode else { return }
++            completion(node.update(self, params: params), { _ in })
++        }
++    }
++}
++
++private final class AyuGramAppearancePreviewNode: ListViewItemNode {
++    private let card = UIView()
++    private let backdrop: AyuGramBackdropView
++    private let incoming = UILabel()
++    private let outgoing = UILabel()
++    private let title = UILabel()
++    private let scope: AyuGramAppearanceScope
++    init(scope: AyuGramAppearanceScope) {
++        self.scope = scope
++        self.backdrop = AyuGramBackdropView(scope: scope)
++        super.init(layerBacked: false)
++        card.isUserInteractionEnabled = false
++        card.clipsToBounds = true
++        card.layer.cornerRadius = 20
++        view.addSubview(card)
++        for child in [backdrop, title, incoming, outgoing] { card.addSubview(child) }
++        for label in [incoming, outgoing] {
++            label.numberOfLines = 2
++            label.font = UIFont.systemFont(ofSize: 14)
++            label.layer.cornerRadius = 12
++            label.clipsToBounds = true
++            label.textAlignment = .center
++        }
++        title.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
++        title.textAlignment = .center
++    }
++    func update(_ item: AyuGramAppearancePreviewItem, params: ListViewItemLayoutParams) -> ListViewItemNodeLayout {
++        let theme = item.data.theme
++        let width = max(160, params.width - params.leftInset - params.rightInset - 32)
++        card.frame = CGRect(x: params.leftInset + 16, y: 12, width: width, height: 210)
++        card.backgroundColor = theme.list.itemBlocksBackgroundColor
++        backdrop.frame = card.bounds
++        backdrop.overlayColor = theme.list.blocksBackgroundColor
++        backdrop.reload()
++        title.text = scope == .chatList ? item.data.strings.DialogList_Title : item.data.strings.Wallpaper_Title
++        title.textColor = theme.list.itemPrimaryTextColor
++        title.frame = CGRect(x: 12, y: 12, width: width - 24, height: 30)
++        incoming.text = item.data.strings.Appearance_PreviewIncomingText
++        outgoing.text = item.data.strings.Appearance_PreviewOutgoingText
++        incoming.textColor = theme.list.itemPrimaryTextColor
++        outgoing.textColor = scope == .chatList ? theme.list.itemPrimaryTextColor : theme.list.itemCheckColors.foregroundColor
++        let opacity = CGFloat(item.settings.rowOpacity)
++        incoming.backgroundColor = theme.list.itemBlocksBackgroundColor.withAlphaComponent(scope == .chatList ? opacity : 0.9)
++        outgoing.backgroundColor = scope == .chatList ? incoming.backgroundColor : theme.list.itemAccentColor
++        let bubbleWidth = scope == .chatList ? width - 24 : min(width - 40, width * 0.76)
++        incoming.frame = CGRect(x: 12, y: 62, width: bubbleWidth, height: 56)
++        outgoing.frame = CGRect(x: scope == .chatList ? 12 : width - bubbleWidth - 12, y: 130, width: bubbleWidth, height: 56)
++        return ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: 234), insets: .zero)
++    }
++}
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+@@ -79,7 +79,7 @@
+         (controller?.navigationController as? NavigationController)?.pushViewController(ayuGramHistoryController(context: context))
+     }
+     openAppearance = { [weak controller] in
+-        controller?.present(UINavigationController(rootViewController: AyuGramAppearanceController(context: context)), animated: true)
++        (controller?.navigationController as? NavigationController)?.pushViewController(ayuGramAppearanceController(context: context))
+     }
+     return controller
+ }
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift
+--- a/Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift
++++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift
+@@ -1,6 +1,17 @@
+ import Foundation
+ 
++public enum AyuGramAppearanceScope: Equatable { case chatList, conversation }
++
++public struct AyuGramWallpaperAppearanceSettings: Codable, Equatable {
++    public var fileName: String?
++    public var isVideo: Bool
++    public var dim: Float
++    public var blur: Float
++    public var animateVideo: Bool
++}
++
+ public struct AyuGramAppearanceSettings: Codable, Equatable {
++    public var wallpaper: AyuGramWallpaperAppearanceSettings?
+     public var fileName: String?
+     public var isVideo = false
+     public var chatList = true
+@@ -16,7 +27,12 @@
+     public static let shared = AyuGramAppearance()
+     public static let didChange = Notification.Name("AyuGram.Appearance.didChange")
+     private let lock = NSLock()
+-    private let defaults = UserDefaults.standard
++    private let defaults: UserDefaults
++    private let customDirectory: URL?
++    init(defaults: UserDefaults = .standard, directory: URL? = nil) {
++        self.defaults = defaults
++        self.customDirectory = directory
++    }
+     private let key = "swiftgram.ayuGram.appearance.v1"
+     public var settings: AyuGramAppearanceSettings {
+         lock.lock()
+@@ -33,21 +49,56 @@
+         value.dim = min(0.9, max(0.2, value.dim))
+         value.blur = min(1, max(0, value.blur))
+         value.rowOpacity = min(1, max(0.35, value.rowOpacity))
++        if var wallpaper = value.wallpaper {
++            wallpaper.dim = min(0.9, max(0.2, wallpaper.dim))
++            wallpaper.blur = min(1, max(0, wallpaper.blur))
++            value.wallpaper = wallpaper
++        }
+         if let data = try? JSONEncoder().encode(value) { defaults.set(data, forKey: key) }
+         lock.unlock()
+         NotificationCenter.default.post(name: Self.didChange, object: self)
+     }
++    private static func resolve(_ settings: AyuGramAppearanceSettings, scope: AyuGramAppearanceScope) -> AyuGramAppearanceSettings {
++        var result = settings
++        if scope == .conversation, let wallpaper = settings.wallpaper {
++            result.fileName = wallpaper.fileName
++            result.isVideo = wallpaper.isVideo
++            result.dim = wallpaper.dim
++            result.blur = wallpaper.blur
++            result.animateVideo = wallpaper.animateVideo
++        }
++        return result
++    }
++    public func effectiveSettings(for scope: AyuGramAppearanceScope) -> AyuGramAppearanceSettings {
++        return Self.resolve(settings, scope: scope)
++    }
++    public func updateForScope(_ scope: AyuGramAppearanceScope, _ f: (inout AyuGramAppearanceSettings) -> Void) {
++        update { settings in
++            if scope == .chatList {
++                if settings.wallpaper == nil {
++                    settings.wallpaper = AyuGramWallpaperAppearanceSettings(fileName: settings.fileName, isVideo: settings.isVideo, dim: settings.dim, blur: settings.blur, animateVideo: settings.animateVideo)
++                }
++                f(&settings)
++            } else {
++                var value = Self.resolve(settings, scope: scope)
++                f(&value)
++                settings.conversations = value.conversations
++                settings.wallpaper = AyuGramWallpaperAppearanceSettings(fileName: value.fileName, isVideo: value.isVideo, dim: value.dim, blur: value.blur, animateVideo: value.animateVideo)
++            }
++        }
++    }
+     public var directory: URL {
+-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AyuGramAppearance", isDirectory: true)
++        customDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AyuGramAppearance", isDirectory: true)
+     }
+-    public var mediaURL: URL? {
+-        guard let name = settings.fileName, name == URL(fileURLWithPath: name).lastPathComponent, !name.contains("..") else { return nil }
++    public var mediaURL: URL? { mediaURL(for: .chatList) }
++    public func mediaURL(for scope: AyuGramAppearanceScope) -> URL? {
++        guard let name = effectiveSettings(for: scope).fileName, name == URL(fileURLWithPath: name).lastPathComponent, !name.contains("..") else { return nil }
+         let url = directory.appendingPathComponent(name)
+         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+     }
+     public var showsChatList: Bool { settings.chatList && mediaURL != nil }
+-    public var showsConversations: Bool { settings.conversations && mediaURL != nil }
+-    public func importMedia(_ url: URL, isVideo: Bool) throws {
++    public var showsConversations: Bool { settings.conversations && mediaURL(for: .conversation) != nil }
++    public func importMedia(_ url: URL, isVideo: Bool, scope: AyuGramAppearanceScope = .chatList) throws {
+         let values = try url.resourceValues(forKeys: [.fileSizeKey])
+         guard let size = values.fileSize, size > 0, size <= 100 * 1024 * 1024 else {
+             throw CocoaError(.fileReadTooLarge)
+@@ -62,13 +113,24 @@
+         let name = UUID().uuidString + "." + ext
+         let target = directory.appendingPathComponent(name)
+         try FileManager.default.copyItem(at: url, to: target)
+-        let old = mediaURL
+-        update { $0.fileName = name; $0.isVideo = isVideo }
+-        if let old { try? FileManager.default.removeItem(at: old) }
++        let old = mediaURL(for: scope)
++        updateForScope(scope) { $0.fileName = name; $0.isVideo = isVideo }
++        if let old, old != mediaURL(for: scope == .chatList ? .conversation : .chatList) { try? FileManager.default.removeItem(at: old) }
+     }
+-    public func reset() {
+-        let old = mediaURL
+-        update { $0 = AyuGramAppearanceSettings() }
+-        if let old { try? FileManager.default.removeItem(at: old) }
++    public func reset(scope: AyuGramAppearanceScope = .chatList) {
++        let old = mediaURL(for: scope)
++        update { settings in
++            if scope == .chatList {
++                let wallpaper = settings.wallpaper ?? AyuGramWallpaperAppearanceSettings(fileName: settings.fileName, isVideo: settings.isVideo, dim: settings.dim, blur: settings.blur, animateVideo: settings.animateVideo)
++                let conversations = settings.conversations
++                settings = AyuGramAppearanceSettings()
++                settings.wallpaper = wallpaper
++                settings.conversations = conversations
++            } else {
++                settings.wallpaper = AyuGramWallpaperAppearanceSettings(fileName: nil, isVideo: false, dim: 0.6, blur: 0.2, animateVideo: true)
++                settings.conversations = true
++            }
++        }
++        if let old, old != mediaURL(for: scope == .chatList ? .conversation : .chatList) { try? FileManager.default.removeItem(at: old) }
+     }
+ }
+diff --git a/submodules/Display/Source/AyuGramBackdropView.swift b/submodules/Display/Source/AyuGramBackdropView.swift
+--- a/submodules/Display/Source/AyuGramBackdropView.swift
++++ b/submodules/Display/Source/AyuGramBackdropView.swift
+@@ -1,10 +1,11 @@
+ import Foundation
+ import UIKit
+ import AVFoundation
++import ImageIO
+ import SGSimpleSettings
+ 
+ public final class AyuGramBackdropView: UIView {
+-    public enum Scope { case chatList, conversation }
++    public typealias Scope = AyuGramAppearanceScope
+     private let scope: Scope
+     private let imageView = UIImageView()
+     private let videoLayer = AVPlayerLayer()
+@@ -12,11 +13,14 @@
+     private let dimView = UIView()
+     private var player: AVQueuePlayer?
+     private var looper: AVPlayerLooper?
++    private var readiness: NSKeyValueObservation?
++    private var imageGenerator: AVAssetImageGenerator?
+     private var url: URL?
++    private var generation = 0
+     private var observers: [NSObjectProtocol] = []
+     public var visibilityChanged: ((Bool) -> Void)?
+     public var overlayColor: UIColor = .systemBackground {
+-        didSet { dimView.backgroundColor = overlayColor.withAlphaComponent(CGFloat(AyuGramAppearance.shared.settings.dim)) }
++        didSet { dimView.backgroundColor = overlayColor.withAlphaComponent(CGFloat(AyuGramAppearance.shared.effectiveSettings(for: scope).dim)) }
+     }
+     public init(scope: Scope) {
+         self.scope = scope
+@@ -29,7 +33,7 @@
+         addSubview(imageView)
+         addSubview(blurView)
+         addSubview(dimView)
+-        for name in [AyuGramAppearance.didChange, UIApplication.didBecomeActiveNotification, UIApplication.didEnterBackgroundNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
++        for name in [AyuGramAppearance.didChange, UIApplication.didBecomeActiveNotification, UIApplication.didEnterBackgroundNotification, Notification.Name.NSProcessInfoPowerStateDidChange, UIAccessibility.reduceMotionStatusDidChangeNotification] {
+             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.reload() })
+         }
+         reload()
+@@ -37,16 +41,23 @@
+     required init?(coder: NSCoder) { fatalError() }
+     deinit {
+         for observer in observers { NotificationCenter.default.removeObserver(observer) }
++        readiness?.invalidate()
++        imageGenerator?.cancelAllCGImageGeneration()
+         player?.pause()
+         looper?.disableLooping()
+     }
+     public func reload() {
+-        let settings = AyuGramAppearance.shared.settings
++        let settings = AyuGramAppearance.shared.effectiveSettings(for: scope)
+         let enabled = scope == .chatList ? settings.chatList : settings.conversations
+-        let nextURL = enabled ? AyuGramAppearance.shared.mediaURL : nil
++        let nextURL = enabled ? AyuGramAppearance.shared.mediaURL(for: scope) : nil
+         isHidden = nextURL == nil
+         if url != nextURL {
++            generation += 1
+             url = nextURL
++            readiness?.invalidate()
++            readiness = nil
++            imageGenerator?.cancelAllCGImageGeneration()
++            imageGenerator = nil
+             player?.pause()
+             looper?.disableLooping()
+             looper = nil
+@@ -54,6 +65,7 @@
+             videoLayer.player = nil
+             imageView.image = nil
+             if let nextURL {
++                loadImage(nextURL, video: settings.isVideo)
+                 if settings.isVideo {
+                     let player = AVQueuePlayer()
+                     player.isMuted = true
+@@ -61,23 +73,59 @@
+                     self.player = player
+                     looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: nextURL))
+                     videoLayer.player = player
+-                } else {
+-                    imageView.image = UIImage(contentsOfFile: nextURL.path)
++                    readiness = videoLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in
++                        DispatchQueue.main.async { self?.updatePlayback() }
++                    }
+                 }
+             }
+         }
+         blurView.alpha = CGFloat(settings.blur)
+         dimView.backgroundColor = overlayColor.withAlphaComponent(CGFloat(settings.dim))
+-        imageView.isHidden = settings.isVideo
+-        videoLayer.isHidden = !settings.isVideo
+         updatePlayback()
+         visibilityChanged?(nextURL != nil)
+     }
++    private func loadImage(_ url: URL, video: Bool) {
++        let generation = self.generation
++        if video {
++            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
++            generator.appliesPreferredTrackTransform = true
++            generator.maximumSize = CGSize(width: 1536, height: 1536)
++            imageGenerator = generator
++            generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: .zero)]) { [weak self] _, image, _, result, _ in
++                let thumbnail = result == .succeeded ? image.map { UIImage(cgImage: $0) } : nil
++                DispatchQueue.main.async { [weak self] in
++                    guard let self, self.url == url, self.generation == generation else { return }
++                    self.imageView.image = thumbnail
++                    self.imageGenerator = nil
++                    self.updatePlayback()
++                }
++            }
++            return
++        }
++        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
++            let image: UIImage?
++            if let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
++                let options: [String: Any] = [
++                    kCGImageSourceCreateThumbnailFromImageAlways as String: true,
++                    kCGImageSourceCreateThumbnailWithTransform as String: true,
++                    kCGImageSourceThumbnailMaxPixelSize as String: 1536,
++                    kCGImageSourceShouldCacheImmediately as String: true
++                ]
++                image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
++            } else { image = nil }
++            DispatchQueue.main.async { [weak self] in
++                guard let self, self.url == url, self.generation == generation else { return }
++                self.imageView.image = image
++                self.updatePlayback()
++            }
++        }
++    }
+     private func updatePlayback() {
+-        let settings = AyuGramAppearance.shared.settings
+-        if window != nil && !isHidden && UIApplication.shared.applicationState == .active && settings.animateVideo && !ProcessInfo.processInfo.isLowPowerModeEnabled && !UIAccessibility.isReduceMotionEnabled {
+-            player?.play()
+-        } else { player?.pause() }
++        let settings = AyuGramAppearance.shared.effectiveSettings(for: scope)
++        let playing = window != nil && !isHidden && UIApplication.shared.applicationState == .active && settings.animateVideo && !ProcessInfo.processInfo.isLowPowerModeEnabled && !UIAccessibility.isReduceMotionEnabled
++        if playing { player?.play() } else { player?.pause() }
++        videoLayer.isHidden = !settings.isVideo || !playing
++        imageView.isHidden = settings.isVideo && playing && videoLayer.isReadyForDisplay
+     }
+     public override func didMoveToWindow() { super.didMoveToWindow(); updatePlayback() }
+     public override func layoutSubviews() {
+diff --git a/submodules/ChatListUI/Sources/Node/ChatListItem.swift b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+--- a/submodules/ChatListUI/Sources/Node/ChatListItem.swift
++++ b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+@@ -1377,6 +1377,21 @@
+         }
+     }
+     
++    public func updateAyuGramAppearance() {
++        guard let item else { return }
++        let theme = item.presentationData.theme.chatList
++        if case let .peer(peerData) = item.content, peerData.customMessageListData != nil {
++            backgroundNode.backgroundColor = item.selected ? theme.itemSelectedBackgroundColor : .clear
++        } else if AyuGramAppearance.shared.showsChatList {
++            backgroundNode.backgroundColor = (item.selected ? theme.itemSelectedBackgroundColor : theme.itemBackgroundColor).withAlphaComponent(CGFloat(AyuGramAppearance.shared.settings.rowOpacity))
++        } else if item.selected {
++            backgroundNode.backgroundColor = theme.itemSelectedBackgroundColor
++        } else if item.isPinned {
++            if case let .groupReference(data) = item.content, data.hiddenByDefault {
++                backgroundNode.backgroundColor = data.appearsPinned ? theme.pinnedItemBackgroundColor : theme.itemBackgroundColor
++            } else { backgroundNode.backgroundColor = theme.pinnedItemBackgroundColor }
++        } else { backgroundNode.backgroundColor = .clear }
++    }
+     public private(set) var item: ChatListItem?
+     
+     private let backgroundNode: ASDisplayNode
+@@ -5489,8 +5504,13 @@
+                         highlightedBackgroundColor = theme.itemHighlightedBackgroundColor
+                     }
+                     
+-                    if AyuGramAppearance.shared.showsChatList {
+-                        backgroundColor = (item.selected ? theme.itemSelectedBackgroundColor : (isPinned ? theme.pinnedItemBackgroundColor : theme.itemBackgroundColor)).withAlphaComponent(CGFloat(AyuGramAppearance.shared.settings.rowOpacity))
++                    var usesCustomBackdrop = AyuGramAppearance.shared.showsChatList
++                    if case let .peer(peerData) = item.content, peerData.customMessageListData != nil {
++                        usesCustomBackdrop = false
++                        if !item.selected { backgroundColor = .clear }
++                    }
++                    if usesCustomBackdrop {
++                        backgroundColor = (item.selected ? theme.itemSelectedBackgroundColor : theme.itemBackgroundColor).withAlphaComponent(CGFloat(AyuGramAppearance.shared.settings.rowOpacity))
+                     }
+                     if animated {
+                         transition.updateBackgroundColor(node: strongSelf.backgroundNode, color: backgroundColor)
+diff --git a/submodules/ChatListUI/Sources/ChatListControllerNode.swift b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+--- a/submodules/ChatListUI/Sources/ChatListControllerNode.swift
++++ b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+@@ -799,6 +799,9 @@
+         
+         for (_, itemNode) in self.itemNodes {
+             itemNode.updatePresentationData(presentationData)
++            itemNode.listNode.forEachItemNode { node in
++                (node as? ChatListItemNode)?.updateAyuGramAppearance()
++            }
+         }
+     }
+     
+@@ -1419,6 +1422,7 @@
+     
+     func updatePresentationData(_ presentationData: PresentationData) {
+         self.presentationData = presentationData
++        self.ayuBackdrop?.overlayColor = presentationData.theme.chatList.backgroundColor
+         
+         self.backgroundColor = AyuGramAppearance.shared.showsChatList ? .clear : self.presentationData.theme.chatList.backgroundColor
+         
+diff --git a/submodules/TelegramUI/Sources/ChatControllerNode.swift b/submodules/TelegramUI/Sources/ChatControllerNode.swift
+--- a/submodules/TelegramUI/Sources/ChatControllerNode.swift
++++ b/submodules/TelegramUI/Sources/ChatControllerNode.swift
+@@ -3717,6 +3717,7 @@
+             self.navigateButtons.update(theme: chatPresentationInterfaceState.theme, preferClearGlass: chatPresentationInterfaceState.preferredGlassType == .clear, dateTimeFormat: chatPresentationInterfaceState.dateTimeFormat, backgroundNode: self.backgroundNode)
+             
+             if themeUpdated {
++                self.ayuBackdrop?.overlayColor = chatPresentationInterfaceState.theme.chatList.backgroundColor
+                 if case let .color(color) = self.chatPresentationInterfaceState.chatWallpaper, UIColor(rgb: color).isEqual(self.chatPresentationInterfaceState.theme.chat.inputPanel.panelBackgroundColorNoWallpaper) {
+                     self.usePlainInputSeparator = true
+                 } else {
+diff --git a/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift b/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift
+--- a/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift
++++ b/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift
+@@ -84,6 +84,7 @@
+     case toggle(id: Int, section: Section, settingName: BoolSetting, value: Bool, text: String, enabled: Bool)
+     case notice(id: Int, section: Section, text: String)
+     case countSlider(id: Int, section: Section, settingName: SliderSetting, value: Int32)
++    case rangedPercentageSlider(id: Int, section: Section, settingName: SliderSetting, value: Int32, minimum: Int32, maximum: Int32)
+     case percentageSlider(id: Int, section: Section, settingName: SliderSetting, value: Int32)
+     case oneFromManySelector(id: Int, section: Section, settingName: OneFromManySetting, text: String, value: String, enabled: Bool)
+     case disclosure(id: Int, section: Section, link: DisclosureLink, text: String)
+@@ -103,7 +104,7 @@
+         case let .disclosure(_, sectionId, _, _):
+             return sectionId.rawValue
+ 
+-        case let .percentageSlider(_, sectionId, _, _), let .countSlider(_, sectionId, _, _):
++        case let .rangedPercentageSlider(_, sectionId, _, _, _, _), let .percentageSlider(_, sectionId, _, _), let .countSlider(_, sectionId, _, _):
+             return sectionId.rawValue
+             
+         case let .peerColorDisclosurePreview(_, sectionId, _, _):
+@@ -129,7 +130,7 @@
+             return stableIdValue
+         case let .disclosure(stableIdValue, _, _, _):
+             return stableIdValue
+-        case let .percentageSlider(stableIdValue, _, _, _), let .countSlider(stableIdValue, _, _, _):
++        case let .rangedPercentageSlider(stableIdValue, _, _, _, _, _), let .percentageSlider(stableIdValue, _, _, _), let .countSlider(stableIdValue, _, _, _):
+             return stableIdValue
+         case let .peerColorDisclosurePreview(stableIdValue, _, _, _):
+             return stableIdValue
+@@ -157,6 +158,8 @@
+         case let (.notice(id1, section1, text1), .notice(id2, section2, text2)):
+             return id1 == id2 && section1 == section2 && text1 == text2
+         
++        case let (.rangedPercentageSlider(id1, section1, setting1, value1, minimum1, maximum1), .rangedPercentageSlider(id2, section2, setting2, value2, minimum2, maximum2)):
++            return id1 == id2 && section1 == section2 && setting1 == setting2 && value1 == value2 && minimum1 == minimum2 && maximum1 == maximum2
+         case let (.percentageSlider(id1, section1, settingName1, value1), .percentageSlider(id2, section2, settingName2, value2)),
+              let (.countSlider(id1, section1, settingName1, value1), .countSlider(id2, section2, settingName2, value2)):
+             return id1 == id2 && section1 == section2 && value1 == value2 && settingName1 == settingName2
+@@ -190,7 +193,7 @@
+         case let .toggle(_, _, setting, value, text, enabled):
+             return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: text, value: value, enabled: enabled, maximumNumberOfLines: 0, sectionId: self.section, style: .blocks, updated: { value in
+                 arguments.setBoolValue(setting, value)
+-            })
++            }, switchTintColor: presentationData.theme.list.itemAccentColor)
+         case let .notice(_, _, string):
+             return ItemListTextItem(presentationData: presentationData, text: .markdown(string), sectionId: self.section)
+         case let .disclosure(_, _, link, text):
+@@ -199,6 +202,10 @@
+             }
+         case let .countSlider(_, _, setting, value):
+             return AyuPinnedCountSliderItem(theme: presentationData.theme, strings: presentationData.strings, value: value, sectionId: self.section, updated: { value in
++                arguments.updateSliderValue(setting, value)
++            })
++        case let .rangedPercentageSlider(_, _, setting, value, minimum, maximum):
++            return SliderPercentageItem(theme: presentationData.theme, strings: presentationData.strings, value: value, sectionId: self.section, minimum: minimum, maximum: maximum, updated: { value in
+                 arguments.updateSliderValue(setting, value)
+             })
+         case let .percentageSlider(_, _, setting, value):
+diff --git a/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift b/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift
+--- a/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift
++++ b/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift
+@@ -14,14 +14,18 @@
+     let theme: PresentationTheme
+     let strings: PresentationStrings
+     let value: Int32
++    let minimum: Int32
++    let maximum: Int32
+     let systemStyle: ItemListSystemStyle
+     public let sectionId: ItemListSectionId
+     let updated: (Int32) -> Void
+     
+-    public init(theme: PresentationTheme, strings: PresentationStrings, value: Int32, sectionId: ItemListSectionId, systemStyle: ItemListSystemStyle = .glass, updated: @escaping (Int32) -> Void) {
++    public init(theme: PresentationTheme, strings: PresentationStrings, value: Int32, sectionId: ItemListSectionId, systemStyle: ItemListSystemStyle = .glass, minimum: Int32 = 0, maximum: Int32 = 100, updated: @escaping (Int32) -> Void) {
+         self.theme = theme
+         self.strings = strings
+-        self.value = value
++        self.minimum = min(100, max(0, minimum))
++        self.maximum = min(100, max(self.minimum, maximum))
++        self.value = min(self.maximum, max(self.minimum, value))
+         self.sectionId = sectionId
+         self.systemStyle = systemStyle
+         self.updated = updated
+@@ -152,6 +156,8 @@
+         sliderView.disablesInteractiveTransitionGestureRecognizer = true
+         sliderView.displayEdges = true
+         if let item = self.item, let params = self.layoutParams {
++            sliderView.minimumValue = CGFloat(item.minimum) / 100
++            sliderView.maximumValue = CGFloat(item.maximum) / 100
+             sliderView.value = rescalePercentageValueToSlider(CGFloat(item.value) / 100.0)
+             sliderView.backgroundColor = item.theme.list.itemBlocksBackgroundColor
+             sliderView.backColor = item.theme.list.itemSwitchColors.frameColor
+@@ -237,8 +243,8 @@
+                     strongSelf.topStripeNode.frame = CGRect(origin: CGPoint(x: 0.0, y: -min(insets.top, separatorHeight)), size: CGSize(width: layoutSize.width, height: separatorHeight))
+                     strongSelf.bottomStripeNode.frame = CGRect(origin: CGPoint(x: bottomStripeInset, y: contentSize.height + bottomStripeOffset), size: CGSize(width: layoutSize.width - bottomStripeInset, height: separatorHeight))
+                     
+-                    strongSelf.leftTextNode.attributedText = NSAttributedString(string: "0%", font: Font.regular(13.0), textColor: item.theme.list.itemSecondaryTextColor)
+-                    strongSelf.rightTextNode.attributedText = NSAttributedString(string: "100%", font: Font.regular(13.0), textColor: item.theme.list.itemSecondaryTextColor)
++                    strongSelf.leftTextNode.attributedText = NSAttributedString(string: "\(item.minimum)%", font: Font.regular(13.0), textColor: item.theme.list.itemSecondaryTextColor)
++                    strongSelf.rightTextNode.attributedText = NSAttributedString(string: "\(item.maximum)%", font: Font.regular(13.0), textColor: item.theme.list.itemSecondaryTextColor)
+                     
+                     let centralText: String = "\(item.value)%"
+                     let centralMeasureText: String = centralText
+@@ -318,6 +324,9 @@
+                     }
+                     
+                     if let sliderView = strongSelf.sliderView {
++                        sliderView.minimumValue = CGFloat(item.minimum) / 100
++                        sliderView.maximumValue = CGFloat(item.maximum) / 100
++                        if !sliderView.isTracking { sliderView.value = rescalePercentageValueToSlider(CGFloat(item.value) / 100) }
+                         if themeUpdated {
+                             sliderView.backgroundColor = item.theme.list.itemBlocksBackgroundColor
+                             sliderView.backColor = item.theme.list.itemSecondaryTextColor
+diff --git a/submodules/ItemListUI/Sources/Items/ItemListSwitchItem.swift b/submodules/ItemListUI/Sources/Items/ItemListSwitchItem.swift
+--- a/submodules/ItemListUI/Sources/Items/ItemListSwitchItem.swift
++++ b/submodules/ItemListUI/Sources/Items/ItemListSwitchItem.swift
+@@ -27,6 +27,7 @@
+     let textColor: TextColor
+     let titleBadgeComponent: AnyComponent<Empty>?
+     let value: Bool
++    let switchTintColor: UIColor?
+     let type: ItemListSwitchItemNodeType
+     let enableInteractiveChanges: Bool
+     let enabled: Bool
+@@ -41,7 +42,7 @@
+     let action: (() -> Void)?
+     public let tag: ItemListItemTag?
+     
+-    public init(presentationData: ItemListPresentationData, systemStyle: ItemListSystemStyle = .legacy, icon: UIImage? = nil, title: String, text: String? = nil, textColor: TextColor = .primary, titleBadgeComponent: AnyComponent<Empty>? = nil, value: Bool, type: ItemListSwitchItemNodeType = .regular, enableInteractiveChanges: Bool = true, enabled: Bool = true, displayLocked: Bool = false, disableLeadingInset: Bool = false, maximumNumberOfLines: Int = 1, noCorners: Bool = false, sectionId: ItemListSectionId, style: ItemListStyle, updated: @escaping (Bool) -> Void, activatedWhileDisabled: @escaping () -> Void = {}, action: (() -> Void)? = nil, tag: ItemListItemTag? = nil) {
++    public init(presentationData: ItemListPresentationData, systemStyle: ItemListSystemStyle = .legacy, icon: UIImage? = nil, title: String, text: String? = nil, textColor: TextColor = .primary, titleBadgeComponent: AnyComponent<Empty>? = nil, value: Bool, type: ItemListSwitchItemNodeType = .regular, enableInteractiveChanges: Bool = true, enabled: Bool = true, displayLocked: Bool = false, disableLeadingInset: Bool = false, maximumNumberOfLines: Int = 1, noCorners: Bool = false, sectionId: ItemListSectionId, style: ItemListStyle, updated: @escaping (Bool) -> Void, activatedWhileDisabled: @escaping () -> Void = {}, action: (() -> Void)? = nil, tag: ItemListItemTag? = nil, switchTintColor: UIColor? = nil) {
+         self.presentationData = presentationData
+         self.systemStyle = systemStyle
+         self.icon = icon
+@@ -50,6 +51,7 @@
+         self.textColor = textColor
+         self.titleBadgeComponent = titleBadgeComponent
+         self.value = value
++        self.switchTintColor = switchTintColor
+         self.type = type
+         self.enableInteractiveChanges = enableInteractiveChanges
+         self.enabled = enabled
+@@ -440,9 +442,9 @@
+                         strongSelf.bottomStripeNode.backgroundColor = itemSeparatorColor
+                         strongSelf.backgroundNode.backgroundColor = itemBackgroundColor
+                         strongSelf.switchNode.frameColor = item.presentationData.theme.list.itemSwitchColors.frameColor
+-                        strongSelf.switchNode.contentColor = item.presentationData.theme.list.itemSwitchColors.contentColor
++                        strongSelf.switchNode.contentColor = item.switchTintColor ?? item.presentationData.theme.list.itemSwitchColors.contentColor
+                         strongSelf.switchNode.handleColor = item.presentationData.theme.list.itemSwitchColors.handleColor
+-                        strongSelf.switchNode.positiveContentColor = item.presentationData.theme.list.itemSwitchColors.positiveColor
++                        strongSelf.switchNode.positiveContentColor = item.switchTintColor ?? item.presentationData.theme.list.itemSwitchColors.positiveColor
+                         strongSelf.switchNode.negativeContentColor = item.presentationData.theme.list.itemSwitchColors.negativeColor
+                         strongSelf.highlightedBackgroundNode.backgroundColor = item.presentationData.theme.list.itemHighlightedBackgroundColor
+                         strongSelf.highlightNode.backgroundColor = item.presentationData.theme.list.itemSearchHighlightColor
+@@ -542,6 +544,7 @@
+                     }
+                     
+                     if let switchView = strongSelf.switchNode.view as? UISwitch {
++                        switchView.onTintColor = item.switchTintColor ?? item.presentationData.theme.list.itemSwitchColors.contentColor
+                         if strongSelf.switchNode.bounds.size.width.isZero {
+                             switchView.sizeToFit()
+                         }
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Maak geskiedenis skoon";
+ "Ayu.EmptyHistory" = "Nog geen geskiedenis nie";
+ "Ayu.SaveMedia" = "Stoor gekaste media";
++"Ayu.BackgroundDimming" = "Agtergrondverdonkering";
+ "Ayu.BeforeEdit" = "Voor wysiging";
+ "Ayu.Deleted" = "Geskrap";
+ "Ayu.LocalPremium" = "Plaaslike Premium";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "مسح السجل";
+ "Ayu.EmptyHistory" = "لا يوجد سجل بعد";
+ "Ayu.SaveMedia" = "حفظ الوسائط المخزنة مؤقتًا";
++"Ayu.BackgroundDimming" = "تعتيم الخلفية";
+ "Ayu.BeforeEdit" = "قبل التعديل";
+ "Ayu.Deleted" = "محذوف";
+ "Ayu.LocalPremium" = "Premium محلي";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Esborra l'historial";
+ "Ayu.EmptyHistory" = "Encara no hi ha historial";
+ "Ayu.SaveMedia" = "Desa els fitxers en memòria cau";
++"Ayu.BackgroundDimming" = "Enfosquiment del fons";
+ "Ayu.BeforeEdit" = "Abans de l'edició";
+ "Ayu.Deleted" = "Eliminat";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Vymazat historii";
+ "Ayu.EmptyHistory" = "Historie je zatím prázdná";
+ "Ayu.SaveMedia" = "Ukládat média z mezipaměti";
++"Ayu.BackgroundDimming" = "Ztmavení pozadí";
+ "Ayu.BeforeEdit" = "Před úpravou";
+ "Ayu.Deleted" = "Smazáno";
+ "Ayu.LocalPremium" = "Místní Premium";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Ryd historik";
+ "Ayu.EmptyHistory" = "Ingen historik endnu";
+ "Ayu.SaveMedia" = "Gem cachelagrede medier";
++"Ayu.BackgroundDimming" = "Dæmpning af baggrund";
+ "Ayu.BeforeEdit" = "Før redigering";
+ "Ayu.Deleted" = "Slettet";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Verlauf löschen";
+ "Ayu.EmptyHistory" = "Noch kein Verlauf";
+ "Ayu.SaveMedia" = "Medien aus dem Cache speichern";
++"Ayu.BackgroundDimming" = "Hintergrund abdunkeln";
+ "Ayu.BeforeEdit" = "Vor Bearbeitung";
+ "Ayu.Deleted" = "Gelöscht";
+ "Ayu.LocalPremium" = "Lokales Premium";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Εκκαθάριση ιστορικού";
+ "Ayu.EmptyHistory" = "Δεν υπάρχει ακόμη ιστορικό";
+ "Ayu.SaveMedia" = "Αποθήκευση μέσων από την κρυφή μνήμη";
++"Ayu.BackgroundDimming" = "Σκοτεινότητα φόντου";
+ "Ayu.BeforeEdit" = "Πριν την επεξεργασία";
+ "Ayu.Deleted" = "Διαγράφηκε";
+ "Ayu.LocalPremium" = "Τοπικό Premium";
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -291,6 +291,7 @@
+ "Ayu.ClearHistory" = "Clear history";
+ "Ayu.EmptyHistory" = "No history yet";
+ "Ayu.SaveMedia" = "Save cached media";
++"Ayu.BackgroundDimming" = "Background dimming";
+ "Ayu.BeforeEdit" = "Before edit";
+ "Ayu.Deleted" = "Deleted";
+ "Ayu.LocalPremium" = "Local Premium";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Borrar historial";
+ "Ayu.EmptyHistory" = "Sin historial todavía";
+ "Ayu.SaveMedia" = "Guardar multimedia en caché";
++"Ayu.BackgroundDimming" = "Oscurecimiento del fondo";
+ "Ayu.BeforeEdit" = "Antes de editar";
+ "Ayu.Deleted" = "Eliminado";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -21,6 +21,7 @@
+ "Ayu.ClearHistory" = "پاک کردن تاریخچه";
+ "Ayu.EmptyHistory" = "هنوز تاریخچه‌ای نیست";
+ "Ayu.SaveMedia" = "ذخیرهٔ رسانه‌های کش‌شده";
++"Ayu.BackgroundDimming" = "تیره‌کردن پس‌زمینه";
+ "Ayu.BeforeEdit" = "پیش از ویرایش";
+ "Ayu.Deleted" = "حذف‌شده";
+ "Ayu.LocalPremium" = "Premium محلی";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -242,6 +242,7 @@
+ "Ayu.ClearHistory" = "Tyhjennä historia";
+ "Ayu.EmptyHistory" = "Ei vielä historiaa";
+ "Ayu.SaveMedia" = "Tallenna välimuistin media";
++"Ayu.BackgroundDimming" = "Taustan himmennys";
+ "Ayu.BeforeEdit" = "Ennen muokkausta";
+ "Ayu.Deleted" = "Poistettu";
+ "Ayu.LocalPremium" = "Paikallinen Premium";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -149,6 +149,7 @@
+ "Ayu.ClearHistory" = "Effacer l'historique";
+ "Ayu.EmptyHistory" = "Aucun historique";
+ "Ayu.SaveMedia" = "Enregistrer les médias en cache";
++"Ayu.BackgroundDimming" = "Assombrissement du fond";
+ "Ayu.BeforeEdit" = "Avant modification";
+ "Ayu.Deleted" = "Supprimé";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "נקה היסטוריה";
+ "Ayu.EmptyHistory" = "אין עדיין היסטוריה";
+ "Ayu.SaveMedia" = "שמירת מדיה מהמטמון";
++"Ayu.BackgroundDimming" = "עמעום הרקע";
+ "Ayu.BeforeEdit" = "לפני עריכה";
+ "Ayu.Deleted" = "נמחק";
+ "Ayu.LocalPremium" = "Premium מקומי";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "इतिहास साफ़ करें";
+ "Ayu.EmptyHistory" = "अभी कोई इतिहास नहीं";
+ "Ayu.SaveMedia" = "कैश किए गए मीडिया सहेजें";
++"Ayu.BackgroundDimming" = "पृष्ठभूमि धुंधलापन";
+ "Ayu.BeforeEdit" = "संपादन से पहले";
+ "Ayu.Deleted" = "हटाया गया";
+ "Ayu.LocalPremium" = "स्थानीय Premium";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Előzmények törlése";
+ "Ayu.EmptyHistory" = "Még nincsenek előzmények";
+ "Ayu.SaveMedia" = "Gyorsítótárazott média mentése";
++"Ayu.BackgroundDimming" = "Háttér sötétítése";
+ "Ayu.BeforeEdit" = "Szerkesztés előtt";
+ "Ayu.Deleted" = "Törölve";
+ "Ayu.LocalPremium" = "Helyi Premium";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Hapus riwayat";
+ "Ayu.EmptyHistory" = "Belum ada riwayat";
+ "Ayu.SaveMedia" = "Simpan media dalam cache";
++"Ayu.BackgroundDimming" = "Peredupan latar";
+ "Ayu.BeforeEdit" = "Sebelum diedit";
+ "Ayu.Deleted" = "Dihapus";
+ "Ayu.LocalPremium" = "Premium lokal";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Cancella cronologia";
+ "Ayu.EmptyHistory" = "Nessuna cronologia";
+ "Ayu.SaveMedia" = "Salva i media nella cache";
++"Ayu.BackgroundDimming" = "Oscuramento dello sfondo";
+ "Ayu.BeforeEdit" = "Prima della modifica";
+ "Ayu.Deleted" = "Eliminato";
+ "Ayu.LocalPremium" = "Premium locale";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -258,6 +258,7 @@
+ "Ayu.ClearHistory" = "履歴を消去";
+ "Ayu.EmptyHistory" = "履歴はまだありません";
+ "Ayu.SaveMedia" = "キャッシュ済みメディアを保存";
++"Ayu.BackgroundDimming" = "背景の暗さ";
+ "Ayu.BeforeEdit" = "編集前";
+ "Ayu.Deleted" = "削除済み";
+ "Ayu.LocalPremium" = "ローカル Premium";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -20,6 +20,7 @@
+ "Ayu.ClearHistory" = "សម្អាតប្រវត្តិ";
+ "Ayu.EmptyHistory" = "មិនទាន់មានប្រវត្តិ";
+ "Ayu.SaveMedia" = "រក្សាទុកមេឌៀក្នុងឃ្លាំងសម្ងាត់";
++"Ayu.BackgroundDimming" = "ធ្វើផ្ទៃខាងក្រោយឱ្យងងឹត";
+ "Ayu.BeforeEdit" = "មុនពេលកែសម្រួល";
+ "Ayu.Deleted" = "បានលុប";
+ "Ayu.LocalPremium" = "Premium ក្នុងឧបករណ៍";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "기록 지우기";
+ "Ayu.EmptyHistory" = "아직 기록이 없습니다";
+ "Ayu.SaveMedia" = "캐시된 미디어 저장";
++"Ayu.BackgroundDimming" = "배경 어둡게";
+ "Ayu.BeforeEdit" = "수정 전";
+ "Ayu.Deleted" = "삭제됨";
+ "Ayu.LocalPremium" = "로컬 Premium";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -22,6 +22,7 @@
+ "Ayu.ClearHistory" = "Paqijkirina dîrokê";
+ "Ayu.EmptyHistory" = "Hê dîrok tune ye";
+ "Ayu.SaveMedia" = "Medyaya di keşê de tomar bike";
++"Ayu.BackgroundDimming" = "Tarîkirina paşxaneyê";
+ "Ayu.BeforeEdit" = "Berî guherandinê";
+ "Ayu.Deleted" = "Jêbirî";
+ "Ayu.LocalPremium" = "Premium herêmî";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Geschiedenis wissen";
+ "Ayu.EmptyHistory" = "Nog geen geschiedenis";
+ "Ayu.SaveMedia" = "Media uit de cache opslaan";
++"Ayu.BackgroundDimming" = "Achtergrond dimmen";
+ "Ayu.BeforeEdit" = "Voor bewerking";
+ "Ayu.Deleted" = "Verwijderd";
+ "Ayu.LocalPremium" = "Lokale Premium";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Tøm historikk";
+ "Ayu.EmptyHistory" = "Ingen historikk ennå";
+ "Ayu.SaveMedia" = "Lagre hurtigbufrede medier";
++"Ayu.BackgroundDimming" = "Demping av bakgrunn";
+ "Ayu.BeforeEdit" = "Før redigering";
+ "Ayu.Deleted" = "Slettet";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -257,6 +257,7 @@
+ "Ayu.ClearHistory" = "Wyczyść historię";
+ "Ayu.EmptyHistory" = "Brak historii";
+ "Ayu.SaveMedia" = "Zapisuj multimedia z pamięci podręcznej";
++"Ayu.BackgroundDimming" = "Przyciemnienie tła";
+ "Ayu.BeforeEdit" = "Przed edycją";
+ "Ayu.Deleted" = "Usunięto";
+ "Ayu.LocalPremium" = "Lokalne Premium";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -286,6 +286,7 @@
+ "Ayu.ClearHistory" = "Limpar histórico";
+ "Ayu.EmptyHistory" = "Ainda sem histórico";
+ "Ayu.SaveMedia" = "Guardar mídia em cache";
++"Ayu.BackgroundDimming" = "Escurecimento do fundo";
+ "Ayu.BeforeEdit" = "Antes da edição";
+ "Ayu.Deleted" = "Apagado";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Șterge istoricul";
+ "Ayu.EmptyHistory" = "Încă nu există istoric";
+ "Ayu.SaveMedia" = "Salvează fișierele media din cache";
++"Ayu.BackgroundDimming" = "Întunecarea fundalului";
+ "Ayu.BeforeEdit" = "Înainte de editare";
+ "Ayu.Deleted" = "Șters";
+ "Ayu.LocalPremium" = "Premium local";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -286,6 +286,7 @@
+ "Ayu.ClearHistory" = "Очистить историю";
+ "Ayu.EmptyHistory" = "История пока пуста";
+ "Ayu.SaveMedia" = "Сохранять медиа из кэша";
++"Ayu.BackgroundDimming" = "Затемнение фона";
+ "Ayu.BeforeEdit" = "До изменения";
+ "Ayu.Deleted" = "Удалено";
+ "Ayu.LocalPremium" = "Локальный Premium";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -14,6 +14,7 @@
+ "Ayu.ClearHistory" = "ඉතිහාසය හිස් කරන්න";
+ "Ayu.EmptyHistory" = "තවම ඉතිහාසයක් නැත";
+ "Ayu.SaveMedia" = "හැඹිලිගත මාධ්‍ය සුරකින්න";
++"Ayu.BackgroundDimming" = "පසුබිම අඳුරු කිරීම";
+ "Ayu.BeforeEdit" = "සංස්කරණයට පෙර";
+ "Ayu.Deleted" = "මකා දමන ලදී";
+ "Ayu.LocalPremium" = "දේශීය Premium";
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -16,6 +16,7 @@
+ "Ayu.ClearHistory" = "Vymazať históriu";
+ "Ayu.EmptyHistory" = "Zatiaľ žiadna história";
+ "Ayu.SaveMedia" = "Ukladať médiá z vyrovnávacej pamäte";
++"Ayu.BackgroundDimming" = "Stmavenie pozadia";
+ "Ayu.BeforeEdit" = "Pred úpravou";
+ "Ayu.Deleted" = "Odstránené";
+ "Ayu.LocalPremium" = "Miestne Premium";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Обриши историју";
+ "Ayu.EmptyHistory" = "Још нема историје";
+ "Ayu.SaveMedia" = "Сачувај медије из кеша";
++"Ayu.BackgroundDimming" = "Затамњење позадине";
+ "Ayu.BeforeEdit" = "Пре измене";
+ "Ayu.Deleted" = "Обрисано";
+ "Ayu.LocalPremium" = "Локални Premium";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Rensa historik";
+ "Ayu.EmptyHistory" = "Ingen historik ännu";
+ "Ayu.SaveMedia" = "Spara cachelagrade medier";
++"Ayu.BackgroundDimming" = "Dämpning av bakgrund";
+ "Ayu.BeforeEdit" = "Före redigering";
+ "Ayu.Deleted" = "Raderat";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Geçmişi temizle";
+ "Ayu.EmptyHistory" = "Henüz geçmiş yok";
+ "Ayu.SaveMedia" = "Önbellekteki medyayı kaydet";
++"Ayu.BackgroundDimming" = "Arka plan karartma";
+ "Ayu.BeforeEdit" = "Düzenlemeden önce";
+ "Ayu.Deleted" = "Silindi";
+ "Ayu.LocalPremium" = "Yerel Premium";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -257,6 +257,7 @@
+ "Ayu.ClearHistory" = "Очистити історію";
+ "Ayu.EmptyHistory" = "Історія поки порожня";
+ "Ayu.SaveMedia" = "Зберігати медіа з кешу";
++"Ayu.BackgroundDimming" = "Затемнення тла";
+ "Ayu.BeforeEdit" = "До зміни";
+ "Ayu.Deleted" = "Видалено";
+ "Ayu.LocalPremium" = "Локальний Premium";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Tarixni tozalash";
+ "Ayu.EmptyHistory" = "Hali tarix yo‘q";
+ "Ayu.SaveMedia" = "Keshdagi mediani saqlash";
++"Ayu.BackgroundDimming" = "Fon qoraytirish";
+ "Ayu.BeforeEdit" = "Tahrirdan oldin";
+ "Ayu.Deleted" = "O‘chirilgan";
+ "Ayu.LocalPremium" = "Mahalliy Premium";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -164,6 +164,7 @@
+ "Ayu.ClearHistory" = "Xóa lịch sử";
+ "Ayu.EmptyHistory" = "Chưa có lịch sử";
+ "Ayu.SaveMedia" = "Lưu nội dung trong bộ nhớ đệm";
++"Ayu.BackgroundDimming" = "Làm tối nền";
+ "Ayu.BeforeEdit" = "Trước khi sửa";
+ "Ayu.Deleted" = "Đã xóa";
+ "Ayu.LocalPremium" = "Premium cục bộ";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -261,6 +261,7 @@
+ "Ayu.ClearHistory" = "清空历史";
+ "Ayu.EmptyHistory" = "暂无历史记录";
+ "Ayu.SaveMedia" = "保存已缓存的媒体";
++"Ayu.BackgroundDimming" = "背景变暗";
+ "Ayu.BeforeEdit" = "编辑前";
+ "Ayu.Deleted" = "已删除";
+ "Ayu.LocalPremium" = "本地 Premium";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -261,6 +261,7 @@
+ "Ayu.ClearHistory" = "清除歷史";
+ "Ayu.EmptyHistory" = "尚無歷史紀錄";
+ "Ayu.SaveMedia" = "儲存已快取的媒體";
++"Ayu.BackgroundDimming" = "背景變暗";
+ "Ayu.BeforeEdit" = "編輯前";
+ "Ayu.Deleted" = "已刪除";
+ "Ayu.LocalPremium" = "本機 Premium";
+diff --git a/submodules/SettingsUI/BUILD b/submodules/SettingsUI/BUILD
+--- a/submodules/SettingsUI/BUILD
++++ b/submodules/SettingsUI/BUILD
+@@ -1,6 +1,7 @@
+ load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+ 
+ sgdeps = [
++    "//Swiftgram/SGSettingsUI:SGSettingsUI",
+     "//submodules/BuildConfig:BuildConfig",
+     "//Swiftgram/SGSimpleSettings:SGSimpleSettings",
+     "//Swiftgram/SGStrings:SGStrings"
+diff --git a/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift b/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+--- a/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
++++ b/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+@@ -1,3 +1,4 @@
++import SGSettingsUI
+ import Foundation
+ import UIKit
+ import AsyncDisplayKit
+@@ -574,7 +575,7 @@
+     }, openThemeSettings: {
+         pushControllerImpl?(themePickerController(context: context))
+     }, openWallpaperSettings: {
+-        pushControllerImpl?(ThemeGridController(context: context))
++        pushControllerImpl?(ThemeGridController(context: context, openCustomAppearance: { ayuGramAppearanceController(context: context, scope: .conversation) }))
+     }, openNameColorSettings: {
+         pushControllerImpl?(UserAppearanceScreen(context: context))
+     }, selectAccentColor: { accentColor in
+diff --git a/submodules/TelegramUI/Components/Settings/WallpaperGridScreen/Sources/ThemeGridController.swift b/submodules/TelegramUI/Components/Settings/WallpaperGridScreen/Sources/ThemeGridController.swift
+--- a/submodules/TelegramUI/Components/Settings/WallpaperGridScreen/Sources/ThemeGridController.swift
++++ b/submodules/TelegramUI/Components/Settings/WallpaperGridScreen/Sources/ThemeGridController.swift
+@@ -39,6 +39,7 @@
+     private let context: AccountContext
+     private let mode: Mode
+     private let forceEdit: Bool
++    private let openCustomAppearance: (() -> ViewController)?
+     
+     private var presentationData: PresentationData
+     private let presentationDataPromise = Promise<PresentationData>()
+@@ -57,10 +58,11 @@
+     
+     public var completion: (WallpaperSelectionResult) -> Void = { _ in }
+     
+-    public init(context: AccountContext, mode: Mode = .generic, forceEdit: Bool = false) {
++    public init(context: AccountContext, mode: Mode = .generic, forceEdit: Bool = false, openCustomAppearance: (() -> ViewController)? = nil) {
+         self.context = context
+         self.mode = mode
+         self.forceEdit = forceEdit
++        self.openCustomAppearance = openCustomAppearance
+         
+         self.presentationData = context.sharedContext.currentPresentationData.with { $0 }
+         self.presentationDataPromise.set(.single(self.presentationData))
+@@ -383,6 +385,9 @@
+             if let strongSelf = self {
+                 let _ = (strongSelf.navigationController as? NavigationController)?.popViewController(animated: true)
+             }
++        }, openCustomAppearance: self.openCustomAppearance == nil ? nil : { [weak self] in
++            guard let self, let controller = self.openCustomAppearance?() else { return }
++            (self.navigationController as? NavigationController)?.pushViewController(controller)
+         })
+         self.controllerNode.navigationBar = self.navigationBar
+         self.controllerNode.requestWallpaperRemoval = { [weak self] in
+diff --git a/submodules/TelegramUI/Components/Settings/WallpaperGridScreen/Sources/ThemeGridControllerNode.swift b/submodules/TelegramUI/Components/Settings/WallpaperGridScreen/Sources/ThemeGridControllerNode.swift
+--- a/submodules/TelegramUI/Components/Settings/WallpaperGridScreen/Sources/ThemeGridControllerNode.swift
++++ b/submodules/TelegramUI/Components/Settings/WallpaperGridScreen/Sources/ThemeGridControllerNode.swift
+@@ -175,6 +175,9 @@
+     
+     private let colorItemNode: ItemListActionItemNode
+     private var colorItem: ItemListActionItem
++    private var customAppearanceItem: ItemListActionItem?
++    private var customAppearanceItemNode: ItemListActionItemNode?
++    private let openCustomAppearance: (() -> Void)?
+     private let galleryItemNode: ListViewItemNode
+     private var galleryItem: ItemListItem
+     private let removeItemNode: ItemListPeerActionItemNode
+@@ -208,8 +211,9 @@
+     
+     private var disposable: Disposable?
+     
+-    init(context: AccountContext, mode: ThemeGridController.Mode, presentationData: PresentationData, presentPreviewController: @escaping (WallpaperListSource) -> Void, presentGallery: @escaping () -> Void, presentColors: @escaping () -> Void, emptyStateUpdated: @escaping (Bool) -> Void, deleteWallpapers: @escaping ([TelegramWallpaper], @escaping () -> Void) -> Void, shareWallpapers: @escaping ([TelegramWallpaper]) -> Void, resetWallpapers: @escaping () -> Void, popViewController: @escaping () -> Void) {
++    init(context: AccountContext, mode: ThemeGridController.Mode, presentationData: PresentationData, presentPreviewController: @escaping (WallpaperListSource) -> Void, presentGallery: @escaping () -> Void, presentColors: @escaping () -> Void, emptyStateUpdated: @escaping (Bool) -> Void, deleteWallpapers: @escaping ([TelegramWallpaper], @escaping () -> Void) -> Void, shareWallpapers: @escaping ([TelegramWallpaper]) -> Void, resetWallpapers: @escaping () -> Void, popViewController: @escaping () -> Void, openCustomAppearance: (() -> Void)? = nil) {
+         self.context = context
++        self.openCustomAppearance = openCustomAppearance
+         self.mode = mode
+         self.presentationData = presentationData
+         self.presentPreviewController = presentPreviewController
+@@ -308,6 +312,12 @@
+             self.gridNode.addSubnode(self.colorItemNode)
+         }
+         self.gridNode.addSubnode(self.galleryItemNode)
++        if case .generic = mode, let openCustomAppearance {
++            let node = ItemListActionItemNode()
++            self.customAppearanceItemNode = node
++            self.customAppearanceItem = ItemListActionItem(presentationData: ItemListPresentationData(presentationData), systemStyle: .glass, title: "AyuGram · " + presentationData.strings.Appearance_Title, kind: .generic, alignment: .natural, sectionId: 0, style: .blocks, action: openCustomAppearance)
++            self.gridNode.addSubnode(node)
++        }
+         if case let .peer(_, _, wallpaper, _, _) = mode, let wallpaper, !wallpaper.isEmoticon {
+             self.gridNode.addSubnode(self.removeItemNode)
+         }
+@@ -551,6 +561,8 @@
+                         highlightedNode = strongSelf.colorItemNode
+                     } else if strongSelf.galleryItemNode.frame.contains(point) {
+                         highlightedNode = strongSelf.galleryItemNode
++                    } else if let node = strongSelf.customAppearanceItemNode, node.frame.contains(point) {
++                        highlightedNode = node
+                     } else if strongSelf.resetItemNode.frame.contains(point) {
+                         highlightedNode = strongSelf.resetItemNode
+                     } else if strongSelf.removeItemNode.frame.contains(point) {
+@@ -563,6 +575,7 @@
+                 } else {
+                     strongSelf.colorItemNode.setHighlighted(false, at: CGPoint(), animated: true)
+                     strongSelf.galleryItemNode.setHighlighted(false, at: CGPoint(), animated: true)
++                    strongSelf.customAppearanceItemNode?.setHighlighted(false, at: CGPoint(), animated: true)
+                     strongSelf.resetItemNode.setHighlighted(false, at: CGPoint(), animated: true)
+                     strongSelf.removeItemNode.setHighlighted(false, at: CGPoint(), animated: true)
+                 }
+@@ -615,6 +628,8 @@
+                                 } else if let galleryItem = self.galleryItem as? ItemListPeerActionItem {
+                                     galleryItem.action?()
+                                 }
++                            } else if let node = self.customAppearanceItemNode, node.frame.contains(location) {
++                                self.customAppearanceItem?.action()
+                             } else if self.resetItemNode.frame.contains(location) {
+                                 self.resetItem.action()
+                             } else if self.removeItemNode.frame.contains(location) {
+@@ -665,6 +680,9 @@
+     }
+     
+     func updatePresentationData(_ presentationData: PresentationData) {
++        if let openCustomAppearance, self.customAppearanceItemNode != nil {
++            self.customAppearanceItem = ItemListActionItem(presentationData: ItemListPresentationData(presentationData), systemStyle: .glass, title: "AyuGram · " + presentationData.strings.Appearance_Title, kind: .generic, alignment: .natural, sectionId: 0, style: .blocks, action: openCustomAppearance)
++        }
+         self.presentationData = presentationData
+         
+         self.backgroundColor = presentationData.theme.list.itemBlocksBackgroundColor
+@@ -824,7 +842,7 @@
+         if let makeGalleryIconLayout, let galleryItem = self.galleryItem as? ItemListPeerActionItem {
+             (galleryLayout, galleryApply) = makeGalleryIconLayout(galleryItem, params, ItemListNeighbors(top: isChannel ? .none : .sameSection(alwaysPlain: false), bottom: .sameSection(alwaysPlain: !hasCustomWallpaper)))
+         } else if let makeGalleryLayout, let galleryItem = self.galleryItem as? ItemListActionItem {
+-            (galleryLayout, galleryApply) = makeGalleryLayout(galleryItem, params, ItemListNeighbors(top: isChannel ? .none : .sameSection(alwaysPlain: false), bottom: .sameSection(alwaysPlain: true)))
++            (galleryLayout, galleryApply) = makeGalleryLayout(galleryItem, params, ItemListNeighbors(top: isChannel ? .none : .sameSection(alwaysPlain: false), bottom: .sameSection(alwaysPlain: self.customAppearanceItemNode == nil)))
+         } else {
+             fatalError()
+         }
+@@ -845,7 +863,13 @@
+             buttonBottomInset = 17.0
+         }
+         
+-        var buttonInset: CGFloat = buttonTopInset + buttonHeight + buttonBottomInset
++        var customAppearanceLayout: ListViewItemNodeLayout?
++        if let node = self.customAppearanceItemNode, let item = self.customAppearanceItem {
++            let (layout, apply) = node.asyncLayout()(item, params, ItemListNeighbors(top: .sameSection(alwaysPlain: false), bottom: .none))
++            customAppearanceLayout = layout
++            apply(false)
++        }
++        var buttonInset: CGFloat = buttonTopInset + buttonHeight + buttonBottomInset + (customAppearanceLayout?.contentSize.height ?? 0)
+         if !isChannel || hasCustomWallpaper {
+             buttonInset += buttonHeight
+         }
+@@ -861,6 +885,10 @@
+         }
+         transition.updateFrame(node: self.galleryItemNode, frame: CGRect(origin: CGPoint(x: 0.0, y: originY), size: galleryLayout.contentSize))
+         originY += galleryLayout.contentSize.height
++        if let node = self.customAppearanceItemNode, let customAppearanceLayout {
++            transition.updateFrame(node: node, frame: CGRect(origin: CGPoint(x: 0, y: originY), size: customAppearanceLayout.contentSize))
++            originY += customAppearanceLayout.contentSize.height
++        }
+         
+         if hasCustomWallpaper {
+             self.descriptionItemNode.isHidden = true
+@@ -974,6 +1002,9 @@
+                 self.separatorNode.layer.animatePosition(from: self.separatorNode.layer.position.offsetBy(dx: 0.0, dy: -offset), to: self.separatorNode.layer.position, duration: duration)
+                 self.colorItemNode.layer.animatePosition(from: self.colorItemNode.layer.position.offsetBy(dx: 0.0, dy: -offset), to: self.colorItemNode.layer.position, duration: duration)
+                 self.galleryItemNode.layer.animatePosition(from: self.galleryItemNode.layer.position.offsetBy(dx: 0.0, dy: -offset), to: self.galleryItemNode.layer.position, duration: duration)
++                if let node = self.customAppearanceItemNode {
++                    node.layer.animatePosition(from: node.layer.position.offsetBy(dx: 0, dy: -offset), to: node.layer.position, duration: duration)
++                }
+                 self.descriptionItemNode.layer.animatePosition(from: self.descriptionItemNode.layer.position.offsetBy(dx: 0.0, dy: -offset), to: self.descriptionItemNode.layer.position, duration: duration)
+             }
+         }
