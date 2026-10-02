@@ -26,6 +26,22 @@ final class ProfileProtocol: URLProtocol {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+
+    static func body(of request: URLRequest) -> Data {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { preconditionFailure("Missing fixture request body") }
+        stream.open()
+        defer { stream.close() }
+        var body = Data()
+        var bytes = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = stream.read(&bytes, maxLength: 4096)
+            precondition(count >= 0, "Fixture body stream is readable")
+            if count == 0 { break }
+            body.append(contentsOf: bytes.prefix(count))
+        }
+        return body
+    }
 }
 
 final class NotificationCount: @unchecked Sendable { var value = 0 }
@@ -62,7 +78,7 @@ struct ProfileSyncTests {
             if request.value(forHTTPHeaderField: "Authorization") != "Bearer " + token { return (401, ["error": "invalid_session"]) }
             if path == "/v1/me", request.httpMethod == "PUT" {
                 writes += 1
-                let body = try! JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+                let body = try! JSONSerialization.jsonObject(with: ProfileProtocol.body(of: request)) as! [String: Any]
                 if body["expectedRevision"] as! Int != own["revision"] as! Int { return (409, ["profile": own]) }
                 own["fakePremium"] = body["fakePremium"]
                 own["emojiId"] = body["emojiId"]
