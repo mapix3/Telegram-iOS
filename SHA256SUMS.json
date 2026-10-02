@@ -17,7 +17,7 @@
   "scripts/ayugram-tests/test_branding.py": "a33098ce1a3dac9bc80eb6ae5622bb463e336925dd3e50e9e50f7f8f8a133afa",
   "scripts/ayugram-tests/test_ci.py": "260c3041a68be10030b15f65618d0b7e1092d3bfb1c6826b17e87b7caaa70005",
   "scripts/ayugram_branding.py": "77508b7c55f09d91191e0e92d682101c80e85e7719075f1c42be1a1776dc6c95",
-  "scripts/ayugram_ci.py": "8d33f64bbb16825f866967ef5ac1b8d6ebc660a7107f1e3af28c6f788d4a5eac",
+  "scripts/ayugram_ci.py": "d63ee1a01906985b99afe90a1b189ba3bad2c44a1cd7fb2fe69e98617d071dd4",
   "scripts/ayugram_compatibility.py": "3b8299305f6f249f6ff870f4176ce15c64973a088ee618b67cf41826b7918337",
   "scripts/ayugram_history_checks.py": "bf442d4be2c196052443a698a992dafcb652aee96840e0453c30354224d4f71d",
   "START-HERE.md": "f383a40ea910f40d82bdef8d38da56afaa53da7bf0389be89c9c1feb32cd0331"
