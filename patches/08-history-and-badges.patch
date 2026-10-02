@@ -1130,7 +1130,31 @@ diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sou
                  if let (currentCredibilityIcon, _) = currentCredibilityIcon {
                      credibilityIconWidth += 4.0
                      switch currentCredibilityIcon {
-@@ -4414,6 +4416,12 @@
+@@ -3866,6 +3868,7 @@
+                 hasTitleTopicNavigation: hasTitleTopicNavigation,
+                 authorNameColor: authorNameColor,
+                 layoutConstants: layoutConstants,
++                ayuOwner: ayuOwner,
+                 currentCredibilityIcon: currentCredibilityIcon,
+                 rankBadgeNodeSizeApply: rankBadgeNodeSizeApply,
+                 ephemeralBadgeNodeSizeApply: ephemeralBadgeNodeSizeApply,
+@@ -3940,6 +3943,7 @@
+         hasTitleTopicNavigation: Bool,
+         authorNameColor: UIColor?,
+         layoutConstants: ChatMessageItemLayoutConstants,
++        ayuOwner: Bool,
+         currentCredibilityIcon: (EmojiStatusComponent.Content, UIColor?)?,
+         rankBadgeNodeSizeApply: (CGSize, () -> TextNode?, UIColor?),
+         ephemeralBadgeNodeSizeApply: (CGSize, CGSize, () -> TextNode?),
+@@ -3982,6 +3986,7 @@
+             return
+         }
+         
++        strongSelf.ayuOwnerBadge.isHidden = true
+         strongSelf.currentInputParams = inputParams
+         strongSelf.currentApplyParams = applyInfo
+         strongSelf.contentLayoutInsets = layoutInsets
+@@ -4414,6 +4419,12 @@
                  strongSelf.boostBadgeNode = nil
              }
              
