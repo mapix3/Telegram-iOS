@@ -760,6 +760,15 @@ diff --git a/Swiftgram/SGItemListUI/Sources/SGItemListUI.swift b/Swiftgram/SGIte
                  arguments.updateSliderValue(setting, value)
              })
          case let .percentageSlider(_, _, setting, value):
+@@ -255,7 +262,7 @@
+             return text.lowercased().contains(query)
+         case .notice(_, _, let text):
+             return text.lowercased().contains(query)
+-        case .percentageSlider, .countSlider:
++        case .rangedPercentageSlider, .percentageSlider, .countSlider:
+             return false // Assuming percentage sliders don't have searchable text
+         case .oneFromManySelector(_, _, _, let text, let value, _):
+             return text.lowercased().contains(query) || value.lowercased().contains(query)
 diff --git a/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift b/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift
 --- a/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift
 +++ b/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift
