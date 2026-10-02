@@ -1,0 +1,19 @@
+{
+  "name": "ayugram-sync",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-10-02",
+  "workers_dev": true,
+  "vars": {
+    "BOT_USERNAME": "ayugrampremiumfakerbot",
+    "OWNER_TELEGRAM_ID": "1272887902",
+    "PUBLIC_BASE_URL": "https://ayugram-sync.ayugram-status.workers.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ayugram-profiles",
+      "database_id": "dbdd69bc-a71c-4ca8-a3ec-fe201c67d9f1"
+    }
+  ],
+  "observability": { "enabled": false }
+}
