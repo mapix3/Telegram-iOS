@@ -1,0 +1,792 @@
+diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+--- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
++++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+@@ -1008,3 +1008,3 @@
+         if messages.count == 1, message.flags.contains(.Incoming), message.id.namespace == Namespaces.Message.Cloud {
+-            actions.append(.action(ContextMenuActionItem(text: "Отправить отчёт о прочтении", icon: { theme in
++            actions.append(.action(ContextMenuActionItem(text: i18n("Ayu.SendReadReceipt", chatPresentationInterfaceState.strings.baseLanguageCode), icon: { theme in
+                 generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Read"), color: theme.actionSheet.primaryTextColor)
+@@ -1013,8 +1013,8 @@
+                 let data = context.sharedContext.currentPresentationData.with { $0 }
+-                controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: "Отправить отчёт?", text: "Собеседник увидит прочтение этого сообщения и всех более ранних сообщений в этом чате. Режим приватности останется включён.", actions: [
++                controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: i18n("Ayu.SendReadReceipt", data.strings.baseLanguageCode), text: i18n("Ayu.ReadWarning", data.strings.baseLanguageCode), actions: [
+                     TextAlertAction(type: .genericAction, title: data.strings.Common_Cancel, action: {}),
+-                    TextAlertAction(type: .defaultAction, title: "Отправить", action: {
++                    TextAlertAction(type: .defaultAction, title: i18n("Ayu.SendReceipt", data.strings.baseLanguageCode), action: {
+                         let _ = (context.engine.messages.ayuReportRead(messageId: message.id)
+                         |> deliverOnMainQueue).startStandalone(next: { success in
+-                            controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: success ? "Отчёт отправлен" : "Не удалось отправить", text: success ? "Отчёт о прочтении передан серверу." : "Проверь подключение и попробуй ещё раз.", actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
++                            controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: i18n(success ? "Ayu.ReceiptSent" : "Ayu.ReceiptError", data.strings.baseLanguageCode), text: nil, actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
+                         })
+@@ -1024,3 +1024,3 @@
+             if ayuPrivateMediaDisplayMessage(message) != nil {
+-                actions.append(.action(ContextMenuActionItem(text: "Посмотреть без отчёта", icon: { theme in
++                actions.append(.action(ContextMenuActionItem(text: i18n("Ayu.ViewWithoutReceipt", chatPresentationInterfaceState.strings.baseLanguageCode), icon: { theme in
+                     generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Message"), color: theme.actionSheet.primaryTextColor)
+@@ -1032,3 +1032,3 @@
+                 })))
+-                actions.append(.action(ContextMenuActionItem(text: "Сообщить о просмотре фото", icon: { theme in
++                actions.append(.action(ContextMenuActionItem(text: i18n("Ayu.ReportPhotoView", chatPresentationInterfaceState.strings.baseLanguageCode), icon: { theme in
+                     generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Read"), color: theme.actionSheet.primaryTextColor)
+@@ -1037,8 +1037,8 @@
+                     let data = context.sharedContext.currentPresentationData.with { $0 }
+-                    controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: "Сообщить о просмотре?", text: "Отправитель узнает о просмотре. Запустится таймер удаления, а одноразовое фото может исчезнуть сразу. Сначала сохрани фото, если оно нужно.", actions: [
++                    controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: i18n("Ayu.ReportPhotoView", data.strings.baseLanguageCode), text: i18n("Ayu.ViewWarning", data.strings.baseLanguageCode), actions: [
+                         TextAlertAction(type: .genericAction, title: data.strings.Common_Cancel, action: {}),
+-                        TextAlertAction(type: .defaultAction, title: "Сообщить", action: {
++                        TextAlertAction(type: .defaultAction, title: i18n("Ayu.View", data.strings.baseLanguageCode), action: {
+                             let _ = (context.engine.messages.ayuReportContentViewed(messageId: message.id)
+                             |> deliverOnMainQueue).startStandalone(next: { success in
+-                                controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: success ? "Отчёт отправлен" : "Не удалось отправить", text: success ? "Сервер получил отметку о просмотре фото." : "Фото уже недоступно или нет подключения.", actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
++                                controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: i18n(success ? "Ayu.ReceiptSent" : "Ayu.ReceiptError", data.strings.baseLanguageCode), text: nil, actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
+                             })
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+@@ -1,2 +1,3 @@
+ import SGSimpleSettings
++import SGStrings
+ import Foundation
+@@ -1749,5 +1750,5 @@
+                 let (status, _) = stringAndActivityForUserPresence(strings: presentationData.strings, dateTimeFormat: presentationData.dateTimeFormat, presence: presence, relativeTo: Int32(Date().timeIntervalSince1970), expanded: true)
+-                text = "На сервере: " + status
+-            } else {
+-                text = "Статус сервера недоступен"
++                text = i18n("Ayu.ServerPresence", presentationData.strings.baseLanguageCode, status)
++            } else {
++                text = i18n("Ayu.ServerUnavailable", presentationData.strings.baseLanguageCode)
+             }
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift
+@@ -23,4 +23,15 @@
+ func _internal_ayuReportRead(account: Account, messageId: MessageId) -> Signal<Bool, NoError> {
++    return ayuReportRead(postbox: account.postbox, network: account.network, stateManager: account.stateManager, messageId: messageId, allowOutgoing: false)
++}
++
++func _internal_ayuReportReadAfterSending(postbox: Postbox, network: Network, stateManager: AccountStateManager, accountPeerId: PeerId, messageId: MessageId) -> Signal<Bool, NoError> {
++    guard AyuGramSettings.shared.snapshot.suppressRead,
++          messageId.namespace == Namespaces.Message.Cloud,
++          messageId.peerId != accountPeerId else { return .single(false) }
++    return ayuReportRead(postbox: postbox, network: network, stateManager: stateManager, messageId: messageId, allowOutgoing: true)
++}
++
++private func ayuReportRead(postbox: Postbox, network: Network, stateManager: AccountStateManager, messageId: MessageId, allowOutgoing: Bool) -> Signal<Bool, NoError> {
+     guard messageId.namespace == Namespaces.Message.Cloud else { return .single(false) }
+-    return account.postbox.transaction { transaction -> (Peer?, Message?) in
++    return postbox.transaction { transaction -> (Peer?, Message?) in
+         return (transaction.getPeer(messageId.peerId), transaction.getMessage(messageId))
+@@ -28,3 +39,3 @@
+     |> mapToSignal { peer, message -> Signal<Bool, NoError> in
+-        guard let peer, let message, message.flags.contains(.Incoming) else { return .single(false) }
++        guard let peer, let message, message.flags.contains(.Incoming) || allowOutgoing else { return .single(false) }
+         let request: Signal<Bool, MTRpcError>
+@@ -32,3 +43,3 @@
+             if peer.isMonoForum {
+-                return account.postbox.transaction { transaction -> Api.InputPeer? in
++                return postbox.transaction { transaction -> Api.InputPeer? in
+                     transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer)
+@@ -37,3 +48,3 @@
+                     guard let subPeer else { return .single(false) }
+-                    return account.network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeer, maxId: messageId.id))
++                    return network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeer, maxId: messageId.id))
+                     |> map { result in if case .boolTrue = result { return true }; return false }
+@@ -42,12 +53,12 @@
+             }
+-            request = account.network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageId.id))
++            request = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageId.id))
+             |> map { result in if case .boolTrue = result { return true }; return false }
+         } else if let channel = peer as? TelegramChannel, let inputChannel = apiInputChannel(channel) {
+-            request = account.network.request(Api.functions.channels.readHistory(channel: inputChannel, maxId: messageId.id))
++            request = network.request(Api.functions.channels.readHistory(channel: inputChannel, maxId: messageId.id))
+             |> map { result in if case .boolTrue = result { return true }; return false }
+         } else if let inputPeer = apiInputPeer(peer) {
+-            request = account.network.request(Api.functions.messages.readHistory(peer: inputPeer, maxId: messageId.id))
++            request = network.request(Api.functions.messages.readHistory(peer: inputPeer, maxId: messageId.id))
+             |> map { affected in
+                 if case let .affectedMessages(data) = affected {
+-                    account.stateManager.addUpdateGroups([.updatePts(pts: data.pts, ptsCount: data.ptsCount)])
++                    stateManager.addUpdateGroups([.updatePts(pts: data.pts, ptsCount: data.ptsCount)])
+                 }
+@@ -62,3 +73,3 @@
+             guard success else { return .single(false) }
+-            return account.postbox.transaction { transaction -> Bool in
++            return postbox.transaction { transaction -> Bool in
+                 let _ = transaction.applyInteractiveReadMaxIndex(message.index, synchronize: false)
+diff --git a/submodules/TelegramCore/Sources/State/PendingMessageManager.swift b/submodules/TelegramCore/Sources/State/PendingMessageManager.swift
+--- a/submodules/TelegramCore/Sources/State/PendingMessageManager.swift
++++ b/submodules/TelegramCore/Sources/State/PendingMessageManager.swift
+@@ -2351,2 +2351,3 @@
+                 if let strongSelf = self {
++                    let _ = _internal_ayuReportReadAfterSending(postbox: postbox, network: strongSelf.network, stateManager: stateManager, accountPeerId: strongSelf.accountPeerId, messageId: pendingMessageDelivered.id).startStandalone()
+                     if let context = strongSelf.peerSummaryContexts[message.id.peerId] {
+@@ -2400,2 +2401,5 @@
+                 if let strongSelf = self {
++                    if let delivered = pendingMessagesDelivered.filter({ $0.id.namespace == Namespaces.Message.Cloud }).max(by: { $0.id.id < $1.id.id }) {
++                        let _ = _internal_ayuReportReadAfterSending(postbox: postbox, network: strongSelf.network, stateManager: stateManager, accountPeerId: strongSelf.accountPeerId, messageId: delivered.id).startStandalone()
++                    }
+                     if let message = messages.first, let context = strongSelf.peerSummaryContexts[message.id.peerId], !pendingMessagesDelivered.isEmpty {
+diff --git a/submodules/GalleryUI/BUILD b/submodules/GalleryUI/BUILD
+--- a/submodules/GalleryUI/BUILD
++++ b/submodules/GalleryUI/BUILD
+@@ -3,3 +3,4 @@
+ sgdeps = [
+-    "//Swiftgram/SGSimpleSettings:SGSimpleSettings"
++    "//Swiftgram/SGSimpleSettings:SGSimpleSettings",
++    "//Swiftgram/SGStrings:SGStrings"
+ ]
+diff --git a/submodules/GalleryUI/Sources/ChatItemGalleryFooterContentNode.swift b/submodules/GalleryUI/Sources/ChatItemGalleryFooterContentNode.swift
+--- a/submodules/GalleryUI/Sources/ChatItemGalleryFooterContentNode.swift
++++ b/submodules/GalleryUI/Sources/ChatItemGalleryFooterContentNode.swift
+@@ -1 +1,3 @@
++import SGStrings
++import SGSimpleSettings
+ import Foundation
+@@ -175,2 +177,6 @@
+     private let messageContextDisposable = MetaDisposable()
++    private let ayuViewLookupDisposable = MetaDisposable()
++    private var ayuViewButton: SolidRoundedButtonNode?
++    private var ayuViewInProgress = false
++    private let ayuPresent: (ViewController, Any?) -> Void
+     
+@@ -377,2 +383,3 @@
+         self.context = context
++        self.ayuPresent = present
+         self.presentationData = presentationData
+@@ -679,2 +686,3 @@
+         self.messageContextDisposable.dispose()
++        self.ayuViewLookupDisposable.dispose()
+         self.codeHighlightState?.disposable.dispose()
+@@ -858,3 +866,15 @@
+     func setMessage(_ message: EngineRawMessage, mediaSubject: GalleryMediaSubject? = nil, displayInfo: Bool = true, translateToLanguage: String? = nil, peerIsCopyProtected: Bool = false, displayPictureInPictureButton: Bool = false, settingsButtonState: SettingsButtonState? = nil, displayTextRecognitionButton: Bool = false, displayStickersButton: Bool = false, animated: Bool = false) {
++        let ayuMessageChanged = self.currentMessage?.id != message.id
+         self.currentMessage = message
++        if ayuMessageChanged {
++            self.ayuViewInProgress = false
++            self.ayuUpdateViewButton(available: false)
++            self.ayuViewLookupDisposable.set((self.context.account.postbox.transaction { transaction -> Bool in
++                guard let original = transaction.getMessage(message.id), ayuPrivateMediaDisplayMessage(original) != nil else { return false }
++                return !original.attributes.contains(where: { ($0 as? ConsumableContentMessageAttribute)?.consumed == true })
++            } |> deliverOnMainQueue).start(next: { [weak self] available in
++                guard let self, self.currentMessage?.id == message.id else { return }
++                self.ayuUpdateViewButton(available: available)
++            }))
++        }
+         self.mediaSubject = mediaSubject
+@@ -1176,2 +1196,42 @@
+     
++    private func ayuUpdateViewButton(available: Bool) {
++        if available {
++            if self.ayuViewButton == nil {
++                let data = self.context.sharedContext.currentPresentationData.with { $0 }
++                let button = SolidRoundedButtonNode(title: i18n("Ayu.View", data.strings.baseLanguageCode), theme: SolidRoundedButtonTheme(backgroundColor: data.theme.list.itemAccentColor, foregroundColor: data.theme.list.itemCheckColors.foregroundColor), height: 44.0, cornerRadius: 22.0)
++                button.pressed = { [weak self] in self?.ayuConfirmView() }
++                self.contentNode.addSubnode(button)
++                self.ayuViewButton = button
++            }
++        } else {
++            self.ayuViewButton?.removeFromSupernode()
++            self.ayuViewButton = nil
++        }
++        self.requestLayout?(.immediate)
++    }
++
++    private func ayuConfirmView() {
++        guard let messageId = self.currentMessage?.id, !self.ayuViewInProgress else { return }
++        let data = self.context.sharedContext.currentPresentationData.with { $0 }
++        self.ayuPresent(textAlertController(context: self.context, title: i18n("Ayu.ReportPhotoView", data.strings.baseLanguageCode), text: i18n("Ayu.ViewWarning", data.strings.baseLanguageCode), actions: [
++            TextAlertAction(type: .genericAction, title: data.strings.Common_Cancel, action: {}),
++            TextAlertAction(type: .defaultAction, title: i18n("Ayu.View", data.strings.baseLanguageCode), action: { [weak self] in
++                guard let self, self.currentMessage?.id == messageId, !self.ayuViewInProgress else { return }
++                self.ayuViewInProgress = true
++                self.ayuViewButton?.isEnabled = false
++                let _ = (self.context.engine.messages.ayuReportContentViewed(messageId: messageId)
++                |> deliverOnMainQueue).startStandalone(next: { [weak self] success in
++                    guard let self, self.currentMessage?.id == messageId else { return }
++                    self.ayuViewInProgress = false
++                    if success {
++                        self.ayuUpdateViewButton(available: false)
++                    } else {
++                        self.ayuViewButton?.isEnabled = true
++                        self.ayuPresent(textAlertController(context: self.context, title: i18n("Ayu.ReceiptError", data.strings.baseLanguageCode), text: nil, actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
++                    }
++                })
++            })
++        ]), nil)
++    }
++
+     override func updateLayout(size: CGSize, metrics: LayoutMetrics, leftInset: CGFloat, rightInset: CGFloat, bottomInset: CGFloat, contentInset: CGFloat, transition: ContainedViewLayoutTransition) -> LayoutInfo {
+@@ -1448,2 +1508,10 @@
+         
++        if let button = self.ayuViewButton {
++            panelHeight += 52.0
++            let buttonWidth = min(380.0, width - leftInset - rightInset - 32.0)
++            let buttonHeight = button.updateLayout(width: buttonWidth, transition: transition)
++            transition.updateFrame(node: button, frame: CGRect(x: leftInset + (width - leftInset - rightInset - buttonWidth) / 2.0, y: panelHeight - buttonPanelInsets.bottom - 44.0 - 8.0 - buttonHeight, width: buttonWidth, height: buttonHeight))
++            needsShadow = true
++        }
++
+         let buttonPanelSize = self.buttonPanel.update(
+@@ -1552,2 +1620,3 @@
+         self.buttonNode?.alpha = 1.0
++        self.ayuViewButton?.alpha = 1.0
+     }
+@@ -1581,2 +1650,3 @@
+         self.buttonNode?.alpha = 0.0
++        self.ayuViewButton?.alpha = 0.0
+     }
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Geskrap";
++"Ayu.ServerPresence" = "Op die bediener: %@";
++"Ayu.ServerUnavailable" = "Bedienerstatus nie beskikbaar nie";
++"Ayu.SendReadReceipt" = "Stuur leesbevestiging";
++"Ayu.ViewWithoutReceipt" = "Bekyk sonder bevestiging";
++"Ayu.ReportPhotoView" = "Bevestig dat die foto bekyk is";
++"Ayu.View" = "Bekyk";
++"Ayu.SendReceipt" = "Stuur";
++"Ayu.ReceiptSent" = "Bevestiging gestuur";
++"Ayu.ReceiptError" = "Kon nie die bevestiging stuur nie. Kontroleer die verbinding en probeer weer.";
+ "Ayu.SharedProfile" = "Gedeelde profiel";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "محذوف";
++"Ayu.ServerPresence" = "على الخادم: %@";
++"Ayu.ServerUnavailable" = "حالة الخادم غير متاحة";
++"Ayu.SendReadReceipt" = "إرسال إشعار القراءة";
++"Ayu.ViewWithoutReceipt" = "عرض دون إشعار";
++"Ayu.ReportPhotoView" = "الإبلاغ عن عرض الصورة";
++"Ayu.View" = "عرض";
++"Ayu.SendReceipt" = "إرسال";
++"Ayu.ReceiptSent" = "تم إرسال الإشعار";
++"Ayu.ReceiptError" = "تعذر إرسال الإشعار. تحقق من الاتصال وحاول مجددًا.";
+ "Ayu.SharedProfile" = "الملف المشترك";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Eliminat";
++"Ayu.ServerPresence" = "Al servidor: %@";
++"Ayu.ServerUnavailable" = "Estat del servidor no disponible";
++"Ayu.SendReadReceipt" = "Envia confirmació de lectura";
++"Ayu.ViewWithoutReceipt" = "Mostra sense confirmació";
++"Ayu.ReportPhotoView" = "Confirma la visualització de la foto";
++"Ayu.View" = "Mostra";
++"Ayu.SendReceipt" = "Envia";
++"Ayu.ReceiptSent" = "Confirmació enviada";
++"Ayu.ReceiptError" = "No s’ha pogut enviar la confirmació. Comprova la connexió i torna-ho a provar.";
+ "Ayu.SharedProfile" = "Perfil compartit";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Smazáno";
++"Ayu.ServerPresence" = "Na serveru: %@";
++"Ayu.ServerUnavailable" = "Stav serveru není dostupný";
++"Ayu.SendReadReceipt" = "Odeslat potvrzení přečtení";
++"Ayu.ViewWithoutReceipt" = "Zobrazit bez potvrzení";
++"Ayu.ReportPhotoView" = "Potvrdit zobrazení fotky";
++"Ayu.View" = "Zobrazit";
++"Ayu.SendReceipt" = "Odeslat";
++"Ayu.ReceiptSent" = "Potvrzení odesláno";
++"Ayu.ReceiptError" = "Potvrzení se nepodařilo odeslat. Zkontrolujte připojení a zkuste to znovu.";
+ "Ayu.SharedProfile" = "Sdílený profil";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Slettet";
++"Ayu.ServerPresence" = "På serveren: %@";
++"Ayu.ServerUnavailable" = "Serverstatus er ikke tilgængelig";
++"Ayu.SendReadReceipt" = "Send læsekvittering";
++"Ayu.ViewWithoutReceipt" = "Vis uden kvittering";
++"Ayu.ReportPhotoView" = "Bekræft visning af billedet";
++"Ayu.View" = "Vis";
++"Ayu.SendReceipt" = "Send";
++"Ayu.ReceiptSent" = "Kvittering sendt";
++"Ayu.ReceiptError" = "Kunne ikke sende kvitteringen. Tjek forbindelsen, og prøv igen.";
+ "Ayu.SharedProfile" = "Delt profil";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Gelöscht";
++"Ayu.ServerPresence" = "Auf dem Server: %@";
++"Ayu.ServerUnavailable" = "Serverstatus nicht verfügbar";
++"Ayu.SendReadReceipt" = "Lesebestätigung senden";
++"Ayu.ViewWithoutReceipt" = "Ohne Bestätigung ansehen";
++"Ayu.ReportPhotoView" = "Fotoansicht bestätigen";
++"Ayu.View" = "Ansehen";
++"Ayu.SendReceipt" = "Senden";
++"Ayu.ReceiptSent" = "Bestätigung gesendet";
++"Ayu.ReceiptError" = "Die Bestätigung konnte nicht gesendet werden. Prüfe die Verbindung und versuche es erneut.";
+ "Ayu.SharedProfile" = "Gemeinsames Profil";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Διαγράφηκε";
++"Ayu.ServerPresence" = "Στον διακομιστή: %@";
++"Ayu.ServerUnavailable" = "Η κατάσταση του διακομιστή δεν είναι διαθέσιμη";
++"Ayu.SendReadReceipt" = "Αποστολή επιβεβαίωσης ανάγνωσης";
++"Ayu.ViewWithoutReceipt" = "Προβολή χωρίς επιβεβαίωση";
++"Ayu.ReportPhotoView" = "Επιβεβαίωση προβολής φωτογραφίας";
++"Ayu.View" = "Προβολή";
++"Ayu.SendReceipt" = "Αποστολή";
++"Ayu.ReceiptSent" = "Η επιβεβαίωση στάλθηκε";
++"Ayu.ReceiptError" = "Δεν ήταν δυνατή η αποστολή της επιβεβαίωσης. Ελέγξτε τη σύνδεση και δοκιμάστε ξανά.";
+ "Ayu.SharedProfile" = "Κοινό προφίλ";
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -296,2 +296,11 @@
+ "Ayu.Deleted" = "Deleted";
++"Ayu.ServerPresence" = "On the server: %@";
++"Ayu.ServerUnavailable" = "Server status unavailable";
++"Ayu.SendReadReceipt" = "Send read receipt";
++"Ayu.ViewWithoutReceipt" = "View without a receipt";
++"Ayu.ReportPhotoView" = "Report photo view";
++"Ayu.View" = "View";
++"Ayu.SendReceipt" = "Send";
++"Ayu.ReceiptSent" = "Receipt sent";
++"Ayu.ReceiptError" = "Could not send the receipt. Check your connection and try again.";
+ "Ayu.SharedProfile" = "Shared profile";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Eliminado";
++"Ayu.ServerPresence" = "En el servidor: %@";
++"Ayu.ServerUnavailable" = "Estado del servidor no disponible";
++"Ayu.SendReadReceipt" = "Enviar confirmación de lectura";
++"Ayu.ViewWithoutReceipt" = "Ver sin confirmación";
++"Ayu.ReportPhotoView" = "Confirmar que se vio la foto";
++"Ayu.View" = "Ver";
++"Ayu.SendReceipt" = "Enviar";
++"Ayu.ReceiptSent" = "Confirmación enviada";
++"Ayu.ReceiptError" = "No se pudo enviar la confirmación. Comprueba la conexión e inténtalo de nuevo.";
+ "Ayu.SharedProfile" = "Perfil compartido";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -26,2 +26,11 @@
+ "Ayu.Deleted" = "حذف‌شده";
++"Ayu.ServerPresence" = "در سرور: %@";
++"Ayu.ServerUnavailable" = "وضعیت سرور در دسترس نیست";
++"Ayu.SendReadReceipt" = "ارسال رسید خواندن";
++"Ayu.ViewWithoutReceipt" = "مشاهده بدون رسید";
++"Ayu.ReportPhotoView" = "اعلام مشاهده عکس";
++"Ayu.View" = "مشاهده";
++"Ayu.SendReceipt" = "ارسال";
++"Ayu.ReceiptSent" = "رسید ارسال شد";
++"Ayu.ReceiptError" = "ارسال رسید ممکن نشد. اتصال را بررسی کنید و دوباره تلاش کنید.";
+ "Ayu.SharedProfile" = "نمایهٔ مشترک";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -247,2 +247,11 @@
+ "Ayu.Deleted" = "Poistettu";
++"Ayu.ServerPresence" = "Palvelimella: %@";
++"Ayu.ServerUnavailable" = "Palvelimen tila ei ole saatavilla";
++"Ayu.SendReadReceipt" = "Lähetä lukukuittaus";
++"Ayu.ViewWithoutReceipt" = "Katso ilman kuittausta";
++"Ayu.ReportPhotoView" = "Kuittaa kuvan katselu";
++"Ayu.View" = "Katso";
++"Ayu.SendReceipt" = "Lähetä";
++"Ayu.ReceiptSent" = "Kuittaus lähetetty";
++"Ayu.ReceiptError" = "Kuittausta ei voitu lähettää. Tarkista yhteys ja yritä uudelleen.";
+ "Ayu.SharedProfile" = "Jaettu profiili";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -154,2 +154,11 @@
+ "Ayu.Deleted" = "Supprimé";
++"Ayu.ServerPresence" = "Sur le serveur : %@";
++"Ayu.ServerUnavailable" = "Statut du serveur indisponible";
++"Ayu.SendReadReceipt" = "Envoyer une confirmation de lecture";
++"Ayu.ViewWithoutReceipt" = "Voir sans confirmation";
++"Ayu.ReportPhotoView" = "Confirmer la consultation de la photo";
++"Ayu.View" = "Voir";
++"Ayu.SendReceipt" = "Envoyer";
++"Ayu.ReceiptSent" = "Confirmation envoyée";
++"Ayu.ReceiptError" = "Impossible d’envoyer la confirmation. Vérifiez la connexion et réessayez.";
+ "Ayu.SharedProfile" = "Profil partagé";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "נמחק";
++"Ayu.ServerPresence" = "בשרת: %@";
++"Ayu.ServerUnavailable" = "סטטוס השרת אינו זמין";
++"Ayu.SendReadReceipt" = "שליחת אישור קריאה";
++"Ayu.ViewWithoutReceipt" = "צפייה ללא אישור";
++"Ayu.ReportPhotoView" = "אישור צפייה בתמונה";
++"Ayu.View" = "צפייה";
++"Ayu.SendReceipt" = "שליחה";
++"Ayu.ReceiptSent" = "האישור נשלח";
++"Ayu.ReceiptError" = "לא ניתן לשלוח את האישור. בדקו את החיבור ונסו שוב.";
+ "Ayu.SharedProfile" = "פרופיל משותף";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "हटाया गया";
++"Ayu.ServerPresence" = "सर्वर पर: %@";
++"Ayu.ServerUnavailable" = "सर्वर की स्थिति उपलब्ध नहीं है";
++"Ayu.SendReadReceipt" = "पढ़ने की पुष्टि भेजें";
++"Ayu.ViewWithoutReceipt" = "पुष्टि भेजे बिना देखें";
++"Ayu.ReportPhotoView" = "फ़ोटो देखने की पुष्टि भेजें";
++"Ayu.View" = "देखें";
++"Ayu.SendReceipt" = "भेजें";
++"Ayu.ReceiptSent" = "पुष्टि भेजी गई";
++"Ayu.ReceiptError" = "पुष्टि नहीं भेजी जा सकी। कनेक्शन जाँचें और फिर से कोशिश करें।";
+ "Ayu.SharedProfile" = "साझा प्रोफ़ाइल";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Törölve";
++"Ayu.ServerPresence" = "A szerveren: %@";
++"Ayu.ServerUnavailable" = "A szerver állapota nem elérhető";
++"Ayu.SendReadReceipt" = "Olvasási visszaigazolás küldése";
++"Ayu.ViewWithoutReceipt" = "Megtekintés visszaigazolás nélkül";
++"Ayu.ReportPhotoView" = "Fénykép megtekintésének igazolása";
++"Ayu.View" = "Megtekintés";
++"Ayu.SendReceipt" = "Küldés";
++"Ayu.ReceiptSent" = "Visszaigazolás elküldve";
++"Ayu.ReceiptError" = "Nem sikerült elküldeni a visszaigazolást. Ellenőrizd a kapcsolatot, és próbáld újra.";
+ "Ayu.SharedProfile" = "Megosztott profil";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Dihapus";
++"Ayu.ServerPresence" = "Di server: %@";
++"Ayu.ServerUnavailable" = "Status server tidak tersedia";
++"Ayu.SendReadReceipt" = "Kirim tanda dibaca";
++"Ayu.ViewWithoutReceipt" = "Lihat tanpa tanda dibaca";
++"Ayu.ReportPhotoView" = "Konfirmasi foto dilihat";
++"Ayu.View" = "Lihat";
++"Ayu.SendReceipt" = "Kirim";
++"Ayu.ReceiptSent" = "Konfirmasi terkirim";
++"Ayu.ReceiptError" = "Tidak dapat mengirim konfirmasi. Periksa koneksi dan coba lagi.";
+ "Ayu.SharedProfile" = "Profil bersama";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Eliminato";
++"Ayu.ServerPresence" = "Sul server: %@";
++"Ayu.ServerUnavailable" = "Stato del server non disponibile";
++"Ayu.SendReadReceipt" = "Invia conferma di lettura";
++"Ayu.ViewWithoutReceipt" = "Visualizza senza conferma";
++"Ayu.ReportPhotoView" = "Conferma la visualizzazione della foto";
++"Ayu.View" = "Visualizza";
++"Ayu.SendReceipt" = "Invia";
++"Ayu.ReceiptSent" = "Conferma inviata";
++"Ayu.ReceiptError" = "Impossibile inviare la conferma. Controlla la connessione e riprova.";
+ "Ayu.SharedProfile" = "Profilo condiviso";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -263,2 +263,11 @@
+ "Ayu.Deleted" = "削除済み";
++"Ayu.ServerPresence" = "サーバー上：%@";
++"Ayu.ServerUnavailable" = "サーバーの状態を取得できません";
++"Ayu.SendReadReceipt" = "既読通知を送信";
++"Ayu.ViewWithoutReceipt" = "通知せずに表示";
++"Ayu.ReportPhotoView" = "写真の閲覧を通知";
++"Ayu.View" = "表示";
++"Ayu.SendReceipt" = "送信";
++"Ayu.ReceiptSent" = "通知を送信しました";
++"Ayu.ReceiptError" = "通知を送信できませんでした。接続を確認して再試行してください。";
+ "Ayu.SharedProfile" = "共有プロフィール";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -25,2 +25,11 @@
+ "Ayu.Deleted" = "បានលុប";
++"Ayu.ServerPresence" = "នៅលើម៉ាស៊ីនមេ៖ %@";
++"Ayu.ServerUnavailable" = "ស្ថានភាពម៉ាស៊ីនមេមិនអាចប្រើបាន";
++"Ayu.SendReadReceipt" = "ផ្ញើការបញ្ជាក់ថាបានអាន";
++"Ayu.ViewWithoutReceipt" = "មើលដោយមិនផ្ញើការបញ្ជាក់";
++"Ayu.ReportPhotoView" = "បញ្ជាក់ថាបានមើលរូបថត";
++"Ayu.View" = "មើល";
++"Ayu.SendReceipt" = "ផ្ញើ";
++"Ayu.ReceiptSent" = "បានផ្ញើការបញ្ជាក់";
++"Ayu.ReceiptError" = "មិនអាចផ្ញើការបញ្ជាក់បានទេ។ សូមពិនិត្យការតភ្ជាប់ ហើយព្យាយាមម្ដងទៀត។";
+ "Ayu.SharedProfile" = "ប្រវត្តិរូបរួម";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "삭제됨";
++"Ayu.ServerPresence" = "서버 상태: %@";
++"Ayu.ServerUnavailable" = "서버 상태를 확인할 수 없음";
++"Ayu.SendReadReceipt" = "읽음 확인 보내기";
++"Ayu.ViewWithoutReceipt" = "확인 없이 보기";
++"Ayu.ReportPhotoView" = "사진 조회 확인 보내기";
++"Ayu.View" = "보기";
++"Ayu.SendReceipt" = "보내기";
++"Ayu.ReceiptSent" = "확인을 보냈습니다";
++"Ayu.ReceiptError" = "확인을 보낼 수 없습니다. 연결을 확인하고 다시 시도하세요.";
+ "Ayu.SharedProfile" = "공유 프로필";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -27,2 +27,11 @@
+ "Ayu.Deleted" = "Jêbirî";
++"Ayu.ServerPresence" = "Li ser serverê: %@";
++"Ayu.ServerUnavailable" = "Rewşa serverê nayê dîtin";
++"Ayu.SendReadReceipt" = "Piştrastkirina xwendinê bişîne";
++"Ayu.ViewWithoutReceipt" = "Bê piştrastkirin temaşe bike";
++"Ayu.ReportPhotoView" = "Dîtina wêneyê piştrast bike";
++"Ayu.View" = "Temaşe bike";
++"Ayu.SendReceipt" = "Bişîne";
++"Ayu.ReceiptSent" = "Piştrastkirin hat şandin";
++"Ayu.ReceiptError" = "Piştrastkirin nehat şandin. Girêdanê kontrol bike û dîsa biceribîne.";
+ "Ayu.SharedProfile" = "Profîla hevpar";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Verwijderd";
++"Ayu.ServerPresence" = "Op de server: %@";
++"Ayu.ServerUnavailable" = "Serverstatus niet beschikbaar";
++"Ayu.SendReadReceipt" = "Leesbevestiging sturen";
++"Ayu.ViewWithoutReceipt" = "Bekijken zonder bevestiging";
++"Ayu.ReportPhotoView" = "Bekijken van foto bevestigen";
++"Ayu.View" = "Bekijken";
++"Ayu.SendReceipt" = "Sturen";
++"Ayu.ReceiptSent" = "Bevestiging verstuurd";
++"Ayu.ReceiptError" = "De bevestiging kon niet worden verstuurd. Controleer je verbinding en probeer opnieuw.";
+ "Ayu.SharedProfile" = "Gedeeld profiel";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Slettet";
++"Ayu.ServerPresence" = "På serveren: %@";
++"Ayu.ServerUnavailable" = "Serverstatus utilgjengelig";
++"Ayu.SendReadReceipt" = "Send lesebekreftelse";
++"Ayu.ViewWithoutReceipt" = "Vis uten bekreftelse";
++"Ayu.ReportPhotoView" = "Bekreft at bildet er sett";
++"Ayu.View" = "Vis";
++"Ayu.SendReceipt" = "Send";
++"Ayu.ReceiptSent" = "Bekreftelse sendt";
++"Ayu.ReceiptError" = "Kunne ikke sende bekreftelsen. Sjekk tilkoblingen og prøv igjen.";
+ "Ayu.SharedProfile" = "Delt profil";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -262,2 +262,11 @@
+ "Ayu.Deleted" = "Usunięto";
++"Ayu.ServerPresence" = "Na serwerze: %@";
++"Ayu.ServerUnavailable" = "Status serwera niedostępny";
++"Ayu.SendReadReceipt" = "Wyślij potwierdzenie odczytu";
++"Ayu.ViewWithoutReceipt" = "Wyświetl bez potwierdzenia";
++"Ayu.ReportPhotoView" = "Potwierdź wyświetlenie zdjęcia";
++"Ayu.View" = "Wyświetl";
++"Ayu.SendReceipt" = "Wyślij";
++"Ayu.ReceiptSent" = "Potwierdzenie wysłane";
++"Ayu.ReceiptError" = "Nie udało się wysłać potwierdzenia. Sprawdź połączenie i spróbuj ponownie.";
+ "Ayu.SharedProfile" = "Wspólny profil";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -291,2 +291,11 @@
+ "Ayu.Deleted" = "Apagado";
++"Ayu.ServerPresence" = "No servidor: %@";
++"Ayu.ServerUnavailable" = "Estado do servidor indisponível";
++"Ayu.SendReadReceipt" = "Enviar confirmação de leitura";
++"Ayu.ViewWithoutReceipt" = "Ver sem confirmação";
++"Ayu.ReportPhotoView" = "Confirmar a visualização da foto";
++"Ayu.View" = "Ver";
++"Ayu.SendReceipt" = "Enviar";
++"Ayu.ReceiptSent" = "Confirmação enviada";
++"Ayu.ReceiptError" = "Não foi possível enviar a confirmação. Verifica a ligação e tenta novamente.";
+ "Ayu.SharedProfile" = "Perfil partilhado";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Șters";
++"Ayu.ServerPresence" = "Pe server: %@";
++"Ayu.ServerUnavailable" = "Starea serverului nu este disponibilă";
++"Ayu.SendReadReceipt" = "Trimite confirmarea citirii";
++"Ayu.ViewWithoutReceipt" = "Vizualizează fără confirmare";
++"Ayu.ReportPhotoView" = "Confirmă vizualizarea fotografiei";
++"Ayu.View" = "Vizualizează";
++"Ayu.SendReceipt" = "Trimite";
++"Ayu.ReceiptSent" = "Confirmare trimisă";
++"Ayu.ReceiptError" = "Confirmarea nu a putut fi trimisă. Verifică conexiunea și încearcă din nou.";
+ "Ayu.SharedProfile" = "Profil partajat";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -291,2 +291,11 @@
+ "Ayu.Deleted" = "Удалено";
++"Ayu.ServerPresence" = "На сервере: %@";
++"Ayu.ServerUnavailable" = "Статус сервера недоступен";
++"Ayu.SendReadReceipt" = "Отправить отчёт о прочтении";
++"Ayu.ViewWithoutReceipt" = "Посмотреть без отчёта";
++"Ayu.ReportPhotoView" = "Сообщить о просмотре фото";
++"Ayu.View" = "Просмотреть";
++"Ayu.SendReceipt" = "Отправить";
++"Ayu.ReceiptSent" = "Отчёт отправлен";
++"Ayu.ReceiptError" = "Не удалось отправить отчёт. Проверь подключение и попробуй ещё раз.";
+ "Ayu.SharedProfile" = "Общий профиль";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -19,2 +19,11 @@
+ "Ayu.Deleted" = "මකා දමන ලදී";
++"Ayu.ServerPresence" = "සේවාදායකයේ: %@";
++"Ayu.ServerUnavailable" = "සේවාදායක තත්ත්වය ලබාගත නොහැක";
++"Ayu.SendReadReceipt" = "කියවීමේ තහවුරුව යවන්න";
++"Ayu.ViewWithoutReceipt" = "තහවුරුවක් නැතිව බලන්න";
++"Ayu.ReportPhotoView" = "ඡායාරූපය බැලීම තහවුරු කරන්න";
++"Ayu.View" = "බලන්න";
++"Ayu.SendReceipt" = "යවන්න";
++"Ayu.ReceiptSent" = "තහවුරුව යවන ලදී";
++"Ayu.ReceiptError" = "තහවුරුව යැවිය නොහැක. සම්බන්ධතාව පරීක්ෂා කර නැවත උත්සාහ කරන්න.";
+ "Ayu.SharedProfile" = "හවුල් පැතිකඩ";
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -21,2 +21,11 @@
+ "Ayu.Deleted" = "Odstránené";
++"Ayu.ServerPresence" = "Na serveri: %@";
++"Ayu.ServerUnavailable" = "Stav servera nie je dostupný";
++"Ayu.SendReadReceipt" = "Odoslať potvrdenie prečítania";
++"Ayu.ViewWithoutReceipt" = "Zobraziť bez potvrdenia";
++"Ayu.ReportPhotoView" = "Potvrdiť zobrazenie fotografie";
++"Ayu.View" = "Zobraziť";
++"Ayu.SendReceipt" = "Odoslať";
++"Ayu.ReceiptSent" = "Potvrdenie odoslané";
++"Ayu.ReceiptError" = "Potvrdenie sa nepodarilo odoslať. Skontrolujte pripojenie a skúste to znova.";
+ "Ayu.SharedProfile" = "Zdieľaný profil";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Обрисано";
++"Ayu.ServerPresence" = "На серверу: %@";
++"Ayu.ServerUnavailable" = "Статус сервера није доступан";
++"Ayu.SendReadReceipt" = "Пошаљи потврду читања";
++"Ayu.ViewWithoutReceipt" = "Погледај без потврде";
++"Ayu.ReportPhotoView" = "Потврди преглед фотографије";
++"Ayu.View" = "Погледај";
++"Ayu.SendReceipt" = "Пошаљи";
++"Ayu.ReceiptSent" = "Потврда је послата";
++"Ayu.ReceiptError" = "Није могуће послати потврду. Провери везу и покушај поново.";
+ "Ayu.SharedProfile" = "Заједнички профил";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Raderat";
++"Ayu.ServerPresence" = "På servern: %@";
++"Ayu.ServerUnavailable" = "Serverstatus är inte tillgänglig";
++"Ayu.SendReadReceipt" = "Skicka läskvitto";
++"Ayu.ViewWithoutReceipt" = "Visa utan kvitto";
++"Ayu.ReportPhotoView" = "Bekräfta att bilden har visats";
++"Ayu.View" = "Visa";
++"Ayu.SendReceipt" = "Skicka";
++"Ayu.ReceiptSent" = "Kvitto skickat";
++"Ayu.ReceiptError" = "Kunde inte skicka kvittot. Kontrollera anslutningen och försök igen.";
+ "Ayu.SharedProfile" = "Delad profil";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Silindi";
++"Ayu.ServerPresence" = "Sunucuda: %@";
++"Ayu.ServerUnavailable" = "Sunucu durumu kullanılamıyor";
++"Ayu.SendReadReceipt" = "Okundu bilgisi gönder";
++"Ayu.ViewWithoutReceipt" = "Bilgi göndermeden görüntüle";
++"Ayu.ReportPhotoView" = "Fotoğraf görüntülemesini bildir";
++"Ayu.View" = "Görüntüle";
++"Ayu.SendReceipt" = "Gönder";
++"Ayu.ReceiptSent" = "Bilgi gönderildi";
++"Ayu.ReceiptError" = "Bilgi gönderilemedi. Bağlantını kontrol edip tekrar dene.";
+ "Ayu.SharedProfile" = "Ortak profil";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -262,2 +262,11 @@
+ "Ayu.Deleted" = "Видалено";
++"Ayu.ServerPresence" = "На сервері: %@";
++"Ayu.ServerUnavailable" = "Статус сервера недоступний";
++"Ayu.SendReadReceipt" = "Надіслати звіт про прочитання";
++"Ayu.ViewWithoutReceipt" = "Переглянути без звіту";
++"Ayu.ReportPhotoView" = "Повідомити про перегляд фото";
++"Ayu.View" = "Переглянути";
++"Ayu.SendReceipt" = "Надіслати";
++"Ayu.ReceiptSent" = "Звіт надіслано";
++"Ayu.ReceiptError" = "Не вдалося надіслати звіт. Перевір з’єднання та спробуй ще раз.";
+ "Ayu.SharedProfile" = "Спільний профіль";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "O‘chirilgan";
++"Ayu.ServerPresence" = "Serverda: %@";
++"Ayu.ServerUnavailable" = "Server holati mavjud emas";
++"Ayu.SendReadReceipt" = "O‘qilganligi haqida tasdiq yuborish";
++"Ayu.ViewWithoutReceipt" = "Tasdiqsiz ko‘rish";
++"Ayu.ReportPhotoView" = "Surat ko‘rilganini tasdiqlash";
++"Ayu.View" = "Ko‘rish";
++"Ayu.SendReceipt" = "Yuborish";
++"Ayu.ReceiptSent" = "Tasdiq yuborildi";
++"Ayu.ReceiptError" = "Tasdiqni yuborib bo‘lmadi. Ulanishni tekshirib, qayta urinib ko‘ring.";
+ "Ayu.SharedProfile" = "Umumiy profil";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -169,2 +169,11 @@
+ "Ayu.Deleted" = "Đã xóa";
++"Ayu.ServerPresence" = "Trên máy chủ: %@";
++"Ayu.ServerUnavailable" = "Không có trạng thái máy chủ";
++"Ayu.SendReadReceipt" = "Gửi xác nhận đã đọc";
++"Ayu.ViewWithoutReceipt" = "Xem mà không xác nhận";
++"Ayu.ReportPhotoView" = "Xác nhận đã xem ảnh";
++"Ayu.View" = "Xem";
++"Ayu.SendReceipt" = "Gửi";
++"Ayu.ReceiptSent" = "Đã gửi xác nhận";
++"Ayu.ReceiptError" = "Không thể gửi xác nhận. Kiểm tra kết nối và thử lại.";
+ "Ayu.SharedProfile" = "Hồ sơ chung";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -266,2 +266,11 @@
+ "Ayu.Deleted" = "已删除";
++"Ayu.ServerPresence" = "服务器上：%@";
++"Ayu.ServerUnavailable" = "无法获取服务器状态";
++"Ayu.SendReadReceipt" = "发送已读回执";
++"Ayu.ViewWithoutReceipt" = "查看但不发送回执";
++"Ayu.ReportPhotoView" = "发送照片查看回执";
++"Ayu.View" = "查看";
++"Ayu.SendReceipt" = "发送";
++"Ayu.ReceiptSent" = "回执已发送";
++"Ayu.ReceiptError" = "无法发送回执。请检查连接后重试。";
+ "Ayu.SharedProfile" = "共享资料";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -266,2 +266,11 @@
+ "Ayu.Deleted" = "已刪除";
++"Ayu.ServerPresence" = "伺服器上：%@";
++"Ayu.ServerUnavailable" = "無法取得伺服器狀態";
++"Ayu.SendReadReceipt" = "傳送已讀回條";
++"Ayu.ViewWithoutReceipt" = "查看但不傳送回條";
++"Ayu.ReportPhotoView" = "傳送照片查看回條";
++"Ayu.View" = "查看";
++"Ayu.SendReceipt" = "傳送";
++"Ayu.ReceiptSent" = "回條已傳送";
++"Ayu.ReceiptError" = "無法傳送回條。請檢查連線後再試。";
+ "Ayu.SharedProfile" = "共用資料";
