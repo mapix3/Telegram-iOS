@@ -12,15 +12,16 @@
   "patches/05-refinements.patch": "e78f8060dc397e6f0152d547174e3e6ad80a721ed71c6527027904bbed3685db",
   "patches/06-customization.patch": "34cc83640b85eb2eb65fbeb9c77566ec77de933d1ec2681a6be01650983c966c",
   "patches/07-ayugram-branding.patch": "5f3fd8855673cce9131ba1eea2c352d31d2dd3b30072d2a1deb82e4ee212b36b",
-  "patches/08-history-and-badges.patch": "929c8bdd41a6d7183cd5b6c6d3d48216e6789f66632b7374bb77853ae8b58c76",
+  "patches/08-history-and-badges.patch": "f093f3fed3f303c725d158e5f712d555630e7e3d542bb4c5594710d35bab1490",
   "patches/09-appearance-refinements.patch": "9e092307afec38017bc32b96da8cca5e10eab4969e988fa1e4d7219a1de72511",
   "patches/10-menu-and-icon-selection.patch": "154c05a0013cb4cda630d192f4267c8280d29c1e024153ae481bfdee2ac029e1",
   "scripts/ayugram-tests/AyuGramSettingsTests.swift": "c38ae5e72b9aa0a7bd5923c3cd8d91a3a3cda2bcad6067644de369c613bea05a",
   "scripts/ayugram-tests/test_branding.py": "57c49569edc003dd5ab2698cb23d130821ad9634568201d18525df10882b7219",
   "scripts/ayugram-tests/test_ci.py": "260c3041a68be10030b15f65618d0b7e1092d3bfb1c6826b17e87b7caaa70005",
+  "scripts/ayugram-tests/test_history_checks.py": "673352610d1ae5dfec24ae232d1e4344dca64d6d8864d2568564d9ebec69ab5f",
   "scripts/ayugram_branding.py": "1df06b46cb79d28436a3792949da286266a059797afd0e0ba8736cd99dab55f1",
   "scripts/ayugram_ci.py": "f9ab305c7ba0ed1fe84ea730f18551c88aed7c207504397c90e24c8183cc3061",
   "scripts/ayugram_compatibility.py": "40dcf9b93986d8431e1bfc279e2151a73ec7c397fa7d88edaafae916a44c80bc",
-  "scripts/ayugram_history_checks.py": "1c7a66052fa643f1a57441892e264ec68155048f9bbd73a9ae1b5d7bfd423166",
+  "scripts/ayugram_history_checks.py": "62c877aa8cdb6896ef2d24474fc781d44038a5e37a7302f480f74f35373dd623",
   "START-HERE.md": "81fc7222d5621d6bcc97517ad7365bf3e05dc470ed7edffde92b546e77750fdf"
 }
