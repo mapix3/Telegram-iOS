@@ -69,6 +69,7 @@ def check_custom_compatibility(source: Path):
         'Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift',
         'Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift',
         'submodules/Display/Source/AyuGramBackdropView.swift',
+        'submodules/Display/Source/AyuGramSilentVideo.swift',
     ]
     preview = source / 'Swiftgram/SGSettingsUI/Sources/AyuGramAppearancePreviewItem.swift'
     if preview.exists():
@@ -132,6 +133,19 @@ struct ItemListPresentationData { var theme = CompatibilityTheme(); var strings 
     subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-ios' + minimum.group(1), '-sdk', sdk, '-typecheck', *map(str, inputs)], check=True)
     print('Custom appearance SDK compatibility checked at iOS ' + minimum.group(1), flush=True)
     check_scoped_wallpapers(source, output)
+    check_silent_video(source, output)
+
+
+def check_silent_video(source: Path, output: Path):
+    helper = source / 'submodules/Display/Source/AyuGramSilentVideo.swift'
+    tests = Path(__file__).resolve().parent / 'ayugram-tests/AyuGramSilentVideoTests.swift'
+    main = output / 'main.swift'
+    main.write_text(tests.read_text(), encoding='utf-8')
+    binary = output / 'silent-video-tests'
+    import platform
+    target = ('arm64' if platform.machine() == 'arm64' else 'x86_64') + '-apple-macos11.0'
+    subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', target, helper, main, '-o', binary], check=True)
+    subprocess.run([binary], check=True, timeout=40)
 
 
 def check_scoped_wallpapers(source: Path, output: Path):
