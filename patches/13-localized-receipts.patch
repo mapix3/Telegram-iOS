@@ -16,7 +16,7 @@ diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift 
                          let _ = (context.engine.messages.ayuReportRead(messageId: message.id)
                          |> deliverOnMainQueue).startStandalone(next: { success in
 -                            controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: success ? "Отчёт отправлен" : "Не удалось отправить", text: success ? "Отчёт о прочтении передан серверу." : "Проверь подключение и попробуй ещё раз.", actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
-+                            controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: i18n(success ? "Ayu.ReceiptSent" : "Ayu.ReceiptError", data.strings.baseLanguageCode), text: nil, actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
++                            controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: i18n(success ? "Ayu.ReceiptSent" : "Ayu.ReceiptError", data.strings.baseLanguageCode), text: "", actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
                          })
 @@ -1024,3 +1024,3 @@
              if ayuPrivateMediaDisplayMessage(message) != nil {
@@ -38,7 +38,7 @@ diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift 
                              let _ = (context.engine.messages.ayuReportContentViewed(messageId: message.id)
                              |> deliverOnMainQueue).startStandalone(next: { success in
 -                                controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: success ? "Отчёт отправлен" : "Не удалось отправить", text: success ? "Сервер получил отметку о просмотре фото." : "Фото уже недоступно или нет подключения.", actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
-+                                controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: i18n(success ? "Ayu.ReceiptSent" : "Ayu.ReceiptError", data.strings.baseLanguageCode), text: nil, actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
++                                controllerInteraction.presentControllerInCurrent(textAlertController(context: context, title: i18n(success ? "Ayu.ReceiptSent" : "Ayu.ReceiptError", data.strings.baseLanguageCode), text: "", actions: [TextAlertAction(type: .defaultAction, title: data.strings.Common_OK, action: {})]), nil)
                              })
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
