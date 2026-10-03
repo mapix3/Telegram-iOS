@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import subprocess
 from ayugram_history_checks import declaration
 
@@ -47,6 +48,7 @@ print("Send receipts exclude Saved Messages, non-cloud messages and disabled pri
     subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', file, '-o', binary], check=True)
     subprocess.run([binary], check=True, timeout=10)
     check_gallery_receipt_alerts(source, output)
+    check_context_menu_receipt_alerts(source, output)
     print('Receipt strings validated in all 37 languages; production send guard passed', flush=True)
 
 
@@ -140,5 +142,122 @@ print("Production gallery confirmation checked against Display alert signatures:
     file = output / 'GalleryReceiptTests.swift'
     file.write_text(fixture)
     binary = output / 'gallery-receipt-tests'
+    subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', file, '-o', binary], check=True)
+    subprocess.run([binary], check=True, timeout=10)
+
+
+def check_context_menu_receipt_alerts(source: Path, output: Path):
+    menus = (source / 'submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift').read_text()
+    alerts = (source / 'submodules/PresentationDataUtils/Sources/AlertTheme.swift').read_text()
+    assert 'import PresentationDataUtils' in menus
+    signature = declaration(alerts, 'public func textAlertController(').split(' {', 1)[0].replace('public ', '')
+    calls = []
+    for match in re.finditer(re.escape('textAlertController(context: context, title: i18n('), menus):
+        opening = menus.index('(', match.start())
+        depth = 1
+        end = opening + 1
+        quoted = False
+        escaped = False
+        while depth:
+            char = menus[end]
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif char == '\\':
+                    escaped = True
+                elif char == '"':
+                    quoted = False
+            elif char == '"':
+                quoted = True
+            else:
+                depth += (char == '(') - (char == ')')
+            end += 1
+        calls.append(menus[match.start():end])
+    assert len(calls) == 4, len(calls)
+    fixture = '''
+import Foundation
+class ViewController {}
+enum NoError: Error {}
+struct Signal<Value, Failure: Error> {}
+struct PresentationTheme {}
+enum TextAlertContentActionLayout { case horizontal }
+struct TextAlertAction {
+    enum ActionType { case genericAction, defaultAction }
+    let type: ActionType
+    let title: String
+    let action: () -> Void
+}
+final class AlertController: ViewController {
+    let title: String?
+    let text: String
+    let actions: [TextAlertAction]
+    init(title: String?, text: String, actions: [TextAlertAction]) {
+        self.title = title; self.text = text; self.actions = actions
+    }
+}
+struct Strings { let baseLanguageCode = "en"; let Common_Cancel = "Cancel"; let Common_OK = "OK" }
+struct PresentationData { let strings = Strings() }
+func i18n(_ key: String, _ language: String) -> String { key + ":" + language }
+final class Disposable {}
+struct ReceiptSignal {
+    let result: Bool
+    func startStandalone(next: (Bool) -> Void) -> Disposable { next(result); return Disposable() }
+}
+infix operator |> : AdditionPrecedence
+func |> (signal: ReceiptSignal, transform: (ReceiptSignal) -> ReceiptSignal) -> ReceiptSignal { transform(signal) }
+func deliverOnMainQueue(_ signal: ReceiptSignal) -> ReceiptSignal { signal }
+final class Messages {
+    var result = false
+    var readRequests = 0
+    var viewRequests = 0
+    func ayuReportRead(messageId: Int) -> ReceiptSignal { readRequests += 1; return ReceiptSignal(result: result) }
+    func ayuReportContentViewed(messageId: Int) -> ReceiptSignal { viewRequests += 1; return ReceiptSignal(result: result) }
+}
+struct Engine { let messages = Messages() }
+struct AccountContext { let engine = Engine() }
+struct Message { let id: Int }
+final class ControllerInteraction {
+    var alerts: [AlertController] = []
+    func presentControllerInCurrent(_ controller: ViewController, _ arguments: Any?) { alerts.append(controller as! AlertController) }
+}
+''' + signature + ''' { return AlertController(title: title, text: text, actions: actions) }
+let data = PresentationData()
+let message = Message(id: 1)
+let context = AccountContext()
+let controllerInteraction = ControllerInteraction()
+'''
+    for index, call in enumerate(calls):
+        fixture += 'func makeDialog' + str(index) + '(success: Bool) -> AlertController { return ' + call + ' as! AlertController }\n'
+    fixture += '''
+let readDialog = makeDialog0(success: false)
+precondition(readDialog.title == "Ayu.SendReadReceipt:en" && readDialog.text == "Ayu.ReadWarning:en")
+readDialog.actions[0].action()
+precondition(context.engine.messages.readRequests == 0, "Cancel never sends a read receipt")
+readDialog.actions[1].action()
+precondition(context.engine.messages.readRequests == 1 && controllerInteraction.alerts.last!.title == "Ayu.ReceiptError:en")
+context.engine.messages.result = true
+readDialog.actions[1].action()
+precondition(context.engine.messages.readRequests == 2 && controllerInteraction.alerts.last!.title == "Ayu.ReceiptSent:en")
+let viewDialog = makeDialog2(success: false)
+precondition(viewDialog.title == "Ayu.ReportPhotoView:en" && viewDialog.text == "Ayu.ViewWarning:en")
+viewDialog.actions[0].action()
+precondition(context.engine.messages.viewRequests == 0, "Cancel never consumes media")
+context.engine.messages.result = false
+viewDialog.actions[1].action()
+precondition(context.engine.messages.viewRequests == 1 && controllerInteraction.alerts.last!.title == "Ayu.ReceiptError:en")
+context.engine.messages.result = true
+viewDialog.actions[1].action()
+precondition(context.engine.messages.viewRequests == 2 && controllerInteraction.alerts.last!.title == "Ayu.ReceiptSent:en")
+for success in [false, true] {
+    let expected = success ? "Ayu.ReceiptSent:en" : "Ayu.ReceiptError:en"
+    for dialog in [makeDialog1(success: success), makeDialog3(success: success)] {
+        precondition(dialog.title == expected && dialog.text.isEmpty, "Result dialogs follow the actual nonoptional text API")
+    }
+}
+print("Production context-menu receipt dialogs checked against PresentationDataUtils: cancel, read/view failure and success passed")
+'''
+    file = output / 'ContextMenuReceiptTests.swift'
+    file.write_text(fixture)
+    binary = output / 'context-menu-receipt-tests'
     subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', file, '-o', binary], check=True)
     subprocess.run([binary], check=True, timeout=10)
