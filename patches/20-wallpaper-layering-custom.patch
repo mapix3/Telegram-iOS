@@ -1,0 +1,218 @@
+diff --git a/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift b/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift
+--- a/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift
++++ b/Swiftgram/SGItemListUI/Sources/SliderPercentageItem.swift
+@@ -65,12 +65,13 @@
+     }
+ }
+ 
+-private func rescalePercentageValueToSlider(_ value: CGFloat) -> CGFloat {
+-    return max(0.0, min(1.0, value))
++private func rescalePercentageValueToSlider(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
++    guard maximum > minimum else { return 0.0 }
++    return max(0.0, min(1.0, (value - minimum) / (maximum - minimum)))
+ }
+ 
+-private func rescaleSliderValueToPercentageValue(_ value: CGFloat) -> CGFloat {
+-    return max(0.0, min(1.0, value))
++private func rescaleSliderValueToPercentageValue(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
++    return minimum + max(0.0, min(1.0, value)) * (maximum - minimum)
+ }
+ 
+ class SliderPercentageItemNode: ListViewItemNode {
+@@ -148,17 +149,17 @@
+         let sliderView = TGPhotoEditorSliderView()
+         sliderView.enableEdgeTap = true
+         sliderView.enablePanHandling = true
+-        sliderView.trackCornerRadius = 1.0
++        sliderView.trackCornerRadius = 2.0
+         sliderView.lineSize = 4.0
+         sliderView.minimumValue = 0.0
+         sliderView.startValue = 0.0
+         sliderView.maximumValue = 1.0
+         sliderView.disablesInteractiveTransitionGestureRecognizer = true
+-        sliderView.displayEdges = true
++        sliderView.displayEdges = false
+         if let item = self.item, let params = self.layoutParams {
+-            sliderView.minimumValue = CGFloat(item.minimum) / 100
+-            sliderView.maximumValue = CGFloat(item.maximum) / 100
+-            sliderView.value = rescalePercentageValueToSlider(CGFloat(item.value) / 100.0)
++            sliderView.minimumValue = 0.0
++            sliderView.maximumValue = 1.0
++            sliderView.value = rescalePercentageValueToSlider(CGFloat(item.value) / 100.0, minimum: CGFloat(item.minimum) / 100.0, maximum: CGFloat(item.maximum) / 100.0)
+             sliderView.backgroundColor = item.theme.list.itemBlocksBackgroundColor
+             sliderView.backColor = item.theme.list.itemSwitchColors.frameColor
+             sliderView.trackColor = item.theme.list.itemAccentColor
+@@ -254,9 +255,9 @@
+                     strongSelf.centerMeasureTextNode.attributedText = NSAttributedString(string: centralMeasureText, font: Font.regular(16.0), textColor: item.theme.list.itemPrimaryTextColor)
+                     
+                     strongSelf.leftTextNode.isAccessibilityElement = true
+-                    strongSelf.leftTextNode.accessibilityLabel = "Minimum: \(Int32(rescaleSliderValueToPercentageValue(strongSelf.sliderView?.minimumValue ?? 0.0) * 100.0))%"
++                    strongSelf.leftTextNode.accessibilityLabel = "\(item.minimum)%"
+                     strongSelf.rightTextNode.isAccessibilityElement = true
+-                    strongSelf.rightTextNode.accessibilityLabel = "Maximum: \(Int32(rescaleSliderValueToPercentageValue(strongSelf.sliderView?.maximumValue ?? 1.0) * 100.0))%"
++                    strongSelf.rightTextNode.accessibilityLabel = "\(item.maximum)%"
+                     
+                     let leftTextSize = strongSelf.leftTextNode.updateLayout(CGSize(width: 100.0, height: 100.0))
+                     let rightTextSize = strongSelf.rightTextNode.updateLayout(CGSize(width: 100.0, height: 100.0))
+@@ -324,13 +325,13 @@
+                     }
+                     
+                     if let sliderView = strongSelf.sliderView {
+-                        sliderView.minimumValue = CGFloat(item.minimum) / 100
+-                        sliderView.maximumValue = CGFloat(item.maximum) / 100
+-                        if !sliderView.isTracking { sliderView.value = rescalePercentageValueToSlider(CGFloat(item.value) / 100) }
++                        sliderView.minimumValue = 0.0
++                        sliderView.maximumValue = 1.0
++                        if !sliderView.isTracking { sliderView.value = rescalePercentageValueToSlider(CGFloat(item.value) / 100.0, minimum: CGFloat(item.minimum) / 100.0, maximum: CGFloat(item.maximum) / 100.0) }
+                         if themeUpdated {
+                             sliderView.backgroundColor = item.theme.list.itemBlocksBackgroundColor
+-                            sliderView.backColor = item.theme.list.itemSecondaryTextColor
+-                            sliderView.trackColor = item.theme.list.itemAccentColor.withAlphaComponent(0.45)
++                            sliderView.backColor = item.theme.list.itemSwitchColors.frameColor
++                            sliderView.trackColor = item.theme.list.itemAccentColor
+                             sliderView.knobImage = PresentationResourcesItemList.knobImage(item.theme)
+                         }
+                         
+@@ -355,10 +356,10 @@
+     }
+     
+     @objc func sliderValueChanged() {
+-        guard let sliderView = self.sliderView else {
++        guard let sliderView = self.sliderView, let item = self.item else {
+             return
+         }
+-        self.item?.updated(Int32(rescaleSliderValueToPercentageValue(sliderView.value) * 100.0))
++        item.updated(Int32((rescaleSliderValueToPercentageValue(sliderView.value, minimum: CGFloat(item.minimum) / 100.0, maximum: CGFloat(item.maximum) / 100.0) * 100.0).rounded()))
+     }
+ }
+ 
+diff --git a/submodules/TelegramUI/Sources/ChatControllerNode.swift b/submodules/TelegramUI/Sources/ChatControllerNode.swift
+--- a/submodules/TelegramUI/Sources/ChatControllerNode.swift
++++ b/submodules/TelegramUI/Sources/ChatControllerNode.swift
+@@ -179,6 +179,9 @@
+ 
+ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
+     private var ayuBackdrop: AyuGramBackdropView?
++    private var ayuNativeWallpaperAlpha: CGFloat {
++        return AyuGramAppearance.shared.showsConversations ? 0.0 : 1.0
++    }
+     let context: AccountContext
+     private(set) var chatLocation: ChatLocation
+     private var chatLocationContextHolder: Atomic<ChatLocationContextHolder?>
+@@ -1054,6 +1057,8 @@
+     override func didLoad() {
+         super.didLoad()
+         let backdrop = AyuGramBackdropView(scope: .conversation)
++        backdrop.frame = self.backgroundNode.frame
++        backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+         backdrop.overlayColor = self.chatPresentationInterfaceState.theme.chatList.backgroundColor
+         self.ayuBackdrop = backdrop
+         backdrop.visibilityChanged = { [weak self] enabled in self?.backgroundNode.alpha = enabled ? 0.0 : 1.0 }
+@@ -1336,6 +1341,9 @@
+                 containerNode.clipsToBounds = true
+                 containerNode.cornerRadius = 15.0
+                 containerNode.addSubnode(self.backgroundNode)
++                if let backdrop = self.ayuBackdrop {
++                    containerNode.view.insertSubview(backdrop, at: 0)
++                }
+                 containerNode.addSubnode(self.historyNodeContainer)
+                 self.contentContainerNode.isHidden = true
+                 if let restrictedNode = self.restrictedNode {
+@@ -1373,6 +1381,9 @@
+                 self.containerNode = nil
+                 containerNode.removeFromSupernode()
+                 self.contentContainerNode.contentNode.insertSubnode(self.backgroundNode, at: 0)
++                if let backdrop = self.ayuBackdrop {
++                    self.contentContainerNode.contentNode.view.insertSubview(backdrop, at: 0)
++                }
+                 self.contentContainerNode.contentNode.insertSubnode(self.historyNodeContainer, aboveSubnode: self.backgroundNode)
+                 if let restrictedNode = self.restrictedNode {
+                     self.contentContainerNode.contentNode.insertSubnode(restrictedNode, aboveSubnode: self.historyNodeContainer)
+@@ -3542,7 +3553,7 @@
+                 transition.updateAlpha(node: self.backgroundNode, alpha: 0.0)
+             } else {
+                 transition.updateAlpha(node: self.historyNode, alpha: 1.0)
+-                transition.updateAlpha(node: self.backgroundNode, alpha: 1.0)
++                transition.updateAlpha(node: self.backgroundNode, alpha: self.ayuNativeWallpaperAlpha)
+             }
+         } else {
+             if let inlineSearchResults = self.inlineSearchResults {
+@@ -3567,7 +3578,7 @@
+             self.inlineSearchResultsReady = false
+             
+             transition.updateAlpha(node: self.historyNode, alpha: 1.0)
+-            transition.updateAlpha(node: self.backgroundNode, alpha: 1.0)
++            transition.updateAlpha(node: self.backgroundNode, alpha: self.ayuNativeWallpaperAlpha)
+         }
+         
+         transition.updateAlpha(node: self.navigateButtons, alpha: showNavigateButtons ? 1.0 : 0.0)
+diff --git a/submodules/ChatListUI/Sources/Node/ChatListNode.swift b/submodules/ChatListUI/Sources/Node/ChatListNode.swift
+--- a/submodules/ChatListUI/Sources/Node/ChatListNode.swift
++++ b/submodules/ChatListUI/Sources/Node/ChatListNode.swift
+@@ -1,3 +1,4 @@
++import SGSimpleSettings
+ import SGAPIToken
+ import SGAPIWebSettings
+ import Foundation
+@@ -1267,6 +1268,7 @@
+     public var openAccountFreezeInfo: (() -> Void)?
+     
+     private var theme: PresentationTheme
++    private var ayuPinnedOverscroll = false
+     
+     private let viewProcessingQueue = Queue()
+     private var chatListView: ChatListNodeView?
+@@ -3339,12 +3341,14 @@
+         }
+     }
+     
++    public func updateAyuGramAppearance() {
++        self.keepTopItemOverscrollBackground = self.ayuPinnedOverscroll ? ListViewKeepTopItemOverscrollBackground(color: AyuGramAppearance.shared.showsChatList ? .clear : self.theme.chatList.pinnedItemBackgroundColor, direction: true) : nil
++    }
++
+     public func updateThemeAndStrings(theme: PresentationTheme, fontSize: PresentationFontSize, strings: PresentationStrings, dateTimeFormat: PresentationDateTimeFormat, nameSortOrder: PresentationPersonNameOrder, nameDisplayOrder: PresentationPersonNameOrder, disableAnimations: Bool) {
+         if theme !== self.currentState.presentationData.theme || strings !== self.currentState.presentationData.strings || dateTimeFormat != self.currentState.presentationData.dateTimeFormat {
+             self.theme = theme
+-            if self.keepTopItemOverscrollBackground != nil {
+-                self.keepTopItemOverscrollBackground = ListViewKeepTopItemOverscrollBackground(color:  theme.chatList.pinnedItemBackgroundColor, direction: true)
+-            }
++            self.updateAyuGramAppearance()
+             self.verticalScrollIndicatorColor = theme.list.scrollIndicatorColor
+             
+             self.updateState { state in
+@@ -3457,12 +3461,9 @@
+                         }
+                     }
+                     
+-                    if pinnedOverscroll != (strongSelf.keepTopItemOverscrollBackground != nil) {
+-                        if pinnedOverscroll {
+-                            strongSelf.keepTopItemOverscrollBackground = ListViewKeepTopItemOverscrollBackground(color: strongSelf.theme.chatList.pinnedItemBackgroundColor, direction: true)
+-                        } else {
+-                            strongSelf.keepTopItemOverscrollBackground = nil
+-                        }
++                    if pinnedOverscroll != strongSelf.ayuPinnedOverscroll {
++                        strongSelf.ayuPinnedOverscroll = pinnedOverscroll
++                        strongSelf.updateAyuGramAppearance()
+                     }
+                     
+                     if let scrollToItem = transition.scrollToItem, case .center = scrollToItem.position {
+diff --git a/submodules/ChatListUI/Sources/ChatListControllerNode.swift b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+--- a/submodules/ChatListUI/Sources/ChatListControllerNode.swift
++++ b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+@@ -799,6 +799,7 @@
+         
+         for (_, itemNode) in self.itemNodes {
+             itemNode.updatePresentationData(presentationData)
++            itemNode.listNode.updateAyuGramAppearance()
+             itemNode.listNode.forEachItemNode { node in
+                 (node as? ChatListItemNode)?.updateAyuGramAppearance()
+             }
+@@ -1336,6 +1337,8 @@
+     override func didLoad() {
+         super.didLoad()
+         let backdrop = AyuGramBackdropView(scope: .chatList)
++        backdrop.frame = self.bounds
++        backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+         backdrop.overlayColor = self.presentationData.theme.chatList.backgroundColor
+         self.ayuBackdrop = backdrop
+         backdrop.visibilityChanged = { [weak self] enabled in

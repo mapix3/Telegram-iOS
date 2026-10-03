@@ -1,0 +1,28 @@
+diff --git a/submodules/Display/Source/AyuGramAppBadge.swift b/submodules/Display/Source/AyuGramAppBadge.swift
+--- a/submodules/Display/Source/AyuGramAppBadge.swift
++++ b/submodules/Display/Source/AyuGramAppBadge.swift
+@@ -67,19 +67,10 @@
+ 
+ public func ayuGramMemberBadgeImage() -> UIImage {
+     return UIGraphicsImageRenderer(size: CGSize(width: 22, height: 22)).image { _ in
+-        let circle = UIBezierPath(ovalIn: CGRect(x: 1, y: 1, width: 20, height: 20))
+-        UIColor(red: 0.23, green: 0.17, blue: 0.35, alpha: 1).setFill()
+-        circle.fill()
+-        UIColor(red: 0.76, green: 0.63, blue: 1, alpha: 1).setStroke()
+-        circle.lineWidth = 1.3
+-        circle.stroke()
+-        let plane = UIBezierPath()
+-        plane.move(to: CGPoint(x: 5, y: 10))
+-        plane.addLine(to: CGPoint(x: 17, y: 5.5))
+-        plane.addLine(to: CGPoint(x: 13, y: 17))
+-        plane.addLine(to: CGPoint(x: 10, y: 12.5))
+-        plane.close()
+-        UIColor(red: 0.91, green: 0.86, blue: 1, alpha: 1).setFill()
+-        plane.fill()
++        let outline = UIBezierPath(roundedRect: CGRect(x: 2, y: 2, width: 18, height: 18), cornerRadius: 6)
++        UIColor(red: 0.76, green: 0.65, blue: 1, alpha: 1).setStroke()
++        outline.lineWidth = 1.2
++        outline.stroke()
++        ayuPlane(CGRect(x: 5, y: 4.5, width: 12, height: 13), foreground: .white, secondary: UIColor(red: 0.76, green: 0.65, blue: 1, alpha: 1))
+     }
+ }
