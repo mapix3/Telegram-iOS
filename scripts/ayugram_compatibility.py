@@ -155,6 +155,21 @@ defaults.set(legacy, forKey: "swiftgram.ayuGram.appearance.v1")
 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 try Data([1, 2, 3]).write(to: directory.appendingPathComponent("legacy.jpg"))
 expect(store.effectiveSettings(for: .conversation).fileName == "legacy.jpg", "Existing backgrounds migrate")
+let firstSuite = suite + ".first"
+let firstDefaults = UserDefaults(suiteName: firstSuite)!
+defer { firstDefaults.removePersistentDomain(forName: firstSuite) }
+let first = AyuGramAppearance(defaults: firstDefaults, directory: root.appendingPathComponent("first-media"))
+let video = root.appendingPathComponent("first.mp4")
+try Data([1, 2, 3]).write(to: video)
+try first.importMedia(video, isVideo: true, scope: .chatList)
+expect(first.mediaURL(for: .conversation) == first.mediaURL(for: .chatList) && first.effectiveSettings(for: .conversation).isVideo, "First list video also appears in conversations")
+expect(first.showsConversations, "First import enables actual conversation wallpaper")
+first.reset(scope: .conversation)
+expect(first.mediaURL(for: .conversation) == nil && first.mediaURL(for: .chatList) != nil, "Explicit reset restores Telegram wallpaper without removing list media")
+let build21 = Data(#"{"wallpaper":{"isVideo":false,"dim":0.6,"blur":0.2,"animateVideo":true},"fileName":"legacy.jpg","isVideo":false,"chatList":true,"conversations":true,"dim":0.6,"blur":0.2,"rowOpacity":0.65,"animateVideo":true}"#.utf8)
+defaults.set(build21, forKey: "swiftgram.ayuGram.appearance.v1")
+expect(store.mediaURL(for: .conversation)?.lastPathComponent == "legacy.jpg", "Build 21 empty override inherits the selected photo")
+defaults.set(legacy, forKey: "swiftgram.ayuGram.appearance.v1")
 store.updateForScope(.chatList) { $0.dim = 0.75 }
 expect(store.effectiveSettings(for: .conversation).dim == 0.6, "List adjustment preserves existing conversation")
 let file = root.appendingPathComponent("input.jpg")

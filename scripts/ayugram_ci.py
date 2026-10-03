@@ -208,7 +208,7 @@ def build(source, ci, output, env):
                                            ('04-client-extras.patch', 'client_extras_patch_sha256'),
                                            ('05-refinements.patch', 'refinements_patch_sha256')] +
                                           ([('06-customization.patch', 'customization_patch_sha256')] if variant == 'custom' else []) +
-                                          [('07-ayugram-branding.patch', 'branding_patch_sha256'), ('08-history-and-badges.patch', 'history_ui_patch_sha256')] + ([('09-appearance-refinements.patch', 'appearance_ui_patch_sha256')] if variant == 'custom' else []) + [('10-menu-and-icon-selection.patch', 'icon_selection_patch_sha256'), ('11-shared-profiles.patch', 'shared_profiles_patch_sha256'), ('12-profile-settings-' + variant + '.patch', 'profile_settings_patch_sha256'), ('13-localized-receipts.patch', 'localized_receipts_patch_sha256'), ('14-emoji-without-links.patch', 'emoji_without_links_patch_sha256')]):
+                                          [('07-ayugram-branding.patch', 'branding_patch_sha256'), ('08-history-and-badges.patch', 'history_ui_patch_sha256')] + ([('09-appearance-refinements.patch', 'appearance_ui_patch_sha256')] if variant == 'custom' else []) + [('10-menu-and-icon-selection.patch', 'icon_selection_patch_sha256'), ('11-shared-profiles.patch', 'shared_profiles_patch_sha256'), ('12-profile-settings-' + variant + '.patch', 'profile_settings_patch_sha256'), ('13-localized-receipts.patch', 'localized_receipts_patch_sha256'), ('14-emoji-without-links.patch', 'emoji_without_links_patch_sha256'), ('15-automatic-client-badges.patch', 'automatic_badges_patch_sha256'), ('16-local-premium-settings-' + variant + '.patch', 'local_premium_settings_patch_sha256')] + ([('17-wallpaper-inheritance-custom.patch', 'wallpaper_inheritance_patch_sha256')] if variant == 'custom' else [])):
                     followup = ci / 'patches' / filename
                     entry[hash_key] = hashlib.sha256(followup.read_bytes()).hexdigest()
                     apply_patch(followup, source)
@@ -229,7 +229,8 @@ def build(source, ci, output, env):
                 prepare_branding(source)
                 # Parse the final versions of all changed files before the full build.
                 for relative in sorted(swift_paths):
-                    run(['xcrun', 'swiftc', '-frontend', '-parse', source / relative], cwd=source)
+                    if (source / relative).exists():
+                        run(['xcrun', 'swiftc', '-frontend', '-parse', source / relative], cwd=source)
                 test = source / 'build-input/ayu-client-settings-tests'
                 run(['xcrun', 'swiftc', '-swift-version', '5', '-D', 'AYUGRAM_CLIENT_EXTRAS', '-D', 'AYUGRAM_REFINEMENTS',
                      source / 'Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift',
