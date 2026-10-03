@@ -1,59 +1,23 @@
-# Общие статусы и бейджи AyuGram
+# AyuGram client badges
 
-Сервис размещён в Cloudflare Workers, база D1 создана и привязана, схема выполнена. Адрес: `https://ayugram-sync.ayugram-status.workers.dev`. Бот: `@ayugrampremiumfakerbot`. Проверены живой `/health`, установка webhook через Telegram API, создание ссылки подтверждения и отказ в доступе без авторизации. **Интеграция в iOS-клиент ещё не завершена.** Сборка Custom 16 содержит предыдущие исправления и не содержит этой синхронизации.
+Standard and Custom automatically register the currently signed-in Telegram account's public user ID with https://ayugram-sync.ayugram-status.workers.dev. No bot, separate login, phone number or username is required. The client never sends fake Premium choices, emoji statuses, Telegram credentials, contacts or chat history.
 
-## Что создать
+The member badge is a purple outlined circle with a plane; owner ID 1272887902 keeps the separate filled seal. Updated AyuGram clients display badges after the Telegram Premium/status glyph in profiles, chat titles, chat rows and author headers. Ordinary Telegram clients cannot display these overlays.
 
-1. Аккаунт [Cloudflare](https://dash.cloudflare.com/sign-up), подтвердить почту. Для начального развёртывания используйте Workers Free. Домен покупать не требуется.
-2. Бота через [@BotFather](https://t.me/BotFather), командой `/newbot`. Название произвольное; username должен быть свободным и оканчиваться на `bot`. Токен сохранить приватно.
-3. Worker `ayugram-sync` и базу D1 `ayugram-profiles`. Эти технические шаги можно выполнить после входа в Cloudflare.
+This is an unauthenticated membership registry, not proof of account ownership. Registration grants no Telegram permissions, cannot modify protected profiles and cannot assign an owner role. Legacy profile APIs retain their authentication and are unused by the new client.
 
-Workers Free имеет лимит 100 000 входящих запросов в сутки. D1 также имеет бесплатные лимиты. Данные тарифов: [Workers](https://developers.cloudflare.com/workers/platform/pricing/), [D1](https://developers.cloudflare.com/d1/platform/pricing/).
+Fake Premium and fake emoji status are local preferences again. Patch 15 removes the old profile-sync client and its remote status overrides; patch 16 removes the bot connection section from settings. Native Telegram Premium and status data keep their original backing values.
 
-## Размещение
+Recently visible IDs are looked up in batches of up to 100 once per minute while active. The client bounds visible IDs to 256 and cached results to 512, backs off for 5–300 seconds after errors, rejects HTTP redirects and ignores responses after account switching. Model getters only read cached data. Registration retries automatically. Until it reaches the service, the account's own badge appears locally but cannot be looked up by others.
 
-- Код Worker: `src/worker.mjs`.
-- Схема D1: `schema.sql`. Выполнить её один раз в консоли созданной базы.
-- Привязать базу к Worker с именем binding `DB`.
-- Переменная `BOT_USERNAME`: username созданного бота, без `@`.
-- Переменная `OWNER_TELEGRAM_ID`: `1272887902`.
-- Переменная `PUBLIC_BASE_URL`: `https://ayugram-sync.ayugram-status.workers.dev`.
-- Секрет `BOT_TOKEN`: токен BotFather. Вносится в Cloudflare как encrypted secret; в IPA, GitHub и публичный код он не включается.
-- Секрет `WEBHOOK_SECRET`: случайная строка из разрешённых Telegram символов, минимум 32 символа. Вносится приватно, используется и при настройке Telegram webhook.
-- Webhook бота: `https://<адрес-worker>/telegram/webhook`. Настроить через официальный `setWebhook` с тем же `secret_token` и `allowed_updates: ["message", "callback_query"]`.
-- Для настройки без передачи токена бота клиенту есть `POST /admin/webhook/setup`. Требуется заголовок `X-Telegram-Bot-Api-Secret-Token` с `WEBHOOK_SECRET` длиной минимум 32 символа. Сервис сначала проверяет username бота через `getMe`, затем задаёт webhook только для закреплённого `PUBLIC_BASE_URL`. Административный секрет в IPA не включается.
-- Проверить `GET /health`. Затем проверить вход двумя установками одного аккаунта и просмотр с другого аккаунта.
+CI compiles the production Foundation client, runs its HTTP fixture and typechecks it against the minimum iOS SDK. Tests cover automatic registration, other clients' badges, persistence, account switching, wrong-account responses, foreground behaviour and separation from local Premium. Two-account device testing is still required to confirm rendered UI behaviour.
 
-Для CLI-размещения предназначен `wrangler.jsonc`: заменить placeholders username и ID базы; секреты передать интерактивно через `wrangler secret put`. Файл с реальными секретами не нужен в репозитории.
+## Service endpoints
 
-## Поведение
+- POST /v2/members/register: {"telegramId":"1272887902"} → {"telegramId":"1272887902","registered":true}.
+- POST /v2/members/lookup: {"ids":["1272887902","1"]} → {"members":[...]}.
+- IDs are positive Telegram user IDs encoded as decimal strings, bounded by 2^52−1. Lookups accept at most 100 IDs and JSON bodies at most 8 KiB. Unknown fields are rejected.
+- D1 table client_members is created lazily. It contains only telegram_id and registered_at. Existing protected profile tables and credentials are preserved.
+- Membership rate limiting is bounded per Worker isolate and IP/window. It is an abuse guard, not account authentication or a global registration guarantee.
 
-Ключ профиля — подтверждённый Telegram ID, в JSON передаваемый строкой. Смена username, другая папка LiveContainer или переустановка не создают другой профиль. Номер телефона, переписка, контакты, Telegram session и пароль не передаются сервису.
-
-Каждая установка подтверждается через бота один раз. После согласия пользователя сервис создаёт общий профиль и возвращает отдельный токен установки. `badge: member` обозначает зарегистрированного пользователя; `badge: owner` выдаётся только ID из `OWNER_TELEGRAM_ID`. Назначить себе owner через API нельзя. Вариант рисунка member находится в `assets/member-badge.svg`: самолётик в круге отличается от существующего owner-бейджа.
-
-Статус на сервере включает фейк Premium, ID эмодзи, срок действия и номер версии. Старая установка не может молча затереть более свежий выбор: сервер возвращает `409 revision_conflict`. По истечении срока эмодзи исчезает, регистрация и бейдж сохраняются.
-
-Другие пользователи обновлённого клиента получают общие профили пачкой по ID. Сервис не меняет подписку Telegram; обычные клиенты Telegram эти дополнительные статусы и бейджи не отображают. Настоящий Premium и настоящий Telegram-статус клиент должен сохранять приоритетными.
-
-## Контракт для iOS
-
-1. `POST /v1/auth/start`, JSON `{ "telegramId": "..." }` → `pollToken`, `startUrl`, `expiresAt`. Открыть `startUrl` в Telegram и подтвердить подключение в боте.
-2. `POST /v1/auth/poll`, JSON `{ "pollToken": "..." }`. `202` означает ожидание. `200` возвращает `token`, `telegramId`, `expiresAt`. Проверить, что ID совпадает с текущим вошедшим аккаунтом.
-3. Для остальных маршрутов передавать `Authorization: Bearer <token>`. Токен хранить в Keychain отдельно для каждого аккаунта и установки; не передавать его между аккаунтами.
-4. `GET /v1/me` получает текущий общий профиль. При входе загружать его с сервера; локальные старые настройки не отправлять автоматически.
-5. `PUT /v1/me`, JSON `{ "fakePremium": true, "emojiId": "...", "statusUntil": null, "expectedRevision": 0 }`. ID эмодзи — строка Int64, не JSON number. Для сброса передать `fakePremium: false`, `emojiId: null`, `statusUntil: null`.
-6. `POST /v1/profiles/lookup`, JSON `{ "telegramIds": ["...", "..."] }`, максимум 100 ID. Ответ содержит отдельную запись для каждого ID, включая `registered: false`, если профиль удалён или не существует.
-7. Обновлять видимые профили при входе в приложение, открытии профиля и периодически при активном приложении. Начальный TTL кеша — 60 секунд; не опрашивать в фоне и не передавать весь список контактов. При изменении данных обновлять модель/элементы списка, чтобы менялись уже открытые профили и чаты.
-8. Результат `registered: false` удаляет устаревший бейдж из кеша. При сетевой ошибке сохранять последний кеш и штатные Telegram-данные. Переход на другой аккаунт отменяет старые запросы и очищает их токены из текущего контекста.
-9. `DELETE /v1/session` отключает одну установку. `DELETE /v1/me` удаляет общий профиль, все его сессии и ожидающие подключения. Пользователь выбирает эту операцию в настройках синхронизации.
-
-Локальное хранилище остаётся кешем. Самостоятельное изменение DataFolder не подтверждает регистрацию и не обновляет общий профиль. Старая локальная функция Premium не должна включать либо выключать показ чужих общих статусов.
-
-## Проверки
-
-Запуск: `node --test test/worker.test.mjs` (Node 24).
-
-Проверены общие данные двух установок, просмотр другим пользователем, сохранение 64-битного ID эмодзи без потери точности, подтверждение Telegram ID, защита owner-роли, конфликты версий, истечение статуса/сессии, выход, удаление профиля, повторное получение ответа входа, ограничение запросов регистрации и некорректные данные. Проверка на настоящем Cloudflare и в iOS требуется после развёртывания.
-
-Основные документы: [Bot deep links](https://core.telegram.org/bots/features#deep-linking), [Telegram webhook](https://core.telegram.org/bots/api#setwebhook), [D1 statements](https://developers.cloudflare.com/d1/worker-api/prepared-statements/), [ограничение Telegram Premium](https://core.telegram.org/method/account.updateEmojiStatus).
+Run node --test test/worker.test.mjs with Node 24 to validate real SQLite behaviour. Existing protected API regression tests remain in the suite.
