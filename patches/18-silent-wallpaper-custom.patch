@@ -1,0 +1,75 @@
+diff --git a/submodules/Display/Source/AyuGramBackdropView.swift b/submodules/Display/Source/AyuGramBackdropView.swift
+--- a/submodules/Display/Source/AyuGramBackdropView.swift
++++ b/submodules/Display/Source/AyuGramBackdropView.swift
+@@ -67,14 +67,26 @@
+             if let nextURL {
+                 loadImage(nextURL, video: settings.isVideo)
+                 if settings.isVideo {
+-                    let player = AVQueuePlayer()
+-                    player.isMuted = true
+-                    player.actionAtItemEnd = .none
+-                    self.player = player
+-                    looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: nextURL))
+-                    videoLayer.player = player
+-                    readiness = videoLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in
+-                        DispatchQueue.main.async { self?.updatePlayback() }
++                    let generation = self.generation
++                    let asset = AVURLAsset(url: nextURL)
++                    asset.loadValuesAsynchronously(forKeys: ["tracks"]) { [weak self] in
++                        guard let composition = try? AyuGramSilentVideo.composition(from: asset) else { return }
++                        DispatchQueue.main.async { [weak self] in
++                            guard let self, self.url == nextURL, self.generation == generation else { return }
++                            let player = AVQueuePlayer()
++                            player.isMuted = true
++                            player.volume = 0.0
++                            player.allowsExternalPlayback = false
++                            player.preventsDisplaySleepDuringVideoPlayback = false
++                            player.actionAtItemEnd = .none
++                            self.player = player
++                            self.looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(asset: composition))
++                            self.videoLayer.player = player
++                            self.readiness = self.videoLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in
++                                DispatchQueue.main.async { self?.updatePlayback() }
++                            }
++                            self.updatePlayback()
++                        }
+                     }
+                 }
+             }
+@@ -123,7 +135,9 @@
+     private func updatePlayback() {
+         let settings = AyuGramAppearance.shared.effectiveSettings(for: scope)
+         let playing = window != nil && !isHidden && UIApplication.shared.applicationState == .active && settings.animateVideo && !ProcessInfo.processInfo.isLowPowerModeEnabled && !UIAccessibility.isReduceMotionEnabled
+-        if playing { player?.play() } else { player?.pause() }
++        if playing {
++            if player?.rate == 0.0 { player?.play() }
++        } else { player?.pause() }
+         videoLayer.isHidden = !settings.isVideo || !playing
+         imageView.isHidden = settings.isVideo && playing && videoLayer.isReadyForDisplay
+     }
+diff --git a/submodules/Display/Source/AyuGramSilentVideo.swift b/submodules/Display/Source/AyuGramSilentVideo.swift
+new file mode 100644
+--- /dev/null
++++ b/submodules/Display/Source/AyuGramSilentVideo.swift
+@@ -0,0 +1,21 @@
++import Foundation
++import AVFoundation
++
++enum AyuGramSilentVideo {
++    enum Failure: Error { case noVideo }
++
++    static func composition(from asset: AVAsset) throws -> AVMutableComposition {
++        guard let video = asset.tracks(withMediaType: .video).first else {
++            throw Failure.noVideo
++        }
++        let output = AVMutableComposition()
++        guard let track = output.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
++            throw Failure.noVideo
++        }
++        let range = video.timeRange
++        guard range.duration.isNumeric, CMTimeCompare(range.duration, .zero) > 0 else { throw Failure.noVideo }
++        try track.insertTimeRange(range, of: video, at: .zero)
++        track.preferredTransform = video.preferredTransform
++        return output
++    }
++}
