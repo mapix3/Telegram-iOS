@@ -1,0 +1,83 @@
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsController.swift
+@@ -10,29 +10,18 @@
+ import SGSimpleSettings
+ import SGStrings
+ 
+-private enum AyuSection: Int32, SGItemListSection { case privacy, history, client, sharedProfile }
++private enum AyuSection: Int32, SGItemListSection { case privacy, history, client }
+ private enum AyuToggle: Hashable { case ghost, read, online, typing, recording, uploading, stories, history, premium }
+ private enum AyuSlider: Hashable { case pins }
+-private enum AyuUnused: Hashable { case unused, sharedProfile, disconnectProfile }
++private enum AyuUnused: Hashable { case unused }
+ private typealias AyuEntry = SGItemListUIEntry<AyuSection, AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>
+ 
+ public func ayuGramSettingsController(context: AccountContext) -> ViewController {
+-    let accountId = context.account.peerId.toInt64()
+-    AyuGramProfileSync.shared.observe(peerId: accountId, accountId: accountId)
+-    let syncChanged = Signal<Int, NoError> { subscriber in
+-        subscriber.putNext(0)
+-        let observers = [AyuGramProfileSync.didChange, AyuGramSettings.didChange].map { name in
+-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in subscriber.putNext(0) }
+-        }
+-        return ActionDisposable { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
+-    }
+     var openHistory: (() -> Void)?
+     let changed = ValuePromise<Int>(0, ignoreRepeated: false)
+     let arguments = SGItemListArguments<AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>(context: context, setBoolValue: { key, enabled in
+         if key == .premium {
+-            let status = AyuGramProfileSync.shared.profile(peerId: accountId)?.localStatus ?? AyuGramSettings.shared.localStatus(peerId: accountId)
+             AyuGramSettings.shared.updateClient { $0.localPremium = enabled }
+-            AyuGramProfileSync.shared.publish(accountId: accountId, fakePremium: enabled, status: status)
+         } else {
+             AyuGramSettings.shared.update { settings in
+                 switch key {
+@@ -52,27 +41,14 @@
+     }, updateSliderValue: { _, value in
+         AyuGramSettings.shared.updateClient { $0.maxPinnedChats = value }
+         changed.set(0)
+-    }, openDisclosureLink: { link in
+-        switch link {
+-        case .unused: openHistory?()
+-        case .sharedProfile:
+-            if AyuGramProfileSync.shared.isConnected(accountId: accountId) {
+-                AyuGramProfileSync.shared.refresh(accountId: accountId)
+-            } else {
+-                AyuGramProfileSync.shared.beginAuthentication(accountId: accountId) { url in
+-                    if let url { context.sharedContext.applicationBindings.openUrl(url.absoluteString) }
+-                }
+-            }
+-        case .disconnectProfile: AyuGramProfileSync.shared.disconnect(accountId: accountId)
+-        }
+-    })
+-    let signal = combineLatest(context.sharedContext.presentationData, changed.get(), syncChanged)
++    }, openDisclosureLink: { _ in openHistory?() })
++    let signal = combineLatest(context.sharedContext.presentationData, changed.get())
+     |> deliverOnMainQueue
+-    |> map { data, _, _ -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>)) in
++    |> map { data, _ -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<AyuToggle, AyuSlider, AyuUnused, AyuUnused, AyuUnused>)) in
+         let settings = AyuGramSettings.shared.snapshot
+         let client = AyuGramSettings.shared.client
+         let locale = data.strings.baseLanguageCode
+-        var entries: [AyuEntry] = [
++        let entries: [AyuEntry] = [
+             .header(id: 0, section: .privacy, text: data.strings.Settings_PrivacySettings, badge: nil),
+             .toggle(id: 1, section: .privacy, settingName: .ghost, value: settings.ghostMode, text: i18n("Ayu.Ghost", locale), enabled: true),
+             .toggle(id: 2, section: .privacy, settingName: .read, value: settings.suppressRead, text: i18n("Ayu.HideRead", locale), enabled: !settings.ghostMode),
+@@ -88,14 +64,8 @@
+             .toggle(id: 16, section: .client, settingName: .premium, value: client.localPremium, text: i18n("Ayu.LocalPremium", locale), enabled: true),
+             .header(id: 18, section: .client, text: i18n("Ayu.Pins", locale), badge: nil),
+             .countSlider(id: 19, section: .client, settingName: .pins, value: client.pinnedChatLimit),
+-            .notice(id: 20, section: .client, text: i18n("Ayu.SharedProfileNotice", locale))
++            .notice(id: 20, section: .client, text: i18n("Ayu.LocalOnly", locale))
+         ]
+-        let connected = AyuGramProfileSync.shared.isConnected(accountId: accountId)
+-        let syncState = AyuGramProfileSync.shared.state(accountId: accountId)
+-        entries.append(.header(id: 30, section: .sharedProfile, text: i18n("Ayu.SharedProfile", locale), badge: nil))
+-        entries.append(.disclosure(id: 31, section: .sharedProfile, link: .sharedProfile, text: i18n(connected ? "Ayu.RefreshProfile" : "Ayu.ConnectProfile", locale)))
+-        entries.append(.notice(id: 32, section: .sharedProfile, text: i18n("Ayu.ProfileState." + syncState, locale)))
+-        if connected { entries.append(.disclosure(id: 33, section: .sharedProfile, link: .disconnectProfile, text: i18n("Ayu.DisconnectProfile", locale))) }
+         let state = ItemListControllerState(presentationData: ItemListPresentationData(data), title: .text("AyuGram"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: data.strings.Common_Back))
+         return (state, (ItemListNodeState(presentationData: ItemListPresentationData(data), entries: entries, style: .blocks), arguments))
+     }

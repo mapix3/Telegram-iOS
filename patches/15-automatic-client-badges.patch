@@ -1,0 +1,1634 @@
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramProfileSync.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramProfileSync.swift
+deleted file mode 100644
+--- a/Swiftgram/SGSimpleSettings/Sources/AyuGramProfileSync.swift
++++ /dev/null
+@@ -1,463 +0,0 @@
+-import Foundation
+-import Security
+-
+-public struct AyuGramSharedProfile: Codable, Equatable {
+-    public var telegramId: String
+-    public var registered: Bool
+-    public var badge: String?
+-    public var fakePremium: Bool?
+-    public var emojiId: String?
+-    public var statusUntil: Int32?
+-    public var revision: Int?
+-    public var updatedAt: Int64?
+-
+-    public var peerId: Int64? { Int64(telegramId) }
+-    public var localStatus: AyuGramLocalStatus? {
+-        guard registered, fakePremium == true else { return nil }
+-        if let expiry = statusUntil, TimeInterval(expiry) <= Date().timeIntervalSince1970 { return nil }
+-        return AyuGramLocalStatus(fileId: emojiId.flatMap(Int64.init), expirationDate: statusUntil)
+-    }
+-}
+-
+-public protocol AyuGramProfileTokenStore: AnyObject {
+-    func read(accountId: Int64, installationId: String) -> String?
+-    @discardableResult func write(_ token: String?, accountId: Int64, installationId: String) -> Bool
+-}
+-
+-private final class AyuGramKeychainTokenStore: AyuGramProfileTokenStore {
+-    private func query(accountId: Int64, installationId: String) -> [String: Any] {
+-        return [kSecClass as String: kSecClassGenericPassword,
+-                kSecAttrService as String: "org.ayugram.shared-profile.v1",
+-                kSecAttrAccount as String: "\(installationId).\(accountId)"]
+-    }
+-    func read(accountId: Int64, installationId: String) -> String? {
+-        var attributes = query(accountId: accountId, installationId: installationId)
+-        attributes[kSecReturnData as String] = true
+-        attributes[kSecMatchLimit as String] = kSecMatchLimitOne
+-        var item: CFTypeRef?
+-        guard SecItemCopyMatching(attributes as CFDictionary, &item) == errSecSuccess,
+-              let data = item as? Data else { return nil }
+-        return String(data: data, encoding: .utf8)
+-    }
+-    func write(_ token: String?, accountId: Int64, installationId: String) -> Bool {
+-        let attributes = query(accountId: accountId, installationId: installationId)
+-        guard let token else {
+-            let result = SecItemDelete(attributes as CFDictionary)
+-            return result == errSecSuccess || result == errSecItemNotFound
+-        }
+-        let changes: [String: Any] = [kSecValueData as String: Data(token.utf8),
+-                                     kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+-        let result = SecItemUpdate(attributes as CFDictionary, changes as CFDictionary)
+-        if result == errSecSuccess { return true }
+-        guard result == errSecItemNotFound else { return false }
+-        return SecItemAdd(attributes.merging(changes) { _, new in new } as CFDictionary, nil) == errSecSuccess
+-    }
+-}
+-
+-private final class AyuGramNoRedirectDelegate: NSObject, URLSessionTaskDelegate {
+-    func urlSession(_ session: URLSession, task: URLSessionTask,
+-                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+-                    completionHandler: @escaping (URLRequest?) -> Void) {
+-        completionHandler(nil)
+-    }
+-}
+-
+-public final class AyuGramProfileSync {
+-    public static let shared = AyuGramProfileSync()
+-    public static let didChange = Notification.Name("AyuGram.SharedProfile.didChange")
+-    public static let baseURL = URL(string: "https://ayugram-sync.ayugram-status.workers.dev")!
+-    private struct Cached: Codable {
+-        var profile: AyuGramSharedProfile
+-        var fetchedAt: TimeInterval
+-        var generation: Int64
+-    }
+-    private struct Lookup: Decodable { var profiles: [AyuGramSharedProfile]; var serverTime: Int64 }
+-    private struct Link: Decodable { var pollToken: String; var startUrl: String; var expiresAt: Int64 }
+-    private struct Poll: Decodable { var token: String?; var telegramId: String?; var expiresAt: Int64? }
+-    private struct Conflict: Decodable { var profile: AyuGramSharedProfile }
+-    private let defaults: UserDefaults
+-    private let tokenStore: AyuGramProfileTokenStore
+-    private let session: URLSession
+-    private let installationId: String
+-    private let lock = NSLock()
+-    private var cache: [String: Cached]
+-    private var states: [Int64: String] = [:]
+-    private var connected: Set<Int64> = []
+-    private var accountId: Int64?
+-    private var primarySelectionKnown = false
+-    private var selectedAccountId: Int64?
+-    private var token: String?
+-    private var foreground = true
+-    private var epoch = 0
+-    private var tasks: [UUID: URLSessionDataTask] = [:]
+-    private var visible: [Int64: TimeInterval] = [:]
+-    private var timer: DispatchSourceTimer?
+-    private var pendingLink: Link?
+-    private var polling = false
+-    private var refreshing = false
+-    private var saving = false
+-    private var pendingPublish: (Bool, AyuGramLocalStatus?)?
+-    private var nextRequestAt: TimeInterval = 0
+-    private var retryDelay: TimeInterval = 5
+-    private var lastOwnFetch: TimeInterval = 0
+-    private var expiredStatuses: Set<Int64> = []
+-    private static let cacheKey = "ayugram.shared-profiles.cache.v1"
+-
+-    public init(defaults: UserDefaults = .standard, tokenStore: AyuGramProfileTokenStore? = nil,
+-                session: URLSession? = nil) {
+-        self.defaults = defaults
+-        self.tokenStore = tokenStore ?? AyuGramKeychainTokenStore()
+-        let configuration = URLSessionConfiguration.ephemeral
+-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+-        configuration.timeoutIntervalForRequest = 15
+-        configuration.timeoutIntervalForResource = 20
+-        self.session = session ?? URLSession(configuration: configuration, delegate: AyuGramNoRedirectDelegate(), delegateQueue: nil)
+-        let key = "ayugram.shared-profiles.installation.v1"
+-        let installation = defaults.string(forKey: key) ?? UUID().uuidString
+-        self.installationId = installation
+-        defaults.set(installation, forKey: key)
+-        self.cache = defaults.data(forKey: Self.cacheKey).flatMap { try? JSONDecoder().decode([String: Cached].self, from: $0) } ?? [:]
+-    }
+-
+-    deinit { timer?.cancel(); for task in tasks.values { task.cancel() } }
+-
+-    public func profile(peerId: Int64) -> AyuGramSharedProfile? {
+-        lock.lock(); defer { lock.unlock() }
+-        return cache[String(peerId)]?.profile
+-    }
+-    public func generation(peerId: Int64) -> Int64 {
+-        lock.lock(); defer { lock.unlock() }
+-        return cache[String(peerId)]?.generation ?? 0
+-    }
+-    public func badge(peerId: Int64) -> String? {
+-        if peerId == 1272887902 { return "owner" }
+-        guard let profile = profile(peerId: peerId), profile.registered, profile.badge == "member" else { return nil }
+-        return "member"
+-    }
+-    public func hasPremium(peerId: Int64) -> Bool {
+-        guard let profile = profile(peerId: peerId) else { return false }
+-        return profile.registered && profile.fakePremium == true
+-    }
+-    public func state(accountId: Int64) -> String {
+-        lock.lock(); defer { lock.unlock() }
+-        return states[accountId] ?? "disconnected"
+-    }
+-    public func isConnected(accountId: Int64) -> Bool {
+-        lock.lock(); defer { lock.unlock() }
+-        return connected.contains(accountId)
+-    }
+-    public func setForeground(_ active: Bool) {
+-        DispatchQueue.main.async { [weak self] in
+-            guard let self else { return }
+-            self.foreground = active
+-            if active { self.tick() }
+-        }
+-    }
+-    public func setActiveAccount(_ id: Int64?) {
+-        DispatchQueue.main.async { [weak self] in
+-            guard let self else { return }
+-            self.primarySelectionKnown = true
+-            self.selectedAccountId = id
+-            if let id, id > 0 { self.activate(id); self.tick() }
+-            else {
+-                self.epoch += 1
+-                for task in self.tasks.values { task.cancel() }
+-                self.tasks.removeAll()
+-                self.accountId = nil; self.token = nil
+-                self.pendingLink = nil; self.pendingPublish = nil
+-                self.visible.removeAll()
+-            }
+-        }
+-    }
+-    private func canUse(_ account: Int64) -> Bool {
+-        return !primarySelectionKnown || selectedAccountId == account
+-    }
+-    public func observe(peerId: Int64, accountId: Int64) {
+-        guard peerId > 0, accountId > 0 else { return }
+-        DispatchQueue.main.async { [weak self] in
+-            guard let self else { return }
+-            guard self.canUse(accountId) else { return }
+-            self.activate(accountId)
+-            self.visible[peerId] = Date().timeIntervalSince1970
+-            if self.visible.count > 100 {
+-                self.visible = Dictionary(uniqueKeysWithValues: self.visible.sorted { $0.value > $1.value }.prefix(100).map { ($0.key, $0.value) })
+-            }
+-            self.tick()
+-        }
+-    }
+-    private func activate(_ id: Int64) {
+-        guard accountId != id else { return }
+-        let previousAccount = accountId
+-        epoch += 1
+-        for task in tasks.values { task.cancel() }
+-        tasks.removeAll()
+-        accountId = id
+-        token = tokenStore.read(accountId: id, installationId: installationId)
+-        visible.removeAll()
+-        pendingLink = nil
+-        polling = false; refreshing = false; saving = false
+-        pendingPublish = nil
+-        nextRequestAt = 0; retryDelay = 5
+-        lastOwnFetch = 0
+-        setState(token == nil ? "disconnected" : "connected", account: id)
+-        if let own = profile(peerId: id), own.registered { applyOwn(own, account: id) }
+-        else if previousAccount != nil { AyuGramSettings.shared.updateClient { $0.localPremium = false } }
+-        if timer == nil {
+-            let timer = DispatchSource.makeTimerSource(queue: .main)
+-            timer.schedule(deadline: .now() + 2, repeating: 2)
+-            timer.setEventHandler { [weak self] in self?.tick() }
+-            self.timer = timer
+-            timer.resume()
+-        }
+-    }
+-    private func setState(_ value: String, account: Int64) {
+-        lock.lock()
+-        let changed = states[account] != value
+-        states[account] = value
+-        if token != nil && accountId == account { connected.insert(account) }
+-        else { connected.remove(account) }
+-        lock.unlock()
+-        if changed { notify([]) }
+-    }
+-    private func notify(_ ids: [Int64]) {
+-        NotificationCenter.default.post(name: Self.didChange, object: self, userInfo: ["peerIds": ids])
+-    }
+-    private func applyOwn(_ profile: AyuGramSharedProfile, account: Int64) {
+-        guard accountId == account else { return }
+-        let enabled = profile.registered && profile.fakePremium == true
+-        if AyuGramSettings.shared.client.localPremium != enabled {
+-            AyuGramSettings.shared.updateClient { $0.localPremium = enabled }
+-        }
+-        AyuGramSettings.shared.setLocalStatus(peerId: account, status: nil)
+-    }
+-    private func store(_ profiles: [AyuGramSharedProfile]) {
+-        let now = Date().timeIntervalSince1970
+-        var changed: [Int64] = []
+-        lock.lock()
+-        for profile in profiles {
+-            guard let id = profile.peerId, id > 0 else { continue }
+-            let old = cache[profile.telegramId]
+-            let generation = old?.profile == profile ? old!.generation : max((old?.generation ?? 0) + 1, Int64(now * 1000))
+-            cache[profile.telegramId] = Cached(profile: profile, fetchedAt: now, generation: generation)
+-            if profile.statusUntil == nil || TimeInterval(profile.statusUntil!) > now { expiredStatuses.remove(id) }
+-            if old?.profile != profile { changed.append(id) }
+-        }
+-        if cache.count > 1500 {
+-            let excess = cache.sorted { $0.value.fetchedAt < $1.value.fetchedAt }.prefix(cache.count - 1500)
+-            for entry in excess { cache.removeValue(forKey: entry.key) }
+-        }
+-        let encoded = try? JSONEncoder().encode(cache)
+-        lock.unlock()
+-        if let encoded { defaults.set(encoded, forKey: Self.cacheKey) }
+-        if !changed.isEmpty { notify(changed) }
+-    }
+-    private func request(_ path: String, method: String = "GET", body: [String: Any]? = nil,
+-                         authenticated: Bool = true, completion: @escaping (Int, Data?) -> Void) {
+-        guard let id = accountId, !authenticated || token != nil else { completion(401, nil); return }
+-        var request = URLRequest(url: Self.baseURL.appendingPathComponent(path))
+-        request.httpMethod = method
+-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+-        if authenticated, let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+-        if let body { request.httpBody = try? JSONSerialization.data(withJSONObject: body) }
+-        let version = epoch, identifier = UUID()
+-        let task = session.dataTask(with: request) { [weak self] data, response, error in
+-            DispatchQueue.main.async {
+-                guard let self, self.accountId == id, self.epoch == version else { return }
+-                self.tasks.removeValue(forKey: identifier)
+-                let status = error == nil ? (response as? HTTPURLResponse)?.statusCode ?? 0 : 0
+-                if status == 0 || status >= 500 || status == 429 {
+-                    self.nextRequestAt = Date().timeIntervalSince1970 + self.retryDelay
+-                    self.retryDelay = min(60, self.retryDelay * 2)
+-                } else {
+-                    self.nextRequestAt = 0; self.retryDelay = 5
+-                }
+-                if authenticated && status == 401 {
+-                    self.token = nil
+-                    self.tokenStore.write(nil, accountId: id, installationId: self.installationId)
+-                    self.setState("expired", account: id)
+-                }
+-                completion(status, data)
+-            }
+-        }
+-        tasks[identifier] = task
+-        task.resume()
+-    }
+-    private func tick() {
+-        guard foreground, let id = accountId else { return }
+-        expireCachedStatuses()
+-        guard Date().timeIntervalSince1970 >= nextRequestAt else { return }
+-        if pendingLink != nil { poll(account: id); return }
+-        guard token != nil, !refreshing, !saving else { return }
+-        let now = Date().timeIntervalSince1970
+-        if now - lastOwnFetch >= 60 { refreshOwn(account: id); return }
+-        lock.lock()
+-        let ids = visible.keys.filter { now - (cache[String($0)]?.fetchedAt ?? 0) >= 60 }.prefix(100).map(String.init)
+-        lock.unlock()
+-        guard !ids.isEmpty else { return }
+-        refreshing = true
+-        request("v1/profiles/lookup", method: "POST", body: ["telegramIds": ids]) { [weak self] status, data in
+-            guard let self else { return }
+-            self.refreshing = false
+-            if status == 200, let data, let value = try? JSONDecoder().decode(Lookup.self, from: data) {
+-                let requested = Set(ids)
+-                self.store(value.profiles.filter { requested.contains($0.telegramId) })
+-                if let own = value.profiles.first(where: { $0.peerId == id }) { self.applyOwn(own, account: id) }
+-                self.setState("connected", account: id)
+-                self.flushPublish(account: id)
+-            } else {
+-                self.pendingPublish = nil
+-                if status != 401 { self.setState("error", account: id) }
+-            }
+-        }
+-    }
+-    private func expireCachedStatuses() {
+-        let now = Date().timeIntervalSince1970
+-        var changed: [Int64] = []
+-        lock.lock()
+-        for (key, entry) in cache {
+-            guard let id = entry.profile.peerId, let expiry = entry.profile.statusUntil,
+-                  TimeInterval(expiry) <= now, !expiredStatuses.contains(id) else { continue }
+-            expiredStatuses.insert(id)
+-            cache[key]?.generation += 1
+-            changed.append(id)
+-        }
+-        lock.unlock()
+-        if !changed.isEmpty { notify(changed) }
+-    }
+-    private func flushPublish(account: Int64) {
+-        if let pending = pendingPublish {
+-            pendingPublish = nil
+-            publishNow(account: account, fakePremium: pending.0, status: pending.1)
+-        }
+-    }
+-    public func refresh(accountId: Int64) {
+-        DispatchQueue.main.async { [weak self] in
+-            guard let self else { return }
+-            guard self.canUse(accountId) else { return }
+-            self.activate(accountId)
+-            self.lastOwnFetch = 0
+-            self.tick()
+-        }
+-    }
+-    private func refreshOwn(account: Int64) {
+-        refreshing = true
+-        lastOwnFetch = Date().timeIntervalSince1970
+-        request("v1/me") { [weak self] status, data in
+-            guard let self else { return }
+-            self.refreshing = false
+-            if status == 200, let data, let profile = try? JSONDecoder().decode(AyuGramSharedProfile.self, from: data), profile.peerId == account {
+-                self.store([profile]); self.applyOwn(profile, account: account)
+-                self.setState("connected", account: account)
+-                self.flushPublish(account: account)
+-            } else {
+-                self.pendingPublish = nil
+-                if status != 401 { self.setState("error", account: account) }
+-            }
+-        }
+-    }
+-    public func beginAuthentication(accountId: Int64, completion: @escaping (URL?) -> Void) {
+-        DispatchQueue.main.async { [weak self] in
+-            guard let self else { return }
+-            guard self.canUse(accountId) else { completion(nil); return }
+-            self.activate(accountId)
+-            self.setState("connecting", account: accountId)
+-            self.request("v1/auth/start", method: "POST", body: ["telegramId": String(accountId)], authenticated: false) { [weak self] status, data in
+-                guard let self else { return }
+-                guard status == 200, let data, let link = try? JSONDecoder().decode(Link.self, from: data),
+-                      link.expiresAt > Int64(Date().timeIntervalSince1970), let url = URL(string: link.startUrl),
+-                      url.scheme == "https", url.host == "t.me", url.path == "/ayugrampremiumfakerbot" else {
+-                    self.setState("error", account: accountId); completion(nil); return
+-                }
+-                self.pendingLink = link
+-                completion(url)
+-            }
+-        }
+-    }
+-    private func poll(account: Int64) {
+-        guard !polling, let link = pendingLink else { return }
+-        guard link.expiresAt > Int64(Date().timeIntervalSince1970) else {
+-            pendingLink = nil; setState("expired", account: account); return
+-        }
+-        polling = true
+-        request("v1/auth/poll", method: "POST", body: ["pollToken": link.pollToken], authenticated: false) { [weak self] status, data in
+-            guard let self else { return }
+-            self.polling = false
+-            if status == 202 { return }
+-            guard status == 200, let data, let result = try? JSONDecoder().decode(Poll.self, from: data),
+-                  result.telegramId == String(account), let token = result.token, token.count == 64,
+-                  token.allSatisfy({ "0123456789abcdef".contains($0) }),
+-                  (result.expiresAt ?? 0) > Int64(Date().timeIntervalSince1970) else {
+-                if status == 410 { self.pendingLink = nil; self.setState("expired", account: account) }
+-                else { self.setState("error", account: account) }
+-                return
+-            }
+-            guard self.tokenStore.write(token, accountId: account, installationId: self.installationId) else {
+-                self.setState("error", account: account); return
+-            }
+-            self.token = token
+-            self.pendingLink = nil
+-            self.setState("connected", account: account)
+-            self.lastOwnFetch = 0
+-            self.tick()
+-        }
+-    }
+-    public func publish(accountId: Int64, fakePremium: Bool, status: AyuGramLocalStatus?) {
+-        DispatchQueue.main.async { [weak self] in
+-            guard let self else { return }
+-            guard self.canUse(accountId) else { return }
+-            self.activate(accountId)
+-            self.publishNow(account: accountId, fakePremium: fakePremium, status: status)
+-        }
+-    }
+-    private func publishNow(account accountId: Int64, fakePremium: Bool, status: AyuGramLocalStatus?) {
+-            guard self.token != nil else { return }
+-            if self.saving || self.refreshing {
+-                self.pendingPublish = (fakePremium, status); return
+-            }
+-            guard let own = self.profile(peerId: accountId), let revision = own.revision else {
+-                self.pendingPublish = (fakePremium, status)
+-                self.refreshOwn(account: accountId); return
+-            }
+-            self.saving = true
+-            self.setState("saving", account: accountId)
+-            let emojiId = fakePremium ? status?.fileId.map(String.init) : nil
+-            let expiry = emojiId == nil ? nil : status?.expirationDate
+-            let body: [String: Any] = ["fakePremium": fakePremium, "emojiId": emojiId.map { $0 as Any } ?? NSNull(),
+-                                      "statusUntil": expiry.map { $0 as Any } ?? NSNull(), "expectedRevision": revision]
+-            self.request("v1/me", method: "PUT", body: body) { [weak self] code, data in
+-                guard let self else { return }
+-                self.saving = false
+-                if code == 200, let data, let profile = try? JSONDecoder().decode(AyuGramSharedProfile.self, from: data), profile.peerId == accountId {
+-                    self.store([profile]); self.applyOwn(profile, account: accountId)
+-                    self.setState("connected", account: accountId)
+-                    self.flushPublish(account: accountId)
+-                } else if code == 409, let data, let conflict = try? JSONDecoder().decode(Conflict.self, from: data), conflict.profile.peerId == accountId {
+-                    self.store([conflict.profile]); self.applyOwn(conflict.profile, account: accountId)
+-                    self.pendingPublish = nil
+-                    self.setState("conflict", account: accountId)
+-                } else {
+-                    self.pendingPublish = nil
+-                    if code != 401 { self.setState("error", account: accountId) }
+-                }
+-            }
+-    }
+-    public func disconnect(accountId: Int64) {
+-        DispatchQueue.main.async { [weak self] in
+-            guard let self else { return }
+-            guard self.canUse(accountId) else { return }
+-            self.activate(accountId)
+-            self.request("v1/session", method: "DELETE") { [weak self] code, _ in
+-                guard let self else { return }
+-                guard code == 200 || code == 401 else { self.setState("error", account: accountId); return }
+-                self.epoch += 1
+-                for task in self.tasks.values { task.cancel() }
+-                self.tasks.removeAll()
+-                self.token = nil
+-                self.tokenStore.write(nil, accountId: accountId, installationId: self.installationId)
+-                self.pendingLink = nil
+-                self.pendingPublish = nil
+-                self.setState("disconnected", account: accountId)
+-            }
+-        }
+-    }
+-}
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramClientBadges.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramClientBadges.swift
+new file mode 100644
+--- /dev/null
++++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramClientBadges.swift
+@@ -0,0 +1,154 @@
++import Foundation
++
++private final class AyuGramBadgeRedirectDelegate: NSObject, URLSessionTaskDelegate {
++    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
++                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
++        completionHandler(nil)
++    }
++}
++
++public final class AyuGramClientBadges {
++    public static let shared = AyuGramClientBadges()
++    public static let didChange = Notification.Name("AyuGram.ClientBadges.didChange")
++    public static let baseURL = URL(string: "https://ayugram-sync.ayugram-status.workers.dev")!
++    private struct Member: Codable { var telegramId: String; var registered: Bool }
++    private struct Lookup: Decodable { var members: [Member] }
++    private struct Cached: Codable { var registered: Bool; var checkedAt: TimeInterval; var generation: Int64 }
++    private let lock = NSLock()
++    private let defaults: UserDefaults
++    private let session: URLSession
++    private let cacheKey = "ayugram.client-badges.cache.v1"
++    private var cache: [String: Cached] = [:]
++    private var visible: [Int64: TimeInterval] = [:]
++    private var activeAccount: Int64?
++    private var foreground = true
++    private var nextRequestAt: TimeInterval = 0
++    private var ownRegistrationAt: TimeInterval = 0
++    private var retryDelay: TimeInterval = 5
++    private var task: URLSessionDataTask?
++    private var timer: DispatchSourceTimer?
++    private var epoch: Int64 = 0
++
++    public init(defaults: UserDefaults = .standard, session: URLSession? = nil, startTimer: Bool = true) {
++        self.defaults = defaults
++        let configuration = URLSessionConfiguration.ephemeral
++        configuration.timeoutIntervalForRequest = 15
++        configuration.timeoutIntervalForResource = 20
++        self.session = session ?? URLSession(configuration: configuration, delegate: AyuGramBadgeRedirectDelegate(), delegateQueue: nil)
++        if let data = defaults.data(forKey: cacheKey), let cached = try? JSONDecoder().decode([String: Cached].self, from: data) {
++            cache = cached.filter { key, value in
++                guard let id = Int64(key), Self.valid(id) else { return false }
++                return Date().timeIntervalSince1970 - value.checkedAt < 86400
++            }
++        }
++        if startTimer {
++            let timer = DispatchSource.makeTimerSource(queue: .main)
++            timer.schedule(deadline: .now() + 5, repeating: 15)
++            timer.setEventHandler { [weak self] in self?.refresh() }
++            self.timer = timer
++            timer.resume()
++        }
++    }
++    deinit { timer?.cancel(); task?.cancel() }
++    private static func valid(_ id: Int64) -> Bool { id > 0 && id <= 4503599627370495 }
++    public func badge(peerId: Int64) -> String? {
++        guard Self.valid(peerId) else { return nil }
++        if peerId == 1272887902 { return "owner" }
++        lock.lock(); defer { lock.unlock() }
++        return activeAccount == peerId || cache[String(peerId)]?.registered == true ? "member" : nil
++    }
++    public func generation(peerId: Int64) -> Int64 {
++        lock.lock(); defer { lock.unlock() }
++        return cache[String(peerId)]?.generation ?? 0
++    }
++    public func observe(peerId: Int64, accountId: Int64) {
++        guard Self.valid(peerId), Self.valid(accountId) else { return }
++        lock.lock()
++        visible[peerId] = Date().timeIntervalSince1970
++        if visible.count > 256 { visible = Dictionary(uniqueKeysWithValues: visible.sorted { $0.value > $1.value }.prefix(256).map { ($0.key, $0.value) }) }
++        lock.unlock()
++        DispatchQueue.main.async { [weak self] in self?.refresh() }
++    }
++    public func setActiveAccount(_ id: Int64?) {
++        let id = id.flatMap { Self.valid($0) ? $0 : nil }
++        lock.lock()
++        guard activeAccount != id else { lock.unlock(); return }
++        let previous = activeAccount
++        activeAccount = id
++        epoch += 1
++        task?.cancel(); task = nil
++        ownRegistrationAt = 0; nextRequestAt = 0; retryDelay = 5
++        if let previous, var cached = cache[String(previous)] { cached.generation += 1; cache[String(previous)] = cached }
++        if let id {
++            let old = cache[String(id)]
++            cache[String(id)] = Cached(registered: old?.registered ?? false, checkedAt: old?.checkedAt ?? 0, generation: (old?.generation ?? 0) + 1)
++        }
++        lock.unlock()
++        notify([previous, id].compactMap { $0 })
++        refresh()
++    }
++    public func setForeground(_ value: Bool) {
++        lock.lock(); foreground = value; lock.unlock()
++        if value { refresh() }
++    }
++    private func notify(_ ids: [Int64]) {
++        guard !ids.isEmpty else { return }
++        DispatchQueue.main.async {
++            NotificationCenter.default.post(name: Self.didChange, object: self, userInfo: ["peerIds": ids])
++        }
++    }
++    public func refresh() {
++        lock.lock()
++        let now = Date().timeIntervalSince1970
++        guard foreground, let account = activeAccount, task == nil, now >= nextRequestAt else { lock.unlock(); return }
++        visible = visible.filter { now - $0.value < 180 }
++        let registering = now - ownRegistrationAt >= 3600
++        let ids = registering ? [account] : Array(visible.keys.filter { now - (cache[String($0)]?.checkedAt ?? 0) >= 60 }.sorted().prefix(100))
++        guard !ids.isEmpty else { lock.unlock(); return }
++        let requestEpoch = epoch
++        var request = URLRequest(url: Self.baseURL.appendingPathComponent(registering ? "v2/members/register" : "v2/members/lookup"))
++        request.httpMethod = "POST"
++        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
++        let payload: [String: Any] = registering ? ["telegramId": String(account)] : ["ids": ids.map(String.init)]
++        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
++        let created = session.dataTask(with: request) { [weak self] data, response, _ in
++            self?.complete(data: data, response: response, ids: ids, registering: registering, requestEpoch: requestEpoch)
++        }
++        task = created
++        lock.unlock()
++        created.resume()
++    }
++    private func complete(data: Data?, response: URLResponse?, ids: [Int64], registering: Bool, requestEpoch: Int64) {
++        let result: [Member]?
++        if let data, data.count <= 65536, (response as? HTTPURLResponse)?.statusCode == 200 {
++            if registering { result = (try? JSONDecoder().decode(Member.self, from: data)).map { [$0] } }
++            else { result = (try? JSONDecoder().decode(Lookup.self, from: data))?.members }
++        } else { result = nil }
++        lock.lock()
++        guard requestEpoch == epoch else { lock.unlock(); return }
++        task = nil
++        let now = Date().timeIntervalSince1970
++        let parsed = result?.compactMap { member -> (Int64, Member)? in
++            guard let id = Int64(member.telegramId), Self.valid(id), ids.contains(id) else { return nil }
++            return (id, member)
++        }
++        guard let parsed, parsed.count == ids.count, Set(parsed.map { $0.0 }) == Set(ids), !registering || parsed.allSatisfy({ $0.1.registered }) else {
++            nextRequestAt = now + retryDelay
++            retryDelay = min(300, retryDelay * 2)
++            lock.unlock(); return
++        }
++        var changed: [Int64] = []
++        for (id, member) in parsed {
++            let old = cache[String(id)]
++            let generation = (old?.generation ?? 0) + (old?.registered == member.registered ? 0 : 1)
++            cache[String(id)] = Cached(registered: member.registered, checkedAt: now, generation: generation)
++            if old?.registered != member.registered { changed.append(id) }
++        }
++        if registering { ownRegistrationAt = now }
++        retryDelay = 5; nextRequestAt = now + 1
++        if cache.count > 512 { cache = Dictionary(uniqueKeysWithValues: cache.sorted { $0.value.checkedAt > $1.value.checkedAt }.prefix(512).map { ($0.key, $0.value) }) }
++        if let data = try? JSONEncoder().encode(cache) { defaults.set(data, forKey: cacheKey) }
++        lock.unlock()
++        notify(changed)
++    }
++}
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swift
+--- a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swift
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramUser.swift
+@@ -169,9 +169,6 @@
+     public let ayuSharedGeneration: Int64
+     let ayuServerEmojiStatus: PeerEmojiStatus?
+     public var emojiStatus: PeerEmojiStatus? {
+-        if !flags.contains(.isPremium), let profile = AyuGramProfileSync.shared.profile(peerId: id.toInt64()), profile.registered {
+-            return profile.localStatus?.fileId.map { PeerEmojiStatus(content: .emoji(fileId: $0), expirationDate: profile.statusUntil) }
+-        }
+         if !flags.contains(.isPremium), let status = AyuGramSettings.shared.localStatus(peerId: id.toInt64()) {
+             return status.fileId.map { PeerEmojiStatus(content: .emoji(fileId: $0), expirationDate: status.expirationDate) }
+         }
+@@ -289,7 +286,7 @@
+     ) {
+         let ayuPeerId = id
+         self.id = ayuPeerId
+-        self.ayuSharedGeneration = AyuGramProfileSync.shared.generation(peerId: ayuPeerId.toInt64())
++        self.ayuSharedGeneration = AyuGramClientBadges.shared.generation(peerId: ayuPeerId.toInt64())
+         self.accessHash = accessHash
+         self.firstName = firstName
+         self.lastName = lastName
+@@ -314,7 +311,7 @@
+     public init(decoder: PostboxDecoder) {
+         let ayuPeerId = PeerId(decoder.decodeInt64ForKey("i", orElse: 0))
+         self.id = ayuPeerId
+-        self.ayuSharedGeneration = AyuGramProfileSync.shared.generation(peerId: ayuPeerId.toInt64())
++        self.ayuSharedGeneration = AyuGramClientBadges.shared.generation(peerId: ayuPeerId.toInt64())
+         
+         let accessHash: Int64 = decoder.decodeInt64ForKey("ah", orElse: 0)
+         let accessHashType: Int32 = decoder.decodeInt32ForKey("aht", orElse: 0)
+@@ -615,7 +612,7 @@
+     public init(flatBuffersObject: TelegramCore_TelegramUser) throws {
+         let ayuPeerId = PeerId(flatBuffersObject.id)
+         self.id = ayuPeerId
+-        self.ayuSharedGeneration = AyuGramProfileSync.shared.generation(peerId: ayuPeerId.toInt64())
++        self.ayuSharedGeneration = AyuGramClientBadges.shared.generation(peerId: ayuPeerId.toInt64())
+         self.accessHash = try flatBuffersObject.accessHash.flatMap(TelegramPeerAccessHash.init)
+         self.firstName = flatBuffersObject.firstName
+         self.lastName = flatBuffersObject.lastName
+diff --git a/submodules/TelegramUI/Sources/AccountContext.swift b/submodules/TelegramUI/Sources/AccountContext.swift
+--- a/submodules/TelegramUI/Sources/AccountContext.swift
++++ b/submodules/TelegramUI/Sources/AccountContext.swift
+@@ -508,8 +508,8 @@
+             (self.animationRenderer as? DCTMultiAnimationRendererImpl)?.useYuvA = settings.compressedEmojiCache
+         })
+         self.ayuProfileForegroundDisposable = (sharedContext.applicationBindings.applicationInForeground
+-        |> deliverOnMainQueue).start(next: { active in AyuGramProfileSync.shared.setForeground(active) })
+-        self.ayuProfileObserver = NotificationCenter.default.addObserver(forName: AyuGramProfileSync.didChange, object: nil, queue: .main) { [weak self] notification in
++        |> deliverOnMainQueue).start(next: { active in AyuGramClientBadges.shared.setForeground(active) })
++        self.ayuProfileObserver = NotificationCenter.default.addObserver(forName: AyuGramClientBadges.didChange, object: nil, queue: .main) { [weak self] notification in
+             guard let self, let ids = notification.userInfo?["peerIds"] as? [Int64], !ids.isEmpty else { return }
+             let _ = self.account.postbox.transaction { transaction -> Void in
+                 for id in ids where id > 0 {
+diff --git a/submodules/TelegramUI/Sources/SharedAccountContext.swift b/submodules/TelegramUI/Sources/SharedAccountContext.swift
+--- a/submodules/TelegramUI/Sources/SharedAccountContext.swift
++++ b/submodules/TelegramUI/Sources/SharedAccountContext.swift
+@@ -822,7 +822,7 @@
+                 if hadUpdates {
+                     self.activeAccountsValue!.accounts.sort(by: { $0.2 < $1.2 })
+                     self.activeAccountsPromise.set(.single(self.activeAccountsValue!))
+-                    AyuGramProfileSync.shared.setActiveAccount(self.activeAccountsValue!.primary?.account.peerId.toInt64())
++                    AyuGramClientBadges.shared.setActiveAccount(self.activeAccountsValue!.primary?.account.peerId.toInt64())
+                     
+                     self.performAccountSettingsImportIfNecessary()
+                 }
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift b/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/AccountData/TelegramEngineAccountData.swift
+@@ -155,7 +155,7 @@
+             |> mapToSignal { isPremium -> Signal<Never, NoError> in
+                 let localOnly = !isPremium && AyuGramSettings.shared.client.localPremium
+                 AyuGramSettings.shared.setLocalStatus(peerId: self.account.peerId.toInt64(), status: localOnly ? AyuGramLocalStatus(fileId: file?.fileId.id, expirationDate: expirationDate) : nil)
+-                AyuGramProfileSync.shared.publish(accountId: self.account.peerId.toInt64(), fakePremium: localOnly, status: localOnly ? AyuGramLocalStatus(fileId: file?.fileId.id, expirationDate: expirationDate) : nil)
++
+                 return self.ayuApplyEmojiStatus(file: file, expirationDate: expirationDate, localOnly: localOnly)
+             }
+         }
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+@@ -643,7 +643,7 @@
+                 credibilityIcon = .scam
+             } else if let emojiStatus = peer.emojiStatus {
+                 statusIcon = .emojiStatus(emojiStatus)
+-            } else if (peer.isPremium || AyuGramProfileSync.shared.hasPremium(peerId: peer.id.toInt64()) || (peer.id == self.context.account.peerId && AyuGramSettings.shared.client.localPremium)) && !premiumConfiguration.isPremiumDisabled && (peer.id != self.context.account.peerId || self.isSettings || self.isMyProfile) {
++            } else if (peer.isPremium || (peer.id == self.context.account.peerId && AyuGramSettings.shared.client.localPremium)) && !premiumConfiguration.isPremiumDisabled && (peer.id != self.context.account.peerId || self.isSettings || self.isMyProfile) {
+                 credibilityIcon = .premium
+             } else {
+                 credibilityIcon = .none
+@@ -1231,7 +1231,7 @@
+         var panelSubtitleString: (text: String, attributes: MultiScaleTextState.Attributes)?
+         let usernameString: (text: String, attributes: MultiScaleTextState.Attributes)
+         if let peer = peer {
+-            isPremium = peer.isPremium || AyuGramProfileSync.shared.hasPremium(peerId: peer.id.toInt64()) || (peer.id == self.context.account.peerId && AyuGramSettings.shared.client.localPremium)
++            isPremium = peer.isPremium || (peer.id == self.context.account.peerId && AyuGramSettings.shared.client.localPremium)
+             isVerified = peer.isVerified
+             isFake = peer.isFake || peer.isScam
+         }
+@@ -1659,10 +1659,10 @@
+             }
+         }
+         
+-        let ayuBadge = peer.flatMap { $0.id.namespace == Namespaces.Peer.CloudUser ? AyuGramProfileSync.shared.badge(peerId: $0.id.toInt64()) : nil }
++        let ayuBadge = peer.flatMap { $0.id.namespace == Namespaces.Peer.CloudUser ? AyuGramClientBadges.shared.badge(peerId: $0.id.toInt64()) : nil }
+         let ayuOwner = ayuBadge != nil
+         if let peer, peer.id.namespace == Namespaces.Peer.CloudUser {
+-            AyuGramProfileSync.shared.observe(peerId: peer.id.toInt64(), accountId: self.context.account.peerId.toInt64())
++            AyuGramClientBadges.shared.observe(peerId: peer.id.toInt64(), accountId: self.context.account.peerId.toInt64())
+         }
+         let ayuBadgeImage = ayuBadge == "member" ? ayuGramMemberBadgeImage() : ayuGramOwnerBadgeImage()
+         self.ayuOwnerBadge.image = ayuBadgeImage
+diff --git a/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift b/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift
+--- a/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift
++++ b/submodules/TelegramUI/Components/ChatTitleView/Sources/ChatTitleView.swift
+@@ -312,7 +312,7 @@
+                                         titleCredibilityIcon = .scam
+                                     } else if !hidePeerStatus, let emojiStatus = peer.emojiStatus {
+                                         titleStatusIcon = .emojiStatus(emojiStatus)
+-                                    } else if (peer.isPremium || AyuGramProfileSync.shared.hasPremium(peerId: peer.id.toInt64())) && !premiumConfiguration.isPremiumDisabled {
++                                    } else if (peer.isPremium) && !premiumConfiguration.isPremiumDisabled {
+                                         titleCredibilityIcon = .premium
+                                     }
+                                     
+@@ -1010,8 +1010,8 @@
+         
+         var ayuBadge: String?
+         if case let .peer(peerData, _, _, _, _, _, _, _, _) = self.titleContent, let peer = peerData.peer, peer.id.namespace == Namespaces.Peer.CloudUser {
+-            ayuBadge = AyuGramProfileSync.shared.badge(peerId: peer.id.toInt64())
+-            AyuGramProfileSync.shared.observe(peerId: peer.id.toInt64(), accountId: self.context.account.peerId.toInt64())
++            ayuBadge = AyuGramClientBadges.shared.badge(peerId: peer.id.toInt64())
++            AyuGramClientBadges.shared.observe(peerId: peer.id.toInt64(), accountId: self.context.account.peerId.toInt64())
+         }
+         let ayuOwner = ayuBadge != nil
+         self.ayuOwnerBadge.image = ayuBadge == "member" ? ayuGramMemberBadgeImage() : ayuGramOwnerBadgeImage()
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+@@ -2122,11 +2122,11 @@
+             }
+         }
+         
+-        let ayuBadge = effectiveAuthor.flatMap { $0.id.namespace == Namespaces.Peer.CloudUser ? AyuGramProfileSync.shared.badge(peerId: $0.id.toInt64()) : nil }
++        let ayuBadge = effectiveAuthor.flatMap { $0.id.namespace == Namespaces.Peer.CloudUser ? AyuGramClientBadges.shared.badge(peerId: $0.id.toInt64()) : nil }
+         let ayuOwner = ayuBadge != nil
+         let ayuMember = ayuBadge == "member"
+         if let author = effectiveAuthor, author.id.namespace == Namespaces.Peer.CloudUser {
+-            AyuGramProfileSync.shared.observe(peerId: author.id.toInt64(), accountId: item.context.account.peerId.toInt64())
++            AyuGramClientBadges.shared.observe(peerId: author.id.toInt64(), accountId: item.context.account.peerId.toInt64())
+         }
+         var authorNameString: String?
+         var authorRank: CachedChannelAdminRank?
+@@ -2555,7 +2555,7 @@
+                     currentCredibilityIcon = (.animation(content: .customEmoji(fileId: emojiStatus.fileId), size: CGSize(width: 20.0, height: 20.0), placeholderColor: incoming ? item.presentationData.theme.theme.chat.message.incoming.mediaPlaceholderColor : item.presentationData.theme.theme.chat.message.outgoing.mediaPlaceholderColor, themeColor: color.withMultipliedAlpha(0.4), loopMode: .count(2)), emojiStatus.color.flatMap { UIColor(rgb: UInt32(bitPattern: $0)) })
+                 } else if effectiveAuthor.isVerified {
+                     currentCredibilityIcon = (.verified(fillColor: item.presentationData.theme.theme.list.itemCheckColors.fillColor, foregroundColor: item.presentationData.theme.theme.list.itemCheckColors.foregroundColor, sizeType: .compact), nil)
+-                } else if effectiveAuthor.isPremium || AyuGramProfileSync.shared.hasPremium(peerId: effectiveAuthor.id.toInt64()) {
++                } else if effectiveAuthor.isPremium {
+                     currentCredibilityIcon = (.premium(color: color.withMultipliedAlpha(0.4)), nil)
+                 }
+             }
+diff --git a/submodules/ChatListUI/Sources/Node/ChatListItem.swift b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+--- a/submodules/ChatListUI/Sources/Node/ChatListItem.swift
++++ b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+@@ -3535,8 +3535,8 @@
+             
+             var ayuBadge: String?
+             if case let .chat(itemPeer) = contentPeer, let peer = itemPeer.chatOrMonoforumMainPeer, peer.id.namespace == Namespaces.Peer.CloudUser {
+-                ayuBadge = AyuGramProfileSync.shared.badge(peerId: peer.id.toInt64())
+-                AyuGramProfileSync.shared.observe(peerId: peer.id.toInt64(), accountId: item.context.account.peerId.toInt64())
++                ayuBadge = AyuGramClientBadges.shared.badge(peerId: peer.id.toInt64())
++                AyuGramClientBadges.shared.observe(peerId: peer.id.toInt64(), accountId: item.context.account.peerId.toInt64())
+             }
+             let ayuOwner = ayuBadge != nil
+             let ayuMember = ayuBadge == "member"
+@@ -3598,7 +3598,7 @@
+                                 if let color = emojiStatus.color {
+                                     currentStatusIconParticleColor = UIColor(rgb: UInt32(bitPattern: color))
+                                 }
+-                            } else if (peer.isPremium || AyuGramProfileSync.shared.hasPremium(peerId: peer.id.toInt64())) && !premiumConfiguration.isPremiumDisabled {
++                            } else if (peer.isPremium) && !premiumConfiguration.isPremiumDisabled {
+                                 currentCredibilityIconContent = .premium(color: item.presentationData.theme.list.itemAccentColor)
+                             }
+                             
+@@ -3629,7 +3629,7 @@
+                         if let color = emojiStatus.color {
+                             currentStatusIconParticleColor = UIColor(rgb: UInt32(bitPattern: color))
+                         }
+-                    } else if (peer.isPremium || AyuGramProfileSync.shared.hasPremium(peerId: peer.id.toInt64())) && !premiumConfiguration.isPremiumDisabled {
++                    } else if (peer.isPremium) && !premiumConfiguration.isPremiumDisabled {
+                         currentCredibilityIconContent = .premium(color: item.presentationData.theme.list.itemAccentColor)
+                     }
+                     
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Stuur";
+ "Ayu.ReceiptSent" = "Bevestiging gestuur";
+ "Ayu.ReceiptError" = "Kon nie die bevestiging stuur nie. Kontroleer die verbinding en probeer weer.";
+-"Ayu.SharedProfile" = "Gedeelde profiel";
+-"Ayu.ConnectProfile" = "Koppel rekening";
+-"Ayu.RefreshProfile" = "Verfris profiel";
+-"Ayu.DisconnectProfile" = "Ontkoppel hierdie toestel";
+-"Ayu.SharedProfileNotice" = "Ná bevestiging in die bot is jou kenteken en status vir ander AyuGram-gebruikers sigbaar.";
+-"Ayu.ProfileState.disconnected" = "Koppel deur die bot om jou profiel te sinkroniseer.";
+-"Ayu.ProfileState.connecting" = "Bevestig die rekening in die bot.";
+-"Ayu.ProfileState.connected" = "Gekoppel";
+-"Ayu.ProfileState.expired" = "Bevestiging het verval. Koppel weer.";
+-"Ayu.ProfileState.error" = "Kon nie sinkroniseer nie. Probeer verfris.";
+-"Ayu.ProfileState.saving" = "Stoor…";
+-"Ayu.ProfileState.conflict" = "’n Ander toestel het die profiel verander. Die jongste instellings is gelaai.";
+ "Ayu.IconChangeUnavailable" = "Jou keuse is in die toepassing gestoor. iOS kon nie die tuisskermikoon verander nie.";
+ "Ayu.LocalPremium" = "Plaaslike Premium";
+ "Ayu.Pins" = "Maksimum vasgespelde geselsies";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "إرسال";
+ "Ayu.ReceiptSent" = "تم إرسال الإشعار";
+ "Ayu.ReceiptError" = "تعذر إرسال الإشعار. تحقق من الاتصال وحاول مجددًا.";
+-"Ayu.SharedProfile" = "الملف المشترك";
+-"Ayu.ConnectProfile" = "ربط الحساب";
+-"Ayu.RefreshProfile" = "تحديث الملف";
+-"Ayu.DisconnectProfile" = "فصل هذا الجهاز";
+-"Ayu.SharedProfileNotice" = "بعد التأكيد في البوت، تظهر شارتك وحالتك لمستخدمي AyuGram الآخرين.";
+-"Ayu.ProfileState.disconnected" = "اربط الحساب عبر البوت لمزامنة ملفك.";
+-"Ayu.ProfileState.connecting" = "أكد الحساب في البوت.";
+-"Ayu.ProfileState.connected" = "متصل";
+-"Ayu.ProfileState.expired" = "انتهت صلاحية التأكيد. اربط الحساب مجددًا.";
+-"Ayu.ProfileState.error" = "تعذرت المزامنة. حاول التحديث.";
+-"Ayu.ProfileState.saving" = "جارٍ الحفظ…";
+-"Ayu.ProfileState.conflict" = "غيّر جهاز آخر الملف. تم تحميل أحدث إعداداته.";
+ "Ayu.IconChangeUnavailable" = "تم حفظ اختيارك في التطبيق. تعذر على iOS تغيير أيقونة الشاشة الرئيسية.";
+ "Ayu.LocalPremium" = "Premium محلي";
+ "Ayu.Pins" = "أقصى عدد للمحادثات المثبتة";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Envia";
+ "Ayu.ReceiptSent" = "Confirmació enviada";
+ "Ayu.ReceiptError" = "No s’ha pogut enviar la confirmació. Comprova la connexió i torna-ho a provar.";
+-"Ayu.SharedProfile" = "Perfil compartit";
+-"Ayu.ConnectProfile" = "Connecta el compte";
+-"Ayu.RefreshProfile" = "Actualitza el perfil";
+-"Ayu.DisconnectProfile" = "Desconnecta aquest dispositiu";
+-"Ayu.SharedProfileNotice" = "Després de confirmar al bot, altres usuaris d’AyuGram veuen la teva insígnia i estat.";
+-"Ayu.ProfileState.disconnected" = "Connecta’t amb el bot per sincronitzar el perfil.";
+-"Ayu.ProfileState.connecting" = "Confirma el compte al bot.";
+-"Ayu.ProfileState.connected" = "Connectat";
+-"Ayu.ProfileState.expired" = "La confirmació ha caducat. Torna a connectar-te.";
+-"Ayu.ProfileState.error" = "No s’ha pogut sincronitzar. Prova d’actualitzar.";
+-"Ayu.ProfileState.saving" = "Desant…";
+-"Ayu.ProfileState.conflict" = "Un altre dispositiu ha canviat el perfil. S’han carregat els darrers ajustos.";
+ "Ayu.IconChangeUnavailable" = "La selecció està desada a l’aplicació. iOS no ha pogut canviar la icona de la pantalla d’inici.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Màxim de xats fixats";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Odeslat";
+ "Ayu.ReceiptSent" = "Potvrzení odesláno";
+ "Ayu.ReceiptError" = "Potvrzení se nepodařilo odeslat. Zkontrolujte připojení a zkuste to znovu.";
+-"Ayu.SharedProfile" = "Sdílený profil";
+-"Ayu.ConnectProfile" = "Připojit účet";
+-"Ayu.RefreshProfile" = "Obnovit profil";
+-"Ayu.DisconnectProfile" = "Odpojit toto zařízení";
+-"Ayu.SharedProfileNotice" = "Po potvrzení v botovi ostatní uživatelé AyuGram uvidí váš odznak a stav.";
+-"Ayu.ProfileState.disconnected" = "Připojte se přes bota pro synchronizaci profilu.";
+-"Ayu.ProfileState.connecting" = "Potvrďte účet v botovi.";
+-"Ayu.ProfileState.connected" = "Připojeno";
+-"Ayu.ProfileState.expired" = "Potvrzení vypršelo. Připojte se znovu.";
+-"Ayu.ProfileState.error" = "Synchronizace selhala. Zkuste obnovit profil.";
+-"Ayu.ProfileState.saving" = "Ukládání…";
+-"Ayu.ProfileState.conflict" = "Jiné zařízení změnilo profil. Bylo načteno jeho nejnovější nastavení.";
+ "Ayu.IconChangeUnavailable" = "Volba je uložena v aplikaci. iOS nemohl změnit ikonu na ploše.";
+ "Ayu.LocalPremium" = "Místní Premium";
+ "Ayu.Pins" = "Maximum připnutých chatů";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Send";
+ "Ayu.ReceiptSent" = "Kvittering sendt";
+ "Ayu.ReceiptError" = "Kunne ikke sende kvitteringen. Tjek forbindelsen, og prøv igen.";
+-"Ayu.SharedProfile" = "Delt profil";
+-"Ayu.ConnectProfile" = "Tilslut konto";
+-"Ayu.RefreshProfile" = "Opdater profil";
+-"Ayu.DisconnectProfile" = "Frakobl denne enhed";
+-"Ayu.SharedProfileNotice" = "Efter bekræftelse i botten kan andre AyuGram-brugere se dit mærke og din status.";
+-"Ayu.ProfileState.disconnected" = "Tilslut via botten for at synkronisere profilen.";
+-"Ayu.ProfileState.connecting" = "Bekræft kontoen i botten.";
+-"Ayu.ProfileState.connected" = "Tilsluttet";
+-"Ayu.ProfileState.expired" = "Bekræftelsen er udløbet. Tilslut igen.";
+-"Ayu.ProfileState.error" = "Kunne ikke synkronisere. Prøv at opdatere.";
+-"Ayu.ProfileState.saving" = "Gemmer…";
+-"Ayu.ProfileState.conflict" = "En anden enhed ændrede profilen. De seneste indstillinger er indlæst.";
+ "Ayu.IconChangeUnavailable" = "Dit valg er gemt i appen. iOS kunne ikke ændre ikonet på hjemmeskærmen.";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+ "Ayu.Pins" = "Maksimalt antal fastgjorte chats";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Senden";
+ "Ayu.ReceiptSent" = "Bestätigung gesendet";
+ "Ayu.ReceiptError" = "Die Bestätigung konnte nicht gesendet werden. Prüfe die Verbindung und versuche es erneut.";
+-"Ayu.SharedProfile" = "Gemeinsames Profil";
+-"Ayu.ConnectProfile" = "Konto verbinden";
+-"Ayu.RefreshProfile" = "Profil aktualisieren";
+-"Ayu.DisconnectProfile" = "Dieses Gerät trennen";
+-"Ayu.SharedProfileNotice" = "Nach der Bestätigung im Bot sehen andere AyuGram-Nutzer dein Abzeichen und deinen Status.";
+-"Ayu.ProfileState.disconnected" = "Verbinde dich über den Bot, um dein Profil zu synchronisieren.";
+-"Ayu.ProfileState.connecting" = "Bestätige das Konto im Bot.";
+-"Ayu.ProfileState.connected" = "Verbunden";
+-"Ayu.ProfileState.expired" = "Bestätigung abgelaufen. Verbinde dich erneut.";
+-"Ayu.ProfileState.error" = "Synchronisierung fehlgeschlagen. Versuche zu aktualisieren.";
+-"Ayu.ProfileState.saving" = "Wird gespeichert…";
+-"Ayu.ProfileState.conflict" = "Ein anderes Gerät hat das Profil geändert. Die neuesten Einstellungen wurden geladen.";
+ "Ayu.IconChangeUnavailable" = "Deine Auswahl wurde in der App gespeichert. iOS konnte das Symbol auf dem Home-Bildschirm nicht ändern.";
+ "Ayu.LocalPremium" = "Lokales Premium";
+ "Ayu.Pins" = "Maximale angeheftete Chats";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Αποστολή";
+ "Ayu.ReceiptSent" = "Η επιβεβαίωση στάλθηκε";
+ "Ayu.ReceiptError" = "Δεν ήταν δυνατή η αποστολή της επιβεβαίωσης. Ελέγξτε τη σύνδεση και δοκιμάστε ξανά.";
+-"Ayu.SharedProfile" = "Κοινό προφίλ";
+-"Ayu.ConnectProfile" = "Σύνδεση λογαριασμού";
+-"Ayu.RefreshProfile" = "Ανανέωση προφίλ";
+-"Ayu.DisconnectProfile" = "Αποσύνδεση συσκευής";
+-"Ayu.SharedProfileNotice" = "Μετά την επιβεβαίωση στο bot, άλλοι χρήστες AyuGram βλέπουν το σήμα και την κατάστασή σου.";
+-"Ayu.ProfileState.disconnected" = "Συνδέσου μέσω του bot για συγχρονισμό προφίλ.";
+-"Ayu.ProfileState.connecting" = "Επιβεβαίωσε τον λογαριασμό στο bot.";
+-"Ayu.ProfileState.connected" = "Συνδέθηκε";
+-"Ayu.ProfileState.expired" = "Η επιβεβαίωση έληξε. Συνδέσου ξανά.";
+-"Ayu.ProfileState.error" = "Ο συγχρονισμός απέτυχε. Δοκίμασε ανανέωση.";
+-"Ayu.ProfileState.saving" = "Αποθήκευση…";
+-"Ayu.ProfileState.conflict" = "Άλλη συσκευή άλλαξε το προφίλ. Φορτώθηκαν οι τελευταίες ρυθμίσεις.";
+ "Ayu.IconChangeUnavailable" = "Η επιλογή αποθηκεύτηκε στην εφαρμογή. Το iOS δεν μπόρεσε να αλλάξει το εικονίδιο στην αρχική οθόνη.";
+ "Ayu.LocalPremium" = "Τοπικό Premium";
+ "Ayu.Pins" = "Μέγιστος αριθμός καρφιτσωμένων συνομιλιών";
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -303,18 +303,6 @@
+ "Ayu.SendReceipt" = "Send";
+ "Ayu.ReceiptSent" = "Receipt sent";
+ "Ayu.ReceiptError" = "Could not send the receipt. Check your connection and try again.";
+-"Ayu.SharedProfile" = "Shared profile";
+-"Ayu.ConnectProfile" = "Connect account";
+-"Ayu.RefreshProfile" = "Refresh profile";
+-"Ayu.DisconnectProfile" = "Disconnect this device";
+-"Ayu.SharedProfileNotice" = "After confirmation in the bot, your badge and status are visible to other AyuGram users.";
+-"Ayu.ProfileState.disconnected" = "Connect through the bot to sync your profile.";
+-"Ayu.ProfileState.connecting" = "Confirm the account in the bot.";
+-"Ayu.ProfileState.connected" = "Connected";
+-"Ayu.ProfileState.expired" = "Confirmation expired. Connect again.";
+-"Ayu.ProfileState.error" = "Could not sync. Try refreshing.";
+-"Ayu.ProfileState.saving" = "Saving…";
+-"Ayu.ProfileState.conflict" = "Another device changed the profile. Its latest settings are loaded.";
+ "Ayu.IconChangeUnavailable" = "Your choice is saved in the app. iOS could not change the Home Screen icon.";
+ "Ayu.LocalPremium" = "Local Premium";
+ "Ayu.Pins" = "Maximum pinned chats";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Enviar";
+ "Ayu.ReceiptSent" = "Confirmación enviada";
+ "Ayu.ReceiptError" = "No se pudo enviar la confirmación. Comprueba la conexión e inténtalo de nuevo.";
+-"Ayu.SharedProfile" = "Perfil compartido";
+-"Ayu.ConnectProfile" = "Conectar cuenta";
+-"Ayu.RefreshProfile" = "Actualizar perfil";
+-"Ayu.DisconnectProfile" = "Desconectar este dispositivo";
+-"Ayu.SharedProfileNotice" = "Tras confirmar en el bot, otros usuarios de AyuGram ven tu insignia y estado.";
+-"Ayu.ProfileState.disconnected" = "Conéctate mediante el bot para sincronizar tu perfil.";
+-"Ayu.ProfileState.connecting" = "Confirma la cuenta en el bot.";
+-"Ayu.ProfileState.connected" = "Conectado";
+-"Ayu.ProfileState.expired" = "La confirmación caducó. Conecta de nuevo.";
+-"Ayu.ProfileState.error" = "No se pudo sincronizar. Intenta actualizar.";
+-"Ayu.ProfileState.saving" = "Guardando…";
+-"Ayu.ProfileState.conflict" = "Otro dispositivo cambió el perfil. Se han cargado sus últimos ajustes.";
+ "Ayu.IconChangeUnavailable" = "Tu elección está guardada en la aplicación. iOS no pudo cambiar el icono de la pantalla de inicio.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Máximo de chats fijados";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -33,18 +33,6 @@
+ "Ayu.SendReceipt" = "ارسال";
+ "Ayu.ReceiptSent" = "رسید ارسال شد";
+ "Ayu.ReceiptError" = "ارسال رسید ممکن نشد. اتصال را بررسی کنید و دوباره تلاش کنید.";
+-"Ayu.SharedProfile" = "نمایهٔ مشترک";
+-"Ayu.ConnectProfile" = "اتصال حساب";
+-"Ayu.RefreshProfile" = "تازه‌سازی نمایه";
+-"Ayu.DisconnectProfile" = "قطع اتصال این دستگاه";
+-"Ayu.SharedProfileNotice" = "پس از تأیید در ربات، نشان و وضعیت شما برای دیگر کاربران AyuGram قابل مشاهده است.";
+-"Ayu.ProfileState.disconnected" = "برای همگام‌سازی نمایه از طریق ربات متصل شوید.";
+-"Ayu.ProfileState.connecting" = "حساب را در ربات تأیید کنید.";
+-"Ayu.ProfileState.connected" = "متصل";
+-"Ayu.ProfileState.expired" = "تأیید منقضی شد. دوباره متصل شوید.";
+-"Ayu.ProfileState.error" = "همگام‌سازی انجام نشد. تازه‌سازی را امتحان کنید.";
+-"Ayu.ProfileState.saving" = "در حال ذخیره…";
+-"Ayu.ProfileState.conflict" = "دستگاه دیگری نمایه را تغییر داد. آخرین تنظیمات آن بارگیری شد.";
+ "Ayu.IconChangeUnavailable" = "انتخاب شما در برنامه ذخیره شد. iOS نتوانست نماد صفحهٔ اصلی را تغییر دهد.";
+ "Ayu.LocalPremium" = "Premium محلی";
+ "Ayu.Pins" = "حداکثر گفتگوهای سنجاق‌شده";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -254,18 +254,6 @@
+ "Ayu.SendReceipt" = "Lähetä";
+ "Ayu.ReceiptSent" = "Kuittaus lähetetty";
+ "Ayu.ReceiptError" = "Kuittausta ei voitu lähettää. Tarkista yhteys ja yritä uudelleen.";
+-"Ayu.SharedProfile" = "Jaettu profiili";
+-"Ayu.ConnectProfile" = "Yhdistä tili";
+-"Ayu.RefreshProfile" = "Päivitä profiili";
+-"Ayu.DisconnectProfile" = "Katkaise tämän laitteen yhteys";
+-"Ayu.SharedProfileNotice" = "Botissa vahvistamisen jälkeen muut AyuGram-käyttäjät näkevät merkkisi ja tilasi.";
+-"Ayu.ProfileState.disconnected" = "Yhdistä botin kautta synkronoidaksesi profiilin.";
+-"Ayu.ProfileState.connecting" = "Vahvista tili botissa.";
+-"Ayu.ProfileState.connected" = "Yhdistetty";
+-"Ayu.ProfileState.expired" = "Vahvistus vanheni. Yhdistä uudelleen.";
+-"Ayu.ProfileState.error" = "Synkronointi epäonnistui. Kokeile päivittämistä.";
+-"Ayu.ProfileState.saving" = "Tallennetaan…";
+-"Ayu.ProfileState.conflict" = "Toinen laite muutti profiilia. Uusimmat asetukset ladattiin.";
+ "Ayu.IconChangeUnavailable" = "Valintasi tallennettiin sovellukseen. iOS ei voinut vaihtaa kotinäytön kuvaketta.";
+ "Ayu.LocalPremium" = "Paikallinen Premium";
+ "Ayu.Pins" = "Kiinnitettyjen keskustelujen enimmäismäärä";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -161,18 +161,6 @@
+ "Ayu.SendReceipt" = "Envoyer";
+ "Ayu.ReceiptSent" = "Confirmation envoyée";
+ "Ayu.ReceiptError" = "Impossible d’envoyer la confirmation. Vérifiez la connexion et réessayez.";
+-"Ayu.SharedProfile" = "Profil partagé";
+-"Ayu.ConnectProfile" = "Connecter le compte";
+-"Ayu.RefreshProfile" = "Actualiser le profil";
+-"Ayu.DisconnectProfile" = "Déconnecter cet appareil";
+-"Ayu.SharedProfileNotice" = "Après confirmation dans le bot, les autres utilisateurs d’AyuGram voient votre badge et votre statut.";
+-"Ayu.ProfileState.disconnected" = "Connectez-vous via le bot pour synchroniser votre profil.";
+-"Ayu.ProfileState.connecting" = "Confirmez le compte dans le bot.";
+-"Ayu.ProfileState.connected" = "Connecté";
+-"Ayu.ProfileState.expired" = "La confirmation a expiré. Reconnectez-vous.";
+-"Ayu.ProfileState.error" = "Synchronisation impossible. Essayez d’actualiser.";
+-"Ayu.ProfileState.saving" = "Enregistrement…";
+-"Ayu.ProfileState.conflict" = "Un autre appareil a modifié le profil. Ses derniers réglages ont été chargés.";
+ "Ayu.IconChangeUnavailable" = "Votre choix est enregistré dans l’application. iOS n’a pas pu modifier l’icône de l’écran d’accueil.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Maximum de discussions épinglées";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "שליחה";
+ "Ayu.ReceiptSent" = "האישור נשלח";
+ "Ayu.ReceiptError" = "לא ניתן לשלוח את האישור. בדקו את החיבור ונסו שוב.";
+-"Ayu.SharedProfile" = "פרופיל משותף";
+-"Ayu.ConnectProfile" = "חיבור החשבון";
+-"Ayu.RefreshProfile" = "רענון הפרופיל";
+-"Ayu.DisconnectProfile" = "ניתוק המכשיר הזה";
+-"Ayu.SharedProfileNotice" = "לאחר אישור בבוט, משתמשי AyuGram אחרים יראו את התג והסטטוס שלך.";
+-"Ayu.ProfileState.disconnected" = "יש להתחבר דרך הבוט כדי לסנכרן את הפרופיל.";
+-"Ayu.ProfileState.connecting" = "יש לאשר את החשבון בבוט.";
+-"Ayu.ProfileState.connected" = "מחובר";
+-"Ayu.ProfileState.expired" = "האישור פג. יש להתחבר מחדש.";
+-"Ayu.ProfileState.error" = "הסנכרון נכשל. נסו לרענן.";
+-"Ayu.ProfileState.saving" = "שומר…";
+-"Ayu.ProfileState.conflict" = "מכשיר אחר שינה את הפרופיל. ההגדרות העדכניות נטענו.";
+ "Ayu.IconChangeUnavailable" = "הבחירה נשמרה באפליקציה. iOS לא הצליח לשנות את הסמל במסך הבית.";
+ "Ayu.LocalPremium" = "Premium מקומי";
+ "Ayu.Pins" = "מספר מרבי של צ'אטים נעוצים";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "भेजें";
+ "Ayu.ReceiptSent" = "पुष्टि भेजी गई";
+ "Ayu.ReceiptError" = "पुष्टि नहीं भेजी जा सकी। कनेक्शन जाँचें और फिर से कोशिश करें।";
+-"Ayu.SharedProfile" = "साझा प्रोफ़ाइल";
+-"Ayu.ConnectProfile" = "खाता जोड़ें";
+-"Ayu.RefreshProfile" = "प्रोफ़ाइल रीफ़्रेश करें";
+-"Ayu.DisconnectProfile" = "इस डिवाइस को डिस्कनेक्ट करें";
+-"Ayu.SharedProfileNotice" = "बॉट में पुष्टि के बाद अन्य AyuGram उपयोगकर्ताओं को आपका बैज और स्टेटस दिखेगा।";
+-"Ayu.ProfileState.disconnected" = "प्रोफ़ाइल सिंक करने के लिए बॉट से खाता जोड़ें।";
+-"Ayu.ProfileState.connecting" = "बॉट में खाते की पुष्टि करें।";
+-"Ayu.ProfileState.connected" = "कनेक्टेड";
+-"Ayu.ProfileState.expired" = "पुष्टि की समय सीमा समाप्त। फिर से जोड़ें।";
+-"Ayu.ProfileState.error" = "सिंक नहीं हुआ। रीफ़्रेश करें।";
+-"Ayu.ProfileState.saving" = "सहेज रहा है…";
+-"Ayu.ProfileState.conflict" = "दूसरे डिवाइस ने प्रोफ़ाइल बदली। नवीनतम सेटिंग लोड की गई हैं।";
+ "Ayu.IconChangeUnavailable" = "आपका चयन ऐप में सहेजा गया है। iOS होम स्क्रीन का आइकन नहीं बदल सका।";
+ "Ayu.LocalPremium" = "स्थानीय Premium";
+ "Ayu.Pins" = "पिन किए चैट की अधिकतम संख्या";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Küldés";
+ "Ayu.ReceiptSent" = "Visszaigazolás elküldve";
+ "Ayu.ReceiptError" = "Nem sikerült elküldeni a visszaigazolást. Ellenőrizd a kapcsolatot, és próbáld újra.";
+-"Ayu.SharedProfile" = "Megosztott profil";
+-"Ayu.ConnectProfile" = "Fiók csatlakoztatása";
+-"Ayu.RefreshProfile" = "Profil frissítése";
+-"Ayu.DisconnectProfile" = "Eszköz leválasztása";
+-"Ayu.SharedProfileNotice" = "A botban történő megerősítés után más AyuGram-felhasználók látják a jelvényed és állapotod.";
+-"Ayu.ProfileState.disconnected" = "Csatlakozz a boton keresztül a profil szinkronizálásához.";
+-"Ayu.ProfileState.connecting" = "Erősítsd meg a fiókot a botban.";
+-"Ayu.ProfileState.connected" = "Csatlakoztatva";
+-"Ayu.ProfileState.expired" = "A megerősítés lejárt. Csatlakozz újra.";
+-"Ayu.ProfileState.error" = "A szinkronizálás sikertelen. Próbáld frissíteni.";
+-"Ayu.ProfileState.saving" = "Mentés…";
+-"Ayu.ProfileState.conflict" = "Egy másik eszköz módosította a profilt. A legújabb beállítások betöltve.";
+ "Ayu.IconChangeUnavailable" = "A választás mentve az alkalmazásban. Az iOS nem tudta megváltoztatni a főképernyő ikonját.";
+ "Ayu.LocalPremium" = "Helyi Premium";
+ "Ayu.Pins" = "Rögzített csevegések maximális száma";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Kirim";
+ "Ayu.ReceiptSent" = "Konfirmasi terkirim";
+ "Ayu.ReceiptError" = "Tidak dapat mengirim konfirmasi. Periksa koneksi dan coba lagi.";
+-"Ayu.SharedProfile" = "Profil bersama";
+-"Ayu.ConnectProfile" = "Hubungkan akun";
+-"Ayu.RefreshProfile" = "Segarkan profil";
+-"Ayu.DisconnectProfile" = "Putuskan perangkat ini";
+-"Ayu.SharedProfileNotice" = "Setelah konfirmasi di bot, lencana dan statusmu terlihat oleh pengguna AyuGram lain.";
+-"Ayu.ProfileState.disconnected" = "Hubungkan melalui bot untuk menyinkronkan profil.";
+-"Ayu.ProfileState.connecting" = "Konfirmasikan akun di bot.";
+-"Ayu.ProfileState.connected" = "Terhubung";
+-"Ayu.ProfileState.expired" = "Konfirmasi kedaluwarsa. Hubungkan lagi.";
+-"Ayu.ProfileState.error" = "Gagal menyinkronkan. Coba segarkan.";
+-"Ayu.ProfileState.saving" = "Menyimpan…";
+-"Ayu.ProfileState.conflict" = "Perangkat lain mengubah profil. Pengaturan terbarunya telah dimuat.";
+ "Ayu.IconChangeUnavailable" = "Pilihan disimpan di aplikasi. iOS tidak dapat mengubah ikon Layar Utama.";
+ "Ayu.LocalPremium" = "Premium lokal";
+ "Ayu.Pins" = "Maksimum obrolan disematkan";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Invia";
+ "Ayu.ReceiptSent" = "Conferma inviata";
+ "Ayu.ReceiptError" = "Impossibile inviare la conferma. Controlla la connessione e riprova.";
+-"Ayu.SharedProfile" = "Profilo condiviso";
+-"Ayu.ConnectProfile" = "Collega account";
+-"Ayu.RefreshProfile" = "Aggiorna profilo";
+-"Ayu.DisconnectProfile" = "Scollega questo dispositivo";
+-"Ayu.SharedProfileNotice" = "Dopo la conferma nel bot, gli altri utenti AyuGram vedono il tuo badge e stato.";
+-"Ayu.ProfileState.disconnected" = "Collegati tramite il bot per sincronizzare il profilo.";
+-"Ayu.ProfileState.connecting" = "Conferma l’account nel bot.";
+-"Ayu.ProfileState.connected" = "Collegato";
+-"Ayu.ProfileState.expired" = "La conferma è scaduta. Collegati di nuovo.";
+-"Ayu.ProfileState.error" = "Sincronizzazione non riuscita. Prova ad aggiornare.";
+-"Ayu.ProfileState.saving" = "Salvataggio…";
+-"Ayu.ProfileState.conflict" = "Un altro dispositivo ha modificato il profilo. Le ultime impostazioni sono state caricate.";
+ "Ayu.IconChangeUnavailable" = "La scelta è salvata nell’app. iOS non ha potuto cambiare l’icona della schermata Home.";
+ "Ayu.LocalPremium" = "Premium locale";
+ "Ayu.Pins" = "Numero massimo di chat fissate";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -270,18 +270,6 @@
+ "Ayu.SendReceipt" = "送信";
+ "Ayu.ReceiptSent" = "通知を送信しました";
+ "Ayu.ReceiptError" = "通知を送信できませんでした。接続を確認して再試行してください。";
+-"Ayu.SharedProfile" = "共有プロフィール";
+-"Ayu.ConnectProfile" = "アカウントを接続";
+-"Ayu.RefreshProfile" = "プロフィールを更新";
+-"Ayu.DisconnectProfile" = "この端末の接続を解除";
+-"Ayu.SharedProfileNotice" = "ボットで確認すると、他のAyuGramユーザーにバッジとステータスが表示されます。";
+-"Ayu.ProfileState.disconnected" = "プロフィールを同期するにはボット経由で接続してください。";
+-"Ayu.ProfileState.connecting" = "ボットでアカウントを確認してください。";
+-"Ayu.ProfileState.connected" = "接続済み";
+-"Ayu.ProfileState.expired" = "確認の有効期限が切れました。再接続してください。";
+-"Ayu.ProfileState.error" = "同期できませんでした。更新をお試しください。";
+-"Ayu.ProfileState.saving" = "保存中…";
+-"Ayu.ProfileState.conflict" = "別の端末がプロフィールを変更しました。最新の設定を読み込みました。";
+ "Ayu.IconChangeUnavailable" = "選択はアプリに保存されました。iOSでホーム画面のアイコンを変更できませんでした。";
+ "Ayu.LocalPremium" = "ローカル Premium";
+ "Ayu.Pins" = "固定するチャットの上限";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -32,18 +32,6 @@
+ "Ayu.SendReceipt" = "ផ្ញើ";
+ "Ayu.ReceiptSent" = "បានផ្ញើការបញ្ជាក់";
+ "Ayu.ReceiptError" = "មិនអាចផ្ញើការបញ្ជាក់បានទេ។ សូមពិនិត្យការតភ្ជាប់ ហើយព្យាយាមម្ដងទៀត។";
+-"Ayu.SharedProfile" = "ប្រវត្តិរូបរួម";
+-"Ayu.ConnectProfile" = "ភ្ជាប់គណនី";
+-"Ayu.RefreshProfile" = "ធ្វើបច្ចុប្បន្នភាពប្រវត្តិរូប";
+-"Ayu.DisconnectProfile" = "ផ្តាច់ឧបករណ៍នេះ";
+-"Ayu.SharedProfileNotice" = "បន្ទាប់ពីបញ្ជាក់ក្នុងបូត អ្នកប្រើ AyuGram ផ្សេងទៀតនឹងឃើញផ្លាកសញ្ញា និងស្ថានភាពរបស់អ្នក។";
+-"Ayu.ProfileState.disconnected" = "ភ្ជាប់តាមបូតដើម្បីធ្វើសមកាលកម្មប្រវត្តិរូប។";
+-"Ayu.ProfileState.connecting" = "បញ្ជាក់គណនីក្នុងបូត។";
+-"Ayu.ProfileState.connected" = "បានភ្ជាប់";
+-"Ayu.ProfileState.expired" = "ការបញ្ជាក់ផុតកំណត់។ សូមភ្ជាប់ម្តងទៀត។";
+-"Ayu.ProfileState.error" = "មិនអាចធ្វើសមកាលកម្មបាន។ សូមសាកល្បងធ្វើបច្ចុប្បន្នភាព។";
+-"Ayu.ProfileState.saving" = "កំពុងរក្សាទុក…";
+-"Ayu.ProfileState.conflict" = "ឧបករណ៍ផ្សេងបានផ្លាស់ប្ដូរប្រវត្តិរូប។ ការកំណត់ចុងក្រោយត្រូវបានផ្ទុក។";
+ "Ayu.IconChangeUnavailable" = "ជម្រើសរបស់អ្នកត្រូវបានរក្សាទុកក្នុងកម្មវិធី។ iOS មិនអាចប្ដូររូបតំណាងលើអេក្រង់ដើមបានទេ។";
+ "Ayu.LocalPremium" = "Premium ក្នុងឧបករណ៍";
+ "Ayu.Pins" = "ចំនួនជជែកដែលបានខ្ទាស់អតិបរមា";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "보내기";
+ "Ayu.ReceiptSent" = "확인을 보냈습니다";
+ "Ayu.ReceiptError" = "확인을 보낼 수 없습니다. 연결을 확인하고 다시 시도하세요.";
+-"Ayu.SharedProfile" = "공유 프로필";
+-"Ayu.ConnectProfile" = "계정 연결";
+-"Ayu.RefreshProfile" = "프로필 새로고침";
+-"Ayu.DisconnectProfile" = "이 기기 연결 해제";
+-"Ayu.SharedProfileNotice" = "봇에서 확인하면 다른 AyuGram 사용자에게 배지와 상태가 표시됩니다.";
+-"Ayu.ProfileState.disconnected" = "프로필을 동기화하려면 봇을 통해 연결하세요.";
+-"Ayu.ProfileState.connecting" = "봇에서 계정을 확인하세요.";
+-"Ayu.ProfileState.connected" = "연결됨";
+-"Ayu.ProfileState.expired" = "확인이 만료되었습니다. 다시 연결하세요.";
+-"Ayu.ProfileState.error" = "동기화하지 못했습니다. 새로고침하세요.";
+-"Ayu.ProfileState.saving" = "저장 중…";
+-"Ayu.ProfileState.conflict" = "다른 기기에서 프로필을 변경했습니다. 최신 설정을 불러왔습니다.";
+ "Ayu.IconChangeUnavailable" = "선택이 앱에 저장되었습니다. iOS에서 홈 화면 아이콘을 변경하지 못했습니다.";
+ "Ayu.LocalPremium" = "로컬 Premium";
+ "Ayu.Pins" = "고정 채팅 최대 개수";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -34,18 +34,6 @@
+ "Ayu.SendReceipt" = "Bişîne";
+ "Ayu.ReceiptSent" = "Piştrastkirin hat şandin";
+ "Ayu.ReceiptError" = "Piştrastkirin nehat şandin. Girêdanê kontrol bike û dîsa biceribîne.";
+-"Ayu.SharedProfile" = "Profîla hevpar";
+-"Ayu.ConnectProfile" = "Hesabê girêbide";
+-"Ayu.RefreshProfile" = "Profîlê nû bike";
+-"Ayu.DisconnectProfile" = "Vê amûrê veqetîne";
+-"Ayu.SharedProfileNotice" = "Piştî piştrastkirina di botê de, bikarhênerên din ên AyuGram nîşan û rewşa te dibînin.";
+-"Ayu.ProfileState.disconnected" = "Ji bo hevdemkirina profîlê bi botê ve girêbide.";
+-"Ayu.ProfileState.connecting" = "Hesabê di botê de piştrast bike.";
+-"Ayu.ProfileState.connected" = "Girêdayî";
+-"Ayu.ProfileState.expired" = "Piştrastkirin bi dawî bû. Dîsa girêbide.";
+-"Ayu.ProfileState.error" = "Hevdemkirin neçû. Nûkirinê biceribîne.";
+-"Ayu.ProfileState.saving" = "Tê tomarkirin…";
+-"Ayu.ProfileState.conflict" = "Amûreke din profîlê guhert. Mîhengên herî nû hatin barkirin.";
+ "Ayu.IconChangeUnavailable" = "Hilbijartina te di sepanê de hat tomarkirin. iOS nekarî îkona ekrana sereke biguherîne.";
+ "Ayu.LocalPremium" = "Premium herêmî";
+ "Ayu.Pins" = "Herî zêde sohbetên sabîtkirî";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Sturen";
+ "Ayu.ReceiptSent" = "Bevestiging verstuurd";
+ "Ayu.ReceiptError" = "De bevestiging kon niet worden verstuurd. Controleer je verbinding en probeer opnieuw.";
+-"Ayu.SharedProfile" = "Gedeeld profiel";
+-"Ayu.ConnectProfile" = "Account verbinden";
+-"Ayu.RefreshProfile" = "Profiel vernieuwen";
+-"Ayu.DisconnectProfile" = "Dit apparaat ontkoppelen";
+-"Ayu.SharedProfileNotice" = "Na bevestiging in de bot zien andere AyuGram-gebruikers je badge en status.";
+-"Ayu.ProfileState.disconnected" = "Verbind via de bot om je profiel te synchroniseren.";
+-"Ayu.ProfileState.connecting" = "Bevestig het account in de bot.";
+-"Ayu.ProfileState.connected" = "Verbonden";
+-"Ayu.ProfileState.expired" = "Bevestiging verlopen. Verbind opnieuw.";
+-"Ayu.ProfileState.error" = "Synchroniseren mislukt. Probeer te vernieuwen.";
+-"Ayu.ProfileState.saving" = "Opslaan…";
+-"Ayu.ProfileState.conflict" = "Een ander apparaat heeft het profiel gewijzigd. De nieuwste instellingen zijn geladen.";
+ "Ayu.IconChangeUnavailable" = "Je keuze is opgeslagen in de app. iOS kon het pictogram op het beginscherm niet wijzigen.";
+ "Ayu.LocalPremium" = "Lokale Premium";
+ "Ayu.Pins" = "Maximum vastgemaakte chats";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Send";
+ "Ayu.ReceiptSent" = "Bekreftelse sendt";
+ "Ayu.ReceiptError" = "Kunne ikke sende bekreftelsen. Sjekk tilkoblingen og prøv igjen.";
+-"Ayu.SharedProfile" = "Delt profil";
+-"Ayu.ConnectProfile" = "Koble til konto";
+-"Ayu.RefreshProfile" = "Oppdater profil";
+-"Ayu.DisconnectProfile" = "Koble fra denne enheten";
+-"Ayu.SharedProfileNotice" = "Etter bekreftelse i boten ser andre AyuGram-brukere merket og statusen din.";
+-"Ayu.ProfileState.disconnected" = "Koble til via boten for å synkronisere profilen.";
+-"Ayu.ProfileState.connecting" = "Bekreft kontoen i boten.";
+-"Ayu.ProfileState.connected" = "Tilkoblet";
+-"Ayu.ProfileState.expired" = "Bekreftelsen er utløpt. Koble til på nytt.";
+-"Ayu.ProfileState.error" = "Kunne ikke synkronisere. Prøv å oppdatere.";
+-"Ayu.ProfileState.saving" = "Lagrer…";
+-"Ayu.ProfileState.conflict" = "En annen enhet endret profilen. De nyeste innstillingene er lastet inn.";
+ "Ayu.IconChangeUnavailable" = "Valget er lagret i appen. iOS kunne ikke endre ikonet på Hjem-skjermen.";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+ "Ayu.Pins" = "Maksimalt antall festede chatter";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -269,18 +269,6 @@
+ "Ayu.SendReceipt" = "Wyślij";
+ "Ayu.ReceiptSent" = "Potwierdzenie wysłane";
+ "Ayu.ReceiptError" = "Nie udało się wysłać potwierdzenia. Sprawdź połączenie i spróbuj ponownie.";
+-"Ayu.SharedProfile" = "Wspólny profil";
+-"Ayu.ConnectProfile" = "Połącz konto";
+-"Ayu.RefreshProfile" = "Odśwież profil";
+-"Ayu.DisconnectProfile" = "Odłącz to urządzenie";
+-"Ayu.SharedProfileNotice" = "Po potwierdzeniu w bocie inni użytkownicy AyuGram widzą Twoją odznakę i status.";
+-"Ayu.ProfileState.disconnected" = "Połącz przez bota, aby synchronizować profil.";
+-"Ayu.ProfileState.connecting" = "Potwierdź konto w bocie.";
+-"Ayu.ProfileState.connected" = "Połączono";
+-"Ayu.ProfileState.expired" = "Potwierdzenie wygasło. Połącz ponownie.";
+-"Ayu.ProfileState.error" = "Synchronizacja nie powiodła się. Spróbuj odświeżyć.";
+-"Ayu.ProfileState.saving" = "Zapisywanie…";
+-"Ayu.ProfileState.conflict" = "Inne urządzenie zmieniło profil. Wczytano najnowsze ustawienia.";
+ "Ayu.IconChangeUnavailable" = "Wybór zapisano w aplikacji. iOS nie mógł zmienić ikony na ekranie początkowym.";
+ "Ayu.LocalPremium" = "Lokalne Premium";
+ "Ayu.Pins" = "Maksimum przypiętych czatów";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -298,18 +298,6 @@
+ "Ayu.SendReceipt" = "Enviar";
+ "Ayu.ReceiptSent" = "Confirmação enviada";
+ "Ayu.ReceiptError" = "Não foi possível enviar a confirmação. Verifica a ligação e tenta novamente.";
+-"Ayu.SharedProfile" = "Perfil partilhado";
+-"Ayu.ConnectProfile" = "Ligar conta";
+-"Ayu.RefreshProfile" = "Atualizar perfil";
+-"Ayu.DisconnectProfile" = "Desligar este dispositivo";
+-"Ayu.SharedProfileNotice" = "Após confirmar no bot, outros utilizadores do AyuGram veem o teu emblema e estado.";
+-"Ayu.ProfileState.disconnected" = "Liga a conta através do bot para sincronizar o perfil.";
+-"Ayu.ProfileState.connecting" = "Confirma a conta no bot.";
+-"Ayu.ProfileState.connected" = "Ligado";
+-"Ayu.ProfileState.expired" = "A confirmação expirou. Liga novamente.";
+-"Ayu.ProfileState.error" = "Não foi possível sincronizar. Tenta atualizar.";
+-"Ayu.ProfileState.saving" = "A guardar…";
+-"Ayu.ProfileState.conflict" = "Outro dispositivo alterou o perfil. Foram carregadas as definições mais recentes.";
+ "Ayu.IconChangeUnavailable" = "A escolha foi guardada na aplicação. O iOS não conseguiu alterar o ícone do ecrã inicial.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Máximo de conversas fixadas";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Trimite";
+ "Ayu.ReceiptSent" = "Confirmare trimisă";
+ "Ayu.ReceiptError" = "Confirmarea nu a putut fi trimisă. Verifică conexiunea și încearcă din nou.";
+-"Ayu.SharedProfile" = "Profil partajat";
+-"Ayu.ConnectProfile" = "Conectează contul";
+-"Ayu.RefreshProfile" = "Actualizează profilul";
+-"Ayu.DisconnectProfile" = "Deconectează acest dispozitiv";
+-"Ayu.SharedProfileNotice" = "După confirmarea în bot, ceilalți utilizatori AyuGram îți văd insigna și starea.";
+-"Ayu.ProfileState.disconnected" = "Conectează-te prin bot pentru a sincroniza profilul.";
+-"Ayu.ProfileState.connecting" = "Confirmă contul în bot.";
+-"Ayu.ProfileState.connected" = "Conectat";
+-"Ayu.ProfileState.expired" = "Confirmarea a expirat. Conectează-te din nou.";
+-"Ayu.ProfileState.error" = "Sincronizarea a eșuat. Încearcă actualizarea.";
+-"Ayu.ProfileState.saving" = "Se salvează…";
+-"Ayu.ProfileState.conflict" = "Alt dispozitiv a modificat profilul. Au fost încărcate cele mai recente setări.";
+ "Ayu.IconChangeUnavailable" = "Alegerea este salvată în aplicație. iOS nu a putut schimba pictograma de pe ecranul principal.";
+ "Ayu.LocalPremium" = "Premium local";
+ "Ayu.Pins" = "Număr maxim de conversații fixate";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -298,18 +298,6 @@
+ "Ayu.SendReceipt" = "Отправить";
+ "Ayu.ReceiptSent" = "Отчёт отправлен";
+ "Ayu.ReceiptError" = "Не удалось отправить отчёт. Проверь подключение и попробуй ещё раз.";
+-"Ayu.SharedProfile" = "Общий профиль";
+-"Ayu.ConnectProfile" = "Подключить аккаунт";
+-"Ayu.RefreshProfile" = "Обновить профиль";
+-"Ayu.DisconnectProfile" = "Отключить это устройство";
+-"Ayu.SharedProfileNotice" = "После подтверждения в боте твой бейджик и статус видны другим пользователям AyuGram.";
+-"Ayu.ProfileState.disconnected" = "Подключись через бота для синхронизации профиля.";
+-"Ayu.ProfileState.connecting" = "Подтверди аккаунт в боте.";
+-"Ayu.ProfileState.connected" = "Подключено";
+-"Ayu.ProfileState.expired" = "Подтверждение истекло. Подключись снова.";
+-"Ayu.ProfileState.error" = "Не удалось синхронизировать. Нажми обновить.";
+-"Ayu.ProfileState.saving" = "Сохранение…";
+-"Ayu.ProfileState.conflict" = "Другое устройство изменило профиль. Загружены его последние настройки.";
+ "Ayu.IconChangeUnavailable" = "Выбор сохранён в приложении. iOS не разрешила изменить значок на главном экране.";
+ "Ayu.LocalPremium" = "Локальный Premium";
+ "Ayu.Pins" = "Максимум закреплённых чатов";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -26,18 +26,6 @@
+ "Ayu.SendReceipt" = "යවන්න";
+ "Ayu.ReceiptSent" = "තහවුරුව යවන ලදී";
+ "Ayu.ReceiptError" = "තහවුරුව යැවිය නොහැක. සම්බන්ධතාව පරීක්ෂා කර නැවත උත්සාහ කරන්න.";
+-"Ayu.SharedProfile" = "හවුල් පැතිකඩ";
+-"Ayu.ConnectProfile" = "ගිණුම සම්බන්ධ කරන්න";
+-"Ayu.RefreshProfile" = "පැතිකඩ යාවත්කාලීන කරන්න";
+-"Ayu.DisconnectProfile" = "මෙම උපාංගය විසන්ධි කරන්න";
+-"Ayu.SharedProfileNotice" = "බොට් තුළ තහවුරු කිරීමෙන් පසු අනෙකුත් AyuGram පරිශීලකයන්ට ඔබේ ලාංඡනය සහ තත්ත්වය පෙනේ.";
+-"Ayu.ProfileState.disconnected" = "පැතිකඩ සමමුහුර්ත කිරීමට බොට් හරහා සම්බන්ධ වන්න.";
+-"Ayu.ProfileState.connecting" = "බොට් තුළ ගිණුම තහවුරු කරන්න.";
+-"Ayu.ProfileState.connected" = "සම්බන්ධයි";
+-"Ayu.ProfileState.expired" = "තහවුරු කිරීම කල් ඉකුත් විය. නැවත සම්බන්ධ වන්න.";
+-"Ayu.ProfileState.error" = "සමමුහුර්ත කළ නොහැක. යාවත්කාලීන කර බලන්න.";
+-"Ayu.ProfileState.saving" = "සුරකිමින්…";
+-"Ayu.ProfileState.conflict" = "වෙනත් උපාංගයක් පැතිකඩ වෙනස් කළේය. නවතම සැකසුම් පූරණය කර ඇත.";
+ "Ayu.IconChangeUnavailable" = "ඔබේ තේරීම යෙදුමේ සුරකින ලදී. iOS හට මුල් තිරයේ නිරූපකය වෙනස් කළ නොහැකි විය.";
+ "Ayu.LocalPremium" = "දේශීය Premium";
+ "Ayu.Pins" = "ඇමිණූ කතාබස් උපරිමය";
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -28,18 +28,6 @@
+ "Ayu.SendReceipt" = "Odoslať";
+ "Ayu.ReceiptSent" = "Potvrdenie odoslané";
+ "Ayu.ReceiptError" = "Potvrdenie sa nepodarilo odoslať. Skontrolujte pripojenie a skúste to znova.";
+-"Ayu.SharedProfile" = "Zdieľaný profil";
+-"Ayu.ConnectProfile" = "Pripojiť účet";
+-"Ayu.RefreshProfile" = "Obnoviť profil";
+-"Ayu.DisconnectProfile" = "Odpojiť toto zariadenie";
+-"Ayu.SharedProfileNotice" = "Po potvrdení v botovi ostatní používatelia AyuGram uvidia váš odznak a stav.";
+-"Ayu.ProfileState.disconnected" = "Pripojte sa cez bota na synchronizáciu profilu.";
+-"Ayu.ProfileState.connecting" = "Potvrďte účet v botovi.";
+-"Ayu.ProfileState.connected" = "Pripojené";
+-"Ayu.ProfileState.expired" = "Potvrdenie vypršalo. Pripojte sa znova.";
+-"Ayu.ProfileState.error" = "Synchronizácia zlyhala. Skúste obnoviť profil.";
+-"Ayu.ProfileState.saving" = "Ukladanie…";
+-"Ayu.ProfileState.conflict" = "Iné zariadenie zmenilo profil. Načítali sa jeho najnovšie nastavenia.";
+ "Ayu.IconChangeUnavailable" = "Voľba je uložená v aplikácii. iOS nemohol zmeniť ikonu na ploche.";
+ "Ayu.LocalPremium" = "Miestne Premium";
+ "Ayu.Pins" = "Maximum pripnutých četov";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Пошаљи";
+ "Ayu.ReceiptSent" = "Потврда је послата";
+ "Ayu.ReceiptError" = "Није могуће послати потврду. Провери везу и покушај поново.";
+-"Ayu.SharedProfile" = "Заједнички профил";
+-"Ayu.ConnectProfile" = "Повежи налог";
+-"Ayu.RefreshProfile" = "Освежи профил";
+-"Ayu.DisconnectProfile" = "Искључи овај уређај";
+-"Ayu.SharedProfileNotice" = "Након потврде у боту, други корисници AyuGram-а виде твоју значку и статус.";
+-"Ayu.ProfileState.disconnected" = "Повежи се преко бота за синхронизацију профила.";
+-"Ayu.ProfileState.connecting" = "Потврди налог у боту.";
+-"Ayu.ProfileState.connected" = "Повезано";
+-"Ayu.ProfileState.expired" = "Потврда је истекла. Повежи се поново.";
+-"Ayu.ProfileState.error" = "Синхронизација није успела. Покушај освежавање.";
+-"Ayu.ProfileState.saving" = "Чување…";
+-"Ayu.ProfileState.conflict" = "Други уређај је променио профил. Учитавају се најновија подешавања.";
+ "Ayu.IconChangeUnavailable" = "Избор је сачуван у апликацији. iOS није могао да промени икону на почетном екрану.";
+ "Ayu.LocalPremium" = "Локални Premium";
+ "Ayu.Pins" = "Максимум закачених разговора";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Skicka";
+ "Ayu.ReceiptSent" = "Kvitto skickat";
+ "Ayu.ReceiptError" = "Kunde inte skicka kvittot. Kontrollera anslutningen och försök igen.";
+-"Ayu.SharedProfile" = "Delad profil";
+-"Ayu.ConnectProfile" = "Anslut konto";
+-"Ayu.RefreshProfile" = "Uppdatera profil";
+-"Ayu.DisconnectProfile" = "Koppla från den här enheten";
+-"Ayu.SharedProfileNotice" = "Efter bekräftelse i boten ser andra AyuGram-användare ditt märke och din status.";
+-"Ayu.ProfileState.disconnected" = "Anslut via boten för att synkronisera profilen.";
+-"Ayu.ProfileState.connecting" = "Bekräfta kontot i boten.";
+-"Ayu.ProfileState.connected" = "Ansluten";
+-"Ayu.ProfileState.expired" = "Bekräftelsen har gått ut. Anslut igen.";
+-"Ayu.ProfileState.error" = "Kunde inte synkronisera. Försök uppdatera.";
+-"Ayu.ProfileState.saving" = "Sparar…";
+-"Ayu.ProfileState.conflict" = "En annan enhet ändrade profilen. De senaste inställningarna har lästs in.";
+ "Ayu.IconChangeUnavailable" = "Ditt val sparades i appen. iOS kunde inte ändra ikonen på hemskärmen.";
+ "Ayu.LocalPremium" = "Lokalt Premium";
+ "Ayu.Pins" = "Högsta antal fästa chattar";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Gönder";
+ "Ayu.ReceiptSent" = "Bilgi gönderildi";
+ "Ayu.ReceiptError" = "Bilgi gönderilemedi. Bağlantını kontrol edip tekrar dene.";
+-"Ayu.SharedProfile" = "Ortak profil";
+-"Ayu.ConnectProfile" = "Hesabı bağla";
+-"Ayu.RefreshProfile" = "Profili yenile";
+-"Ayu.DisconnectProfile" = "Bu cihazın bağlantısını kes";
+-"Ayu.SharedProfileNotice" = "Botta onayladıktan sonra diğer AyuGram kullanıcıları rozetini ve durumunu görür.";
+-"Ayu.ProfileState.disconnected" = "Profili eşitlemek için bot üzerinden bağlan.";
+-"Ayu.ProfileState.connecting" = "Hesabı botta onayla.";
+-"Ayu.ProfileState.connected" = "Bağlandı";
+-"Ayu.ProfileState.expired" = "Onayın süresi doldu. Yeniden bağlan.";
+-"Ayu.ProfileState.error" = "Eşitleme başarısız. Yenilemeyi dene.";
+-"Ayu.ProfileState.saving" = "Kaydediliyor…";
+-"Ayu.ProfileState.conflict" = "Başka bir cihaz profili değiştirdi. Son ayarlar yüklendi.";
+ "Ayu.IconChangeUnavailable" = "Seçiminiz uygulamada kaydedildi. iOS, Ana Ekran simgesini değiştiremedi.";
+ "Ayu.LocalPremium" = "Yerel Premium";
+ "Ayu.Pins" = "En fazla sabitlenmiş sohbet";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -269,18 +269,6 @@
+ "Ayu.SendReceipt" = "Надіслати";
+ "Ayu.ReceiptSent" = "Звіт надіслано";
+ "Ayu.ReceiptError" = "Не вдалося надіслати звіт. Перевір з’єднання та спробуй ще раз.";
+-"Ayu.SharedProfile" = "Спільний профіль";
+-"Ayu.ConnectProfile" = "Підключити акаунт";
+-"Ayu.RefreshProfile" = "Оновити профіль";
+-"Ayu.DisconnectProfile" = "Відключити цей пристрій";
+-"Ayu.SharedProfileNotice" = "Після підтвердження в боті твій значок і статус бачать інші користувачі AyuGram.";
+-"Ayu.ProfileState.disconnected" = "Підключись через бота для синхронізації профілю.";
+-"Ayu.ProfileState.connecting" = "Підтвердь акаунт у боті.";
+-"Ayu.ProfileState.connected" = "Підключено";
+-"Ayu.ProfileState.expired" = "Підтвердження прострочене. Підключись знову.";
+-"Ayu.ProfileState.error" = "Не вдалося синхронізувати. Натисни оновити.";
+-"Ayu.ProfileState.saving" = "Збереження…";
+-"Ayu.ProfileState.conflict" = "Інший пристрій змінив профіль. Завантажено його останні налаштування.";
+ "Ayu.IconChangeUnavailable" = "Вибір збережено в застосунку. iOS не дозволила змінити іконку на головному екрані.";
+ "Ayu.LocalPremium" = "Локальний Premium";
+ "Ayu.Pins" = "Максимум закріплених чатів";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Yuborish";
+ "Ayu.ReceiptSent" = "Tasdiq yuborildi";
+ "Ayu.ReceiptError" = "Tasdiqni yuborib bo‘lmadi. Ulanishni tekshirib, qayta urinib ko‘ring.";
+-"Ayu.SharedProfile" = "Umumiy profil";
+-"Ayu.ConnectProfile" = "Hisobni ulash";
+-"Ayu.RefreshProfile" = "Profilni yangilash";
+-"Ayu.DisconnectProfile" = "Bu qurilmani uzish";
+-"Ayu.SharedProfileNotice" = "Botda tasdiqlangandan so‘ng boshqa AyuGram foydalanuvchilari belgi va holatingizni ko‘radi.";
+-"Ayu.ProfileState.disconnected" = "Profilni sinxronlash uchun bot orqali ulaning.";
+-"Ayu.ProfileState.connecting" = "Hisobni botda tasdiqlang.";
+-"Ayu.ProfileState.connected" = "Ulandi";
+-"Ayu.ProfileState.expired" = "Tasdiq muddati tugadi. Qayta ulaning.";
+-"Ayu.ProfileState.error" = "Sinxronlab bo‘lmadi. Yangilashni sinab ko‘ring.";
+-"Ayu.ProfileState.saving" = "Saqlanmoqda…";
+-"Ayu.ProfileState.conflict" = "Boshqa qurilma profilni o‘zgartirdi. Oxirgi sozlamalar yuklandi.";
+ "Ayu.IconChangeUnavailable" = "Tanlov ilovada saqlandi. iOS bosh ekran belgisini o‘zgartira olmadi.";
+ "Ayu.LocalPremium" = "Mahalliy Premium";
+ "Ayu.Pins" = "Qadalgan chatlar maksimumi";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -176,18 +176,6 @@
+ "Ayu.SendReceipt" = "Gửi";
+ "Ayu.ReceiptSent" = "Đã gửi xác nhận";
+ "Ayu.ReceiptError" = "Không thể gửi xác nhận. Kiểm tra kết nối và thử lại.";
+-"Ayu.SharedProfile" = "Hồ sơ chung";
+-"Ayu.ConnectProfile" = "Kết nối tài khoản";
+-"Ayu.RefreshProfile" = "Làm mới hồ sơ";
+-"Ayu.DisconnectProfile" = "Ngắt kết nối thiết bị này";
+-"Ayu.SharedProfileNotice" = "Sau khi xác nhận trong bot, người dùng AyuGram khác sẽ thấy huy hiệu và trạng thái của bạn.";
+-"Ayu.ProfileState.disconnected" = "Kết nối qua bot để đồng bộ hồ sơ.";
+-"Ayu.ProfileState.connecting" = "Xác nhận tài khoản trong bot.";
+-"Ayu.ProfileState.connected" = "Đã kết nối";
+-"Ayu.ProfileState.expired" = "Xác nhận đã hết hạn. Kết nối lại.";
+-"Ayu.ProfileState.error" = "Không thể đồng bộ. Hãy thử làm mới.";
+-"Ayu.ProfileState.saving" = "Đang lưu…";
+-"Ayu.ProfileState.conflict" = "Thiết bị khác đã thay đổi hồ sơ. Đã tải cài đặt mới nhất.";
+ "Ayu.IconChangeUnavailable" = "Lựa chọn đã được lưu trong ứng dụng. iOS không thể thay đổi biểu tượng Màn hình chính.";
+ "Ayu.LocalPremium" = "Premium cục bộ";
+ "Ayu.Pins" = "Số cuộc trò chuyện ghim tối đa";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -273,18 +273,6 @@
+ "Ayu.SendReceipt" = "发送";
+ "Ayu.ReceiptSent" = "回执已发送";
+ "Ayu.ReceiptError" = "无法发送回执。请检查连接后重试。";
+-"Ayu.SharedProfile" = "共享资料";
+-"Ayu.ConnectProfile" = "连接账号";
+-"Ayu.RefreshProfile" = "刷新资料";
+-"Ayu.DisconnectProfile" = "断开此设备";
+-"Ayu.SharedProfileNotice" = "在机器人中确认后，其他 AyuGram 用户可看到你的徽章和状态。";
+-"Ayu.ProfileState.disconnected" = "通过机器人连接以同步资料。";
+-"Ayu.ProfileState.connecting" = "请在机器人中确认账号。";
+-"Ayu.ProfileState.connected" = "已连接";
+-"Ayu.ProfileState.expired" = "确认已过期，请重新连接。";
+-"Ayu.ProfileState.error" = "同步失败，请尝试刷新。";
+-"Ayu.ProfileState.saving" = "正在保存…";
+-"Ayu.ProfileState.conflict" = "其他设备已修改资料，已加载最新设置。";
+ "Ayu.IconChangeUnavailable" = "已在应用内保存选择。iOS 未能更改主屏幕图标。";
+ "Ayu.LocalPremium" = "本地 Premium";
+ "Ayu.Pins" = "最多置顶聊天数";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -273,18 +273,6 @@
+ "Ayu.SendReceipt" = "傳送";
+ "Ayu.ReceiptSent" = "回條已傳送";
+ "Ayu.ReceiptError" = "無法傳送回條。請檢查連線後再試。";
+-"Ayu.SharedProfile" = "共用資料";
+-"Ayu.ConnectProfile" = "連接帳號";
+-"Ayu.RefreshProfile" = "重新整理資料";
+-"Ayu.DisconnectProfile" = "中斷此裝置連線";
+-"Ayu.SharedProfileNotice" = "在機器人中確認後，其他 AyuGram 使用者可看到你的徽章和狀態。";
+-"Ayu.ProfileState.disconnected" = "透過機器人連接以同步資料。";
+-"Ayu.ProfileState.connecting" = "請在機器人中確認帳號。";
+-"Ayu.ProfileState.connected" = "已連接";
+-"Ayu.ProfileState.expired" = "確認已過期，請重新連接。";
+-"Ayu.ProfileState.error" = "同步失敗，請嘗試重新整理。";
+-"Ayu.ProfileState.saving" = "正在儲存…";
+-"Ayu.ProfileState.conflict" = "其他裝置已修改資料，已載入最新設定。";
+ "Ayu.IconChangeUnavailable" = "已在 App 內儲存選擇。iOS 未能更改主畫面圖示。";
+ "Ayu.LocalPremium" = "本機 Premium";
+ "Ayu.Pins" = "最多置頂聊天數";

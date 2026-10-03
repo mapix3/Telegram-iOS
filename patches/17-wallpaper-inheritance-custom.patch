@@ -1,0 +1,53 @@
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift
+--- a/Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift
++++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramAppearance.swift
+@@ -3,6 +3,7 @@
+ public enum AyuGramAppearanceScope: Equatable { case chatList, conversation }
+ 
+ public struct AyuGramWallpaperAppearanceSettings: Codable, Equatable {
++    public var followsChatList: Bool? = nil
+     public var fileName: String?
+     public var isVideo: Bool
+     public var dim: Float
+@@ -60,7 +61,7 @@
+     }
+     private static func resolve(_ settings: AyuGramAppearanceSettings, scope: AyuGramAppearanceScope) -> AyuGramAppearanceSettings {
+         var result = settings
+-        if scope == .conversation, let wallpaper = settings.wallpaper {
++        if scope == .conversation, let wallpaper = settings.wallpaper, wallpaper.fileName != nil || wallpaper.followsChatList == false {
+             result.fileName = wallpaper.fileName
+             result.isVideo = wallpaper.isVideo
+             result.dim = wallpaper.dim
+@@ -127,7 +128,7 @@
+                 settings.wallpaper = wallpaper
+                 settings.conversations = conversations
+             } else {
+-                settings.wallpaper = AyuGramWallpaperAppearanceSettings(fileName: nil, isVideo: false, dim: 0.6, blur: 0.2, animateVideo: true)
++                settings.wallpaper = AyuGramWallpaperAppearanceSettings(followsChatList: false, fileName: nil, isVideo: false, dim: 0.6, blur: 0.2, animateVideo: true)
+                 settings.conversations = true
+             }
+         }
+diff --git a/submodules/ChatListUI/Sources/ChatListControllerNode.swift b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+--- a/submodules/ChatListUI/Sources/ChatListControllerNode.swift
++++ b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+@@ -1342,8 +1342,12 @@
+             guard let self else { return }
+             self.mainContainerNode.backgroundColor = enabled ? .clear : self.presentationData.theme.chatList.backgroundColor
+             self.mainContainerNode.updatePresentationData(self.presentationData)
++            if let layout = self.containerLayout?.layout {
++                let _ = self.updateNavigationBar(layout: layout, deferScrollApplication: false, transition: .immediate)
++            }
+         }
+         self.view.insertSubview(backdrop, at: 0)
++        backdrop.reload()
+         
+         let tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(self.tapGesture(_:)))
+         self.tapRecognizer = tapRecognizer
+@@ -1714,6 +1718,7 @@
+                 tabsNodeIsSearch: false,
+                 accessoryPanelContainer: self.controller?.accessoryPanelContainer,
+                 accessoryPanelContainerHeight: self.controller?.accessoryPanelContainerHeight ?? 0.0,
++                hasEdgeEffect: !AyuGramAppearance.shared.showsChatList || self.isSearchDisplayControllerActive != nil,
+                 activateSearch: { [weak self] searchContentNode in
+                     guard let self, let controller = self.controller else {
+                         return
