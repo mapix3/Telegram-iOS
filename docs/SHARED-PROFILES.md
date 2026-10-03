@@ -1,17 +1,13 @@
-# Shared AyuGram profiles
+# AyuGram client badges
 
-Both Standard and Custom use `https://ayugram-sync.ayugram-status.workers.dev` and `@ayugrampremiumfakerbot`.
+Standard and Custom automatically register the currently signed-in Telegram account's public user ID with https://ayugram-sync.ayugram-status.workers.dev. No bot, separate login, phone number or username is required. The client never sends fake Premium choices, emoji statuses, Telegram credentials, contacts or chat history.
 
-Open AyuGram settings → Shared profile → Connect account. The client opens a short-lived bot link for the currently signed-in Telegram ID. Start the bot and confirm the account, then return to AyuGram. Each installation needs its own confirmation. Once connected, fake Premium and the selected emoji status are read from the shared account profile; changing them explicitly publishes a new revision. Connecting does not upload old DataFolder preferences.
+The member badge is a purple outlined circle with a plane; owner ID 1272887902 keeps the separate filled seal. Updated AyuGram clients display badges after the Telegram Premium/status glyph in profiles, chat titles, chat rows and author headers. Ordinary Telegram clients cannot display these overlays.
 
-The member badge is an outlined purple circle with a plane. The owner ID 1272887902 has a separate filled seal. Updated AyuGram clients show these badges after the normal Telegram Premium/status glyph in profiles, chat titles, chat rows and message author names. Ordinary Telegram clients do not display these overlays. Real Telegram Premium continues to use Telegram's native status and API permissions.
+This is an unauthenticated membership registry, not proof of account ownership. Registration grants no Telegram permissions, cannot modify protected profiles and cannot assign an owner role. Legacy profile APIs retain their authentication and are unused by the new client.
 
-The client refreshes its own profile and up to 100 recently displayed users at most once per minute while in the foreground. It caches public profiles for offline rendering and updates native peer views through a local generation marker. Model getters do not start network requests. Status deadlines refresh the model as they expire. Network failures use a backoff of 5–60 seconds.
+Fake Premium and fake emoji status are local preferences again. Patch 15 removes the old profile-sync client and its remote status overrides; patch 16 removes the bot connection section from settings. Native Telegram Premium and status data keep their original backing values.
 
-Each installation's bearer token is stored in the system Keychain and scoped to an installation UUID and Telegram ID. Public profile caches contain no bearer tokens. Account switching cancels requests and ignores late responses from the previous account. HTTP redirects are rejected. A revision conflict loads the newer remote profile instead of overwriting it. Disconnect revokes this installation only; it preserves the shared member profile.
+Recently visible IDs are looked up in batches of up to 100 once per minute while active. The client bounds visible IDs to 256 and cached results to 512, backs off for 5–300 seconds after errors, rejects HTTP redirects and ignores responses after account switching. Model getters only read cached data. Registration retries automatically. Until it reaches the service, the account's own badge appears locally but cannot be looked up by others.
 
-The server stores Telegram ID, the chosen badge/status metadata and hashed session/link tokens. It does not receive phone numbers, Telegram session credentials, contacts or chat history. BOT_TOKEN and the webhook secret remain encrypted Cloudflare variables and are absent from this repository and the IPA.
-
-Patch 11 supplies the common model and rendering hooks. Patch 12 has one settings-controller version per build variant. The new settings strings cover all 37 shipped SGStrings languages and follow the application language.
-
-CI compiles and runs the production Foundation/Security synchronization client against a local HTTP fixture before the full Bazel build. Checks cover bot identity, 64-bit emoji IDs, cache notifications, rapid selections, a remote revision conflict, logout and a second installation. The complete application still requires a successful device build and an on-device two-account check.
+CI compiles the production Foundation client, runs its HTTP fixture and typechecks it against the minimum iOS SDK. Tests cover automatic registration, other clients' badges, persistence, account switching, wrong-account responses, foreground behaviour and separation from local Premium. Two-account device testing is still required to confirm rendered UI behaviour.
