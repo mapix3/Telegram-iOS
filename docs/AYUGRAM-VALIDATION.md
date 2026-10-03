@@ -1,5 +1,24 @@
 # Validation status
 
+## Current UI fixes
+
+Run 22 completed successfully for Standard and Custom:
+https://github.com/mapix3/Telegram-iOS/actions/runs/37094244678
+
+The next build adds patches 19 and 20. Patch 19 replaces only the ordinary
+member badge with an outlined AyuGram plane; the owner and status-bar badges
+are unchanged. Patch 20 fixes the positive-minimum slider position, preserves
+custom conversation wallpaper through native layout updates, and makes the
+pinned-list overscroll background transparent when custom media is enabled.
+It also sizes backgrounds when view loading follows the initial layout.
+
+Both patch chains apply to the pinned upstream source. Eighteen CI helper
+tests pass locally. Native regression fixtures extract the production slider
+mapping and legacy editor positioning formula, check every saved percentage,
+and exercise wallpaper visibility and pinned-header appearance toggles.
+They run before the full Custom build. Visual behavior on iPhone still needs
+confirmation after installing the new build.
+
 The original privacy/history implementation was built successfully in all
 three variants in GitHub Actions run 3:
 https://github.com/mapix3/Telegram-iOS/actions/runs/36625187938
