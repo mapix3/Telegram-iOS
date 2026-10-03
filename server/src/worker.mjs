@@ -4,6 +4,38 @@ const SESSION_TTL = 30 * 24 * 60 * 60;
 const hex = bytes => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 const randomToken = () => hex(crypto.getRandomValues(new Uint8Array(32)));
 const digest = async value => hex(await crypto.subtle.digest('SHA-256', encoder.encode(value)));
+const memberSchema = new WeakMap();
+const memberRequests = new Map();
+
+async function members(request, env, path, now) {
+    const value = await body(request);
+    const registering = path === '/v2/members/register';
+    keys(value, registering ? ['telegramId'] : ['ids']);
+    const ids = registering ? [telegramId(value.telegramId)] : value.ids;
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > 100) fail(400, 'invalid_lookup');
+    const unique = [...new Set(ids.map(telegramId))];
+    const bucket = Math.floor(now / 300);
+    const ip = request.headers.get('CF-Connecting-IP') || 'local';
+    const rateKey = bucket + ':' + await digest(ip);
+    for (const [key, record] of memberRequests) if (record.bucket !== bucket) memberRequests.delete(key);
+    const count = (memberRequests.get(rateKey)?.count || 0) + 1;
+    if (count > 120 || (!memberRequests.has(rateKey) && memberRequests.size >= 4096)) fail(429, 'too_many_requests');
+    memberRequests.set(rateKey, { bucket, count });
+    if (!memberSchema.has(env.DB)) {
+        const creation = env.DB.prepare('CREATE TABLE IF NOT EXISTS client_members (telegram_id TEXT PRIMARY KEY, registered_at INTEGER NOT NULL)').run();
+        memberSchema.set(env.DB, creation);
+        creation.catch(() => memberSchema.delete(env.DB));
+    }
+    await memberSchema.get(env.DB);
+    if (registering) {
+        await env.DB.prepare('INSERT OR IGNORE INTO client_members(telegram_id, registered_at) VALUES (?1, ?2)').bind(unique[0], now).run();
+        return json({ telegramId: unique[0], registered: true });
+    }
+    const placeholders = unique.map((_, index) => '?' + (index + 1)).join(',');
+    const rows = await env.DB.prepare('SELECT telegram_id FROM client_members WHERE telegram_id IN (' + placeholders + ')').bind(...unique).all();
+    const found = new Set(rows.results.map(row => row.telegram_id));
+    return json({ members: unique.map(id => ({ telegramId: id, registered: found.has(id) })) });
+}
 
 class HttpError extends Error {
     constructor(status, code) { super(code); this.status = status; this.code = code; }
@@ -172,6 +204,7 @@ async function setupWebhook(request, env) {
 
 async function route(request, env, now) {
     const path = new URL(request.url).pathname;
+    if (request.method === 'POST' && ['/v2/members/register', '/v2/members/lookup'].includes(path)) return members(request, env, path, now);
     if (path === '/health' && request.method === 'GET') {
         await env.DB.prepare('SELECT telegram_id FROM profiles LIMIT 1').first();
         return json({ ok: true, version: 1 });
