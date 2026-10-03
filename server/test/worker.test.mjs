@@ -34,6 +34,29 @@ test('webhook setup requires its secret, checks the bot and uses the pinned serv
 });
 
 const NOW = 1790964000;
+test('automatic membership needs no bot or session and never publishes Premium or roles', async t => {
+    const { env, request, DB } = fixture(t);
+    delete env.BOT_TOKEN; delete env.BOT_USERNAME;
+    const registered = await request('/v2/members/register', { method: 'POST', body: { telegramId: '7930293778' } });
+    assert.equal(registered.status, 200);
+    assert.deepEqual(registered.json, { telegramId: '7930293778', registered: true });
+    const lookup = await request('/v2/members/lookup', { method: 'POST', body: { ids: ['7930293778', '1272887902', '7930293778'] } });
+    assert.deepEqual(lookup.json, { members: [{ telegramId: '7930293778', registered: true }, { telegramId: '1272887902', registered: false }] });
+    assert.equal(lookup.headers.get('Cache-Control'), 'no-store');
+    assert.equal(await DB.prepare('SELECT telegram_id FROM profiles WHERE telegram_id = ?1').bind('7930293778').first(), null);
+    assert.equal((await request('/v2/members/register', { method: 'POST', body: { telegramId: '7930293778', fakePremium: true } })).status, 400);
+    assert.equal((await request('/v2/members/register', { method: 'POST', body: { telegramId: '7930293778', badge: 'owner' } })).status, 400);
+});
+
+test('membership validates IDs, body size and lookup limits', async t => {
+    const { request } = fixture(t);
+    for (const id of [7930293778, '0', '-1', '01', '4503599627370496', 'x']) {
+        assert.equal((await request('/v2/members/register', { method: 'POST', body: { telegramId: id } })).status, 400);
+    }
+    assert.equal((await request('/v2/members/lookup', { method: 'POST', body: { ids: [] } })).status, 400);
+    assert.equal((await request('/v2/members/lookup', { method: 'POST', body: { ids: Array(101).fill('1') } })).status, 400);
+    assert.equal((await request('/v2/members/register', { method: 'POST', rawBody: ' '.repeat(9000) })).status, 413);
+});
 function database() {
     const sqlite = new DatabaseSync(':memory:');
     sqlite.exec('PRAGMA foreign_keys=ON;');
