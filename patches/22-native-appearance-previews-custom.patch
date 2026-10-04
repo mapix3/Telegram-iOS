@@ -112,7 +112,7 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearancePreviewItem.swift b
 +    private let avatar = UILabel()
 +    private let name = UILabel()
 +    private let message = UILabel()
-+    private let tag = UILabel()
++    private let tagLabel = UILabel()
 +    private let date = UILabel()
 +    private let pin = UIImageView()
 +    private let separator = UIView()
@@ -121,7 +121,7 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearancePreviewItem.swift b
 +    init(index: Int) {
 +        self.index = index
 +        super.init(frame: .zero)
-+        for child in [avatar, name, message, tag, date, pin, separator] { addSubview(child) }
++        for child in [avatar, name, message, tagLabel, date, pin, separator] { addSubview(child) }
 +        avatar.text = "🦆"
 +        avatar.textAlignment = .center
 +        avatar.font = .systemFont(ofSize: 30)
@@ -130,10 +130,10 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearancePreviewItem.swift b
 +        name.font = .systemFont(ofSize: 16, weight: .medium)
 +        message.font = .systemFont(ofSize: 14)
 +        message.lineBreakMode = .byTruncatingTail
-+        tag.font = .systemFont(ofSize: 10, weight: .medium)
-+        tag.layer.cornerRadius = 4
-+        tag.clipsToBounds = true
-+        tag.textAlignment = .center
++        tagLabel.font = .systemFont(ofSize: 10, weight: .medium)
++        tagLabel.layer.cornerRadius = 4
++        tagLabel.clipsToBounds = true
++        tagLabel.textAlignment = .center
 +        date.font = .systemFont(ofSize: 11)
 +        date.textAlignment = .right
 +        pin.image = UIImage(systemName: index == 0 ? "pin.fill" : "checkmark")
@@ -153,21 +153,21 @@ diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearancePreviewItem.swift b
 +        date.text = index == 0 ? "21:20" : "21:18"
 +        date.textColor = theme.dateTextColor
 +        pin.tintColor = index == 0 ? theme.pinnedBadgeColor : theme.checkmarkColor
-+        tag.text = index == 0 ? data.strings.Notifications_PrivateChats : data.strings.IntentsSettings_SuggestedChatsGroups
-+        tag.textColor = data.theme.list.itemAccentColor
-+        tag.backgroundColor = data.theme.list.itemAccentColor.withAlphaComponent(0.15)
++        tagLabel.text = index == 0 ? data.strings.Notifications_PrivateChats : data.strings.IntentsSettings_SuggestedChatsGroups
++        tagLabel.textColor = data.theme.list.itemAccentColor
++        tagLabel.backgroundColor = data.theme.list.itemAccentColor.withAlphaComponent(0.15)
 +        separator.backgroundColor = theme.itemSeparatorColor
 +        avatar.frame = CGRect(x: 12, y: 15, width: 54, height: 54)
 +        let textX: CGFloat = 78
 +        name.frame = CGRect(x: textX, y: 10, width: max(1, width - textX - 62), height: 21)
 +        message.frame = CGRect(x: textX, y: 33, width: max(1, width - textX - 35), height: 20)
-+        let tagWidth = min(max(1, width - textX - 40), ceil(tag.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: 20)).width) + 10)
-+        tag.frame = CGRect(x: textX, y: 57, width: tagWidth, height: 17)
++        let tagWidth = min(max(1, width - textX - 40), ceil(tagLabel.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 20)).width) + 10)
++        tagLabel.frame = CGRect(x: textX, y: 57, width: tagWidth, height: 17)
 +        date.frame = CGRect(x: width - 59, y: 13, width: 47, height: 16)
 +        pin.frame = CGRect(x: width - 28, y: 37, width: 16, height: 16)
 +        separator.frame = CGRect(x: textX, y: 83, width: max(1, width - textX - 12), height: 0.5)
 +        separator.isHidden = index == 1
-+        accessibilityLabel = [name.text, message.text, tag.text].compactMap { $0 }.joined(separator: ". ")
++        accessibilityLabel = [name.text, message.text, tagLabel.text].compactMap { $0 }.joined(separator: ". ")
 +    }
 +}
 +
