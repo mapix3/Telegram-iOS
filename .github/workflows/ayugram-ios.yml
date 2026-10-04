@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ayugram-ios-${{ github.ref }}
+  group: ayugram-ios-${{ github.ref }}-${{ inputs.variant }}
   cancel-in-progress: false
 
 jobs:
