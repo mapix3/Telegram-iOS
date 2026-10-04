@@ -114,7 +114,29 @@ struct CompatibilityListTheme {
     var itemBlocksBackgroundColor: UIColor { .secondarySystemBackground }
     var itemCheckColors = CompatibilityCheckColors()
 }
-struct CompatibilityTheme { var list = CompatibilityListTheme() }
+struct CompatibilityBubbleComponents { var fill: [UIColor] { [.gray, .gray] } }
+struct CompatibilityBubbleColors { var withWallpaper = CompatibilityBubbleComponents() }
+struct CompatibilityMessageColors {
+    var bubble = CompatibilityBubbleColors()
+    var primaryTextColor: UIColor { .label }
+    var secondaryTextColor: UIColor { .secondaryLabel }
+    var accentTextColor: UIColor { .purple }
+    var accentControlColor: UIColor { .purple }
+}
+struct CompatibilityMessageTheme { var incoming = CompatibilityMessageColors(); var outgoing = CompatibilityMessageColors() }
+struct CompatibilityChatTheme { var message = CompatibilityMessageTheme() }
+struct CompatibilityChatListTheme {
+    var backgroundColor: UIColor { .black }
+    var itemBackgroundColor: UIColor { .black }
+    var pinnedItemBackgroundColor: UIColor { .gray }
+    var titleColor: UIColor { .white }
+    var messageTextColor: UIColor { .gray }
+    var dateTextColor: UIColor { .gray }
+    var pinnedBadgeColor: UIColor { .gray }
+    var checkmarkColor: UIColor { .purple }
+    var itemSeparatorColor: UIColor { .gray }
+}
+struct CompatibilityTheme { var list = CompatibilityListTheme(); var chat = CompatibilityChatTheme(); var chatList = CompatibilityChatListTheme() }
 struct ItemListPresentationData { var theme = CompatibilityTheme(); var strings = PresentationStrings() }
 '''
         declarations = 'import UIKit\n' + declarations

@@ -47,6 +47,8 @@ print("Send receipts exclude Saved Messages, non-cloud messages and disabled pri
     binary = output / 'receipt-tests'
     subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', file, '-o', binary], check=True)
     subprocess.run([binary], check=True, timeout=10)
+    from ayugram_receipt_regressions import check_receipt_regressions
+    check_receipt_regressions(source, output)
     check_gallery_receipt_alerts(source, output)
     check_context_menu_receipt_alerts(source, output)
     print('Receipt strings validated in all 37 languages; production send guard passed', flush=True)
@@ -107,6 +109,10 @@ final class Messages {
 struct Engine { let messages = Messages() }
 struct Context { let sharedContext = SharedContext(); let engine = Engine() }
 struct Message { let id: Int }
+struct Thread { let threadId: Int64 }
+enum ChatLocation { case peer, replyThread(Thread) }
+struct ChatState { var chatLocation: ChatLocation = .peer }
+var chatPresentationInterfaceState = ChatState()
 final class Button { var isEnabled = true }
 final class Footer {
     let context = Context()
@@ -210,12 +216,16 @@ final class Messages {
     var result = false
     var readRequests = 0
     var viewRequests = 0
-    func ayuReportRead(messageId: Int) -> ReceiptSignal { readRequests += 1; return ReceiptSignal(result: result) }
+    func ayuReportRead(messageId: Int, threadId: Int64?) -> ReceiptSignal { readRequests += 1; return ReceiptSignal(result: result) }
     func ayuReportContentViewed(messageId: Int) -> ReceiptSignal { viewRequests += 1; return ReceiptSignal(result: result) }
 }
 struct Engine { let messages = Messages() }
 struct AccountContext { let engine = Engine() }
 struct Message { let id: Int }
+struct Thread { let threadId: Int64 }
+enum ChatLocation { case peer, replyThread(Thread) }
+struct ChatState { var chatLocation: ChatLocation = .peer }
+var chatPresentationInterfaceState = ChatState()
 final class ControllerInteraction {
     var alerts: [AlertController] = []
     func presentControllerInCurrent(_ controller: ViewController, _ arguments: Any?) { alerts.append(controller as! AlertController) }
