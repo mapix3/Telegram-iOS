@@ -29,7 +29,7 @@
   "patches/19-member-badge.patch": "e1d1611616444ee436fc4fd2e555bc8462043a77924237f8ab5383915c079e0f",
   "patches/20-wallpaper-layering-custom.patch": "fe612637d87eca5249d6c4c1e456aa71f598350d25142e8948f6f4a0d7ade4d7",
   "patches/21-receipts-and-mentions.patch": "6260377d930639e51554cedf38a92215431bf31dd868aaf71358b54471ee235a",
-  "patches/22-native-appearance-previews-custom.patch": "51c22edb2a0eeb463764a65e2e779a3c948dfcf4df1ad7b83bfd2bdb9469c31e",
+  "patches/22-native-appearance-previews-custom.patch": "fc0535e31b394821af02ec79385c4d2c6ccfb9bc3d5004099007ec7b24284e72",
   "patches/23-intro-ayugram-icon.patch": "7acecdb4c14d63f051c675072fad93aa89c863f0fc30f2d74dce7082ba7dfbff",
   "scripts/ayugram-tests/AyuGramClientBadgesTests.swift": "2c04fb2866f66fb09b17f39d422e70b9e2d3679bc9e11ec21c8b340e14027539",
   "scripts/ayugram-tests/AyuGramProfileSyncTests.swift": "34d590cdb876d2620493e13f3ad9f766a3bd9986de09243cd542d1be60769706",
