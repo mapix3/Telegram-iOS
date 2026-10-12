@@ -7,7 +7,8 @@ NEW_KEYS = ['HeroGhostOn', 'HeroGhostOff', 'HeroHidden', 'GhostSubtitle', 'Ghost
             'OfflineAfterSending', 'OfflineAfterSendingInfo', 'ReadOnSend', 'ReadOnSendInfo', 'QuickToggle', 'QuickToggleInfo',
             'ContentSection', 'IgnoreProtection', 'IgnoreProtectionInfo', 'AllowScreenshots', 'AllowScreenshotsInfo', 'ContentFooter',
             'SaveDeletedInfo', 'OpenHistory', 'ClientSection', 'LocalPremiumInfo', 'GhostEnable', 'GhostDisable',
-            'GhostEnabledToast', 'GhostDisabledToast', 'ChatListBackground', 'ConversationBackground', 'ChooseVideo', 'ShowBackground']
+            'GhostEnabledToast', 'GhostDisabledToast', 'ChatListBackground', 'ConversationBackground', 'ChooseVideo', 'ShowBackground',
+            'AddAccountHelp']
 
 
 def check_strings(source: Path):
@@ -18,6 +19,7 @@ def check_strings(source: Path):
         missing = [key for key in NEW_KEYS if not strings.get('Ayu.' + key, '').strip()]
         assert not missing, (file, missing)
         assert strings['Ayu.HeroHidden'].count('%@') == 2, file
+        assert '500' in strings['Ayu.AddAccountHelp'] or '۵۰۰' in strings['Ayu.AddAccountHelp'], file
         for key in NEW_KEYS:
             # i18n formats every string; a stray % would corrupt the text.
             assert '%' not in strings['Ayu.' + key].replace('%@', ''), (file, key)
@@ -39,6 +41,10 @@ def check_sources(source: Path, variant: str):
     chat_list = (source / 'submodules/ChatListUI/Sources/ChatListController.swift').read_text()
     assert 'AyuGramSettings.shared.setGhostMode(!ghostEnabled)' in chat_list
     assert '//Swiftgram/SGStrings:SGStrings' in (source / 'submodules/ChatListUI/BUILD').read_text()
+    accounts = (source / 'submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift').read_text()
+    assert 'i18n("Ayu.AddAccountHelp"' in accounts and 'Settings_AddAnotherAccount_PremiumHelp' not in accounts
+    limit = (source / 'submodules/AccountUtils/Sources/AccountUtils.swift').read_text()
+    assert 'maximumSwiftgramNumberOfAccounts = 500' in limit, 'Account limit text matches the actual limit'
     entry = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift').read_text()
     assert ('= true' in entry) == (variant == 'custom'), 'Appearance link matches the variant'
     if variant == 'custom':

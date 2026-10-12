@@ -1,0 +1,405 @@
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+index 680564029c533cc52039b658359ff9064466c569..40d120cd8674317f67b9fab81ce252c656a431e4 100644
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Jy kan tot 500 rekeninge met verskillende foonnommers byvoeg.";
+ "Ayu.HeroGhostOn" = "Spookmodus is aan";
+ "Ayu.HeroGhostOff" = "Spookmodus is af";
+ "Ayu.HeroHidden" = "Versteek: %@ van %@";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+index 07ddc6b50006ad556ba22f195f22c5ac175b7846..23c3275c77ab1010804d642bb82876570d73e090 100644
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "يمكنك إضافة ما يصل إلى 500 حساب بأرقام هواتف مختلفة.";
+ "Ayu.HeroGhostOn" = "وضع الشبح مفعّل";
+ "Ayu.HeroGhostOff" = "وضع الشبح متوقف";
+ "Ayu.HeroHidden" = "المخفي: %@ من %@";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+index 898554ea0200b8c022a743ab49c7edd3a06d6cad..7b618e7522217990ce3a3e8ee6a7180025217722 100644
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Pots afegir fins a 500 comptes amb números de telèfon diferents.";
+ "Ayu.HeroGhostOn" = "Mode fantasma activat";
+ "Ayu.HeroGhostOff" = "Mode fantasma desactivat";
+ "Ayu.HeroHidden" = "Ocult: %@ de %@";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+index 1ea0dec38f9a98f0546e54b6d4b78ba0a5430e5d..f8925469f5a4a4639860d840b633455e4d0b2943 100644
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Můžete přidat až 500 účtů s různými telefonními čísly.";
+ "Ayu.HeroGhostOn" = "Režim ducha je zapnutý";
+ "Ayu.HeroGhostOff" = "Režim ducha je vypnutý";
+ "Ayu.HeroHidden" = "Skryto: %@ z %@";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+index 96987ff0899fd7959a1dde35e07d92f2d5357503..801413871772b8971aad0743574113fa4d8f548a 100644
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Du kan tilføje op til 500 konti med forskellige telefonnumre.";
+ "Ayu.HeroGhostOn" = "Spøgelsestilstand er slået til";
+ "Ayu.HeroGhostOff" = "Spøgelsestilstand er slået fra";
+ "Ayu.HeroHidden" = "Skjult: %@ af %@";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+index 560f0ca7e08628b472f7ad736e3bdf8a30b5f284..6a30dd6ab56f53873393dcdf0737a5e8c514f2dc 100644
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Du kannst bis zu 500 Konten mit verschiedenen Telefonnummern hinzufügen.";
+ "Ayu.HeroGhostOn" = "Geistmodus ist an";
+ "Ayu.HeroGhostOff" = "Geistmodus ist aus";
+ "Ayu.HeroHidden" = "Verborgen: %@ von %@";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+index bfe8bddc1b85c4bb88c77eceb907c34d376214b0..900faedabd1b4dfaf728059fe4623a9334863a05 100644
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Μπορείτε να προσθέσετε έως 500 λογαριασμούς με διαφορετικούς αριθμούς τηλεφώνου.";
+ "Ayu.HeroGhostOn" = "Η λειτουργία φάντασμα είναι ενεργή";
+ "Ayu.HeroGhostOff" = "Η λειτουργία φάντασμα είναι ανενεργή";
+ "Ayu.HeroHidden" = "Κρυφά: %@ από %@";
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+index 150d925fb9e3a9b5aeb303e8d2be3c1e4ca10b99..699131f834224f14407b88868fad531a15b1bd41 100644
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "You can add up to 500 accounts with different phone numbers.";
+ "Ayu.HeroGhostOn" = "Ghost Mode is on";
+ "Ayu.HeroGhostOff" = "Ghost Mode is off";
+ "Ayu.HeroHidden" = "Hidden: %@ of %@";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+index 896138f466ca0d3d4595b2b8b250bebb972eff41..4b1db67bd07f398baa1476df5ca839b9b33392f8 100644
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Puedes añadir hasta 500 cuentas con distintos números de teléfono.";
+ "Ayu.HeroGhostOn" = "Modo fantasma activado";
+ "Ayu.HeroGhostOff" = "Modo fantasma desactivado";
+ "Ayu.HeroHidden" = "Oculto: %@ de %@";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+index ff15cec4e14d84399bec7f063d7a1f3b7f7f861a..c6c39343b19daf4f53565cb2abe9f611010b9563 100644
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "می‌توانید تا ۵۰۰ حساب با شماره‌های تلفن مختلف اضافه کنید.";
+ "Ayu.HeroGhostOn" = "حالت روح روشن است";
+ "Ayu.HeroGhostOff" = "حالت روح خاموش است";
+ "Ayu.HeroHidden" = "پنهان: %@ از %@";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+index d468d3063c4936acd41aa77258820f5aaf3bea55..32a4985d4739e1e8a38cfe508204e251c63636c9 100644
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Voit lisätä enintään 500 tiliä eri puhelinnumeroilla.";
+ "Ayu.HeroGhostOn" = "Haamutila on päällä";
+ "Ayu.HeroGhostOff" = "Haamutila on pois";
+ "Ayu.HeroHidden" = "Piilotettu: %@/%@";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+index da183c7ed156c22d8979c69746a83af9a23410c5..1c0f8d531dd4b6ac9ffd01ab548b0dd5598a6fcf 100644
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Vous pouvez ajouter jusqu’à 500 comptes avec des numéros différents.";
+ "Ayu.HeroGhostOn" = "Mode fantôme activé";
+ "Ayu.HeroGhostOff" = "Mode fantôme désactivé";
+ "Ayu.HeroHidden" = "Masqué : %@ sur %@";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+index 4988212824c0e57b277ff110dc06bbf0d922fbbb..52bd5314c8db1a6834d6a78741b38ddc4f84c2b8 100644
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "אפשר להוסיף עד 500 חשבונות עם מספרי טלפון שונים.";
+ "Ayu.HeroGhostOn" = "מצב רוח פעיל";
+ "Ayu.HeroGhostOff" = "מצב רוח כבוי";
+ "Ayu.HeroHidden" = "מוסתר: %@ מתוך %@";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+index b0baecf8c094a9bc01b23c1ac6b9e6f12c3fad35..720079e1f4bc173334046a2545bde16cfb77da5d 100644
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "आप अलग-अलग फ़ोन नंबरों वाले 500 तक खाते जोड़ सकते हैं।";
+ "Ayu.HeroGhostOn" = "घोस्ट मोड चालू है";
+ "Ayu.HeroGhostOff" = "घोस्ट मोड बंद है";
+ "Ayu.HeroHidden" = "छिपे हुए: %@ में से %@";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+index c2d7da16c5a8ac1e54e25b30591b5a6ee862102b..a256df8d3a0a983d914dbff91afd51be95378229 100644
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Legfeljebb 500 fiókot adhatsz hozzá különböző telefonszámokkal.";
+ "Ayu.HeroGhostOn" = "Szellemmód bekapcsolva";
+ "Ayu.HeroGhostOff" = "Szellemmód kikapcsolva";
+ "Ayu.HeroHidden" = "Elrejtve: %@ / %@";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+index b45863f864e1b2fe71ca4499abfe1c8219a4d9f8..fd9173d87d151e13b8b62d906ba8e827fd86f2c1 100644
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Anda dapat menambahkan hingga 500 akun dengan nomor telepon berbeda.";
+ "Ayu.HeroGhostOn" = "Mode Hantu aktif";
+ "Ayu.HeroGhostOff" = "Mode Hantu nonaktif";
+ "Ayu.HeroHidden" = "Disembunyikan: %@ dari %@";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+index 15f577a458c5a1644b16d6315d7bcc8dfbeb276e..ca46f855b1c248deaa6ec7008c41ee66dd97874e 100644
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Puoi aggiungere fino a 500 account con numeri di telefono diversi.";
+ "Ayu.HeroGhostOn" = "Modalità fantasma attiva";
+ "Ayu.HeroGhostOff" = "Modalità fantasma disattivata";
+ "Ayu.HeroHidden" = "Nascosti: %@ di %@";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+index 58ee141646c68d1988985b92029ed3fe72b2bb0a..b8efe3e46dba5290d971c4c11cd889bcea7f269f 100644
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "異なる電話番号のアカウントを最大500件まで追加できます。";
+ "Ayu.HeroGhostOn" = "ゴーストモード：オン";
+ "Ayu.HeroGhostOff" = "ゴーストモード：オフ";
+ "Ayu.HeroHidden" = "非表示：%@ / %@";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+index db64cc10f255c2d6e64f5ef037ef8fc8aa9dd1fa..ec97345ee5ec958b0d615ed4b329b3551d425729 100644
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "អ្នកអាចបន្ថែមគណនីរហូតដល់ 500 ដែលមានលេខទូរសព្ទខុសៗគ្នា។";
+ "Ayu.HeroGhostOn" = "មុខងារលាក់ខ្លួនបានបើក";
+ "Ayu.HeroGhostOff" = "មុខងារលាក់ខ្លួនបានបិទ";
+ "Ayu.HeroHidden" = "បានលាក់៖ %@ ក្នុងចំណោម %@";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+index a98efc71bb100777a562d460724956688a26f830..f2660462cad6d6b40603ec873cecc8acf7956fe6 100644
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "서로 다른 전화번호로 최대 500개의 계정을 추가할 수 있습니다.";
+ "Ayu.HeroGhostOn" = "고스트 모드 켜짐";
+ "Ayu.HeroGhostOff" = "고스트 모드 꺼짐";
+ "Ayu.HeroHidden" = "숨김: %@ / %@";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+index d8b9306079f85e087c7676282bfe0267b24be305..d0c39a2be94383e5728f2ed6a8bbe8373964179c 100644
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Tu dikarî heta 500 hesaban bi hejmarên telefonê yên cuda zêde bikî.";
+ "Ayu.HeroGhostOn" = "Moda ruhê vekirî ye";
+ "Ayu.HeroGhostOff" = "Moda ruhê girtî ye";
+ "Ayu.HeroHidden" = "Veşartî: %@ ji %@";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+index ba46d50c20868ba006629b59c39091cb567e7af1..f6a82a7e2a279eaf2165f6872c9910d63c4658fe 100644
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Je kunt tot 500 accounts met verschillende telefoonnummers toevoegen.";
+ "Ayu.HeroGhostOn" = "Spookmodus staat aan";
+ "Ayu.HeroGhostOff" = "Spookmodus staat uit";
+ "Ayu.HeroHidden" = "Verborgen: %@ van %@";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+index 3c870082cddd5c18f533b9e5e718a87a6f4aae1b..731ff9acb51213d8fcafbad35161c8b3a5779eb3 100644
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Du kan legge til opptil 500 kontoer med forskjellige telefonnumre.";
+ "Ayu.HeroGhostOn" = "Spøkelsesmodus er på";
+ "Ayu.HeroGhostOff" = "Spøkelsesmodus er av";
+ "Ayu.HeroHidden" = "Skjult: %@ av %@";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+index ecb7721c5c88210dbc86f0d2bfa774fa5bbfed69..21da97651975eab6c7cb364f395dcb2c4ce3b70a 100644
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Możesz dodać do 500 kont z różnymi numerami telefonów.";
+ "Ayu.HeroGhostOn" = "Tryb ducha włączony";
+ "Ayu.HeroGhostOff" = "Tryb ducha wyłączony";
+ "Ayu.HeroHidden" = "Ukryte: %@ z %@";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+index de5fe5db24af268731a079c08a6cd633e4a9f5e3..9e89f5ea71ecd6f546f5cdf72faa7f49a3a84268 100644
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Você pode adicionar até 500 contas com números de telefone diferentes.";
+ "Ayu.HeroGhostOn" = "Modo fantasma ativado";
+ "Ayu.HeroGhostOff" = "Modo fantasma desativado";
+ "Ayu.HeroHidden" = "Ocultos: %@ de %@";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+index 37dca428b2756acc8d587c6798ecf650d1223fa6..c652f9e9f10f8d577e61ee0464b51cf15534afdd 100644
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Poți adăuga până la 500 de conturi cu numere de telefon diferite.";
+ "Ayu.HeroGhostOn" = "Modul fantomă este activ";
+ "Ayu.HeroGhostOff" = "Modul fantomă este dezactivat";
+ "Ayu.HeroHidden" = "Ascunse: %@ din %@";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+index ba81953c60e256c686076fa2664cf670ef37be37..1dcdb2a9689d2249841a50617c0900376b656837 100644
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Можно добавить до 500 аккаунтов с разными номерами телефонов.";
+ "Ayu.HeroGhostOn" = "Режим призрака включён";
+ "Ayu.HeroGhostOff" = "Режим призрака выключен";
+ "Ayu.HeroHidden" = "Скрыто: %@ из %@";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+index 7e50e22db5eddd9dea5f00a24c6f94227bd5ce37..b7b61bd0e7e528f93321f8b1db6f2c990bc7fa3d 100644
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "විවිධ දුරකථන අංක සහිත ගිණුම් 500 ක් දක්වා එක් කළ හැක.";
+ "Ayu.HeroGhostOn" = "සැඟවුණු මාදිලිය සක්‍රියයි";
+ "Ayu.HeroGhostOff" = "සැඟවුණු මාදිලිය අක්‍රියයි";
+ "Ayu.HeroHidden" = "සඟවා ඇත: %@ න් %@";
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+index 86f204c27697038b168d5abd41f91d93701d7a09..8bfaaa6e51a87a980f90faa0440d26b4607af99a 100644
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Môžete pridať až 500 účtov s rôznymi telefónnymi číslami.";
+ "Ayu.HeroGhostOn" = "Režim ducha je zapnutý";
+ "Ayu.HeroGhostOff" = "Režim ducha je vypnutý";
+ "Ayu.HeroHidden" = "Skryté: %@ z %@";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+index b65f7296b5a1ecee1622c8626b7857866906927c..b831082256dabc02597d817cf6ab708cca8dcfcc 100644
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Можете додати до 500 налога са различитим бројевима телефона.";
+ "Ayu.HeroGhostOn" = "Режим духа је укључен";
+ "Ayu.HeroGhostOff" = "Режим духа је искључен";
+ "Ayu.HeroHidden" = "Скривено: %@ од %@";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+index c6e72430cb5e8b0ee91a44e7058cfb38713665fa..5cf2b9326cab2de1def34e5ac8a2b543a5071e55 100644
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Du kan lägga till upp till 500 konton med olika telefonnummer.";
+ "Ayu.HeroGhostOn" = "Spökläget är på";
+ "Ayu.HeroGhostOff" = "Spökläget är av";
+ "Ayu.HeroHidden" = "Dolt: %@ av %@";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+index 53643c6b68990f30050b81ccc8687dbc4be64783..9625d5738f7c0b0f9aba293c7aaa5d3acf8b41e3 100644
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Farklı telefon numaralarıyla en fazla 500 hesap ekleyebilirsiniz.";
+ "Ayu.HeroGhostOn" = "Hayalet Modu açık";
+ "Ayu.HeroGhostOff" = "Hayalet Modu kapalı";
+ "Ayu.HeroHidden" = "Gizlenen: %@ / %@";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+index ed152d04f4e7c89ea81d8727124fe43be28b3fa2..99f54dfe27b8c30a929e09bfa3b07f796b154bb0 100644
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Можна додати до 500 акаунтів з різними номерами телефонів.";
+ "Ayu.HeroGhostOn" = "Режим привида увімкнено";
+ "Ayu.HeroGhostOff" = "Режим привида вимкнено";
+ "Ayu.HeroHidden" = "Приховано: %@ з %@";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+index 26eb02030de763eef0cbd30fc464d0cd53f46832..2e48e1ef7d572caa734d27950f769c4ac69cce0e 100644
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Turli telefon raqamlari bilan 500 tagacha akkaunt qo‘shishingiz mumkin.";
+ "Ayu.HeroGhostOn" = "Arvoh rejimi yoqilgan";
+ "Ayu.HeroGhostOff" = "Arvoh rejimi o‘chirilgan";
+ "Ayu.HeroHidden" = "Yashirilgan: %@ / %@";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+index f2ba32f4b1d59ccff1e409a479d3a1d6f50854bc..381069b574349177da4155ba76934f4fc386bb7c 100644
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "Bạn có thể thêm tối đa 500 tài khoản với các số điện thoại khác nhau.";
+ "Ayu.HeroGhostOn" = "Chế độ bóng ma đang bật";
+ "Ayu.HeroGhostOff" = "Chế độ bóng ma đang tắt";
+ "Ayu.HeroHidden" = "Đã ẩn: %@ / %@";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+index dcc515fccd4f0254d201cd3671483238f418e23a..fcc73d831a62167ad3f6c56132e2fb431a5a5ae2 100644
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "您最多可以添加 500 个使用不同手机号的账号。";
+ "Ayu.HeroGhostOn" = "幽灵模式已开启";
+ "Ayu.HeroGhostOff" = "幽灵模式已关闭";
+ "Ayu.HeroHidden" = "已隐藏：%@ / %@";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+index fb6367366781e3a17e66c47b52ea220a5b81039f..43c8df53f444712107cd193daeb7c30a5f13372a 100644
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -1,4 +1,5 @@
+ // AyuGram
++"Ayu.AddAccountHelp" = "您最多可以新增 500 個使用不同電話號碼的帳號。";
+ "Ayu.HeroGhostOn" = "幽靈模式已開啟";
+ "Ayu.HeroGhostOff" = "幽靈模式已關閉";
+ "Ayu.HeroHidden" = "已隱藏：%@ / %@";
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+index 69a54e8d70285dacbffd10bffbe94d9b04eaff20..e0235ffbbb9fc2d15081188d8d084ecb7ad32698 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+@@ -1,4 +1,5 @@
+ import Foundation
++import SGStrings
+ import UIKit
+ import Display
+ import AccountContext
+@@ -560,22 +561,8 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
+         interaction.openSettings(.addAccount)
+     }))
+     
+-    var hasPremiumAccounts = false
+-    if data.peer?.isPremium == true && !context.account.testingEnvironment {
+-        hasPremiumAccounts = true
+-    }
+-    if let settings = data.globalSettings {
+-        for (accountContext, peer, _) in settings.accountsAndPeers {
+-            if !accountContext.account.testingEnvironment {
+-                if peer.isPremium {
+-                    hasPremiumAccounts = true
+-                    break
+-                }
+-            }
+-        }
+-    }
+-    
+-    items[.account]!.append(PeerInfoScreenCommentItem(id: ItemAddAccountHelp, text: hasPremiumAccounts ? presentationData.strings.Settings_AddAnotherAccount_PremiumHelp : presentationData.strings.Settings_AddAnotherAccount_Help))
++    // AyuGram: Swiftgram allows up to maximumSwiftgramNumberOfAccounts (500) accounts.
++    items[.account]!.append(PeerInfoScreenCommentItem(id: ItemAddAccountHelp, text: i18n("Ayu.AddAccountHelp", presentationData.strings.baseLanguageCode)))
+     
+     items[.logout]!.append(PeerInfoScreenActionItem(id: ItemLogout, text: presentationData.strings.Settings_Logout, color: .destructive, alignment: .center, action: {
+         interaction.openSettings(.logout)
