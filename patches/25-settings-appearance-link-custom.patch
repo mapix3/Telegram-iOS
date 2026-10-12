@@ -1,0 +1,16 @@
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..326c592dde3cff8b9f13db1ccf508faa70d3ed78
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift
+@@ -0,0 +1,10 @@
++import Foundation
++import Display
++import AccountContext
++
++/// Custom build: the AyuGram screen links to background customization.
++let ayuGramHasAppearanceEntry = true
++
++func ayuGramAppearanceEntryController(context: AccountContext) -> ViewController? {
++    return ayuGramAppearanceController(context: context)
++}

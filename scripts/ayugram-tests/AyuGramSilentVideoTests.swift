@@ -59,3 +59,14 @@ expect(silent.tracks(withMediaType: .video).first!.preferredTransform == sourceV
 do { _ = try AyuGramSilentVideo.composition(from: audioAsset); preconditionFailure("Audio-only media must not become a wallpaper player") }
 catch AyuGramSilentVideo.Failure.noVideo {}
 print("Real video and audio fixture produces a silent wallpaper with matching duration and orientation")
+
+// The wallpaper renderer must decode frames without AVPlayer (which activates the audio session).
+let renderer = AyuGramSilentVideoRenderer(url: movie)
+var rendered = false
+renderer.firstFrameDisplayed = { rendered = true }
+renderer.start()
+let renderDeadline = Date().addingTimeInterval(15)
+while !rendered && Date() < renderDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+expect(rendered, "Silent renderer decodes and enqueues video frames")
+renderer.stop()
+print("Silent wallpaper video: audio removal, orientation and AVPlayer-free rendering passed")

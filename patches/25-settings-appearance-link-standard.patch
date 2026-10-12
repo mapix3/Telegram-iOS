@@ -1,0 +1,15 @@
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift
+new file mode 100644
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift
+@@ -0,0 +1,10 @@
++import Foundation
++import Display
++import AccountContext
++
++/// Standard build: background customization is not included.
++let ayuGramHasAppearanceEntry = false
++
++func ayuGramAppearanceEntryController(context: AccountContext) -> ViewController? {
++    return nil
++}

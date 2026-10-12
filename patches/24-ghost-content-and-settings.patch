@@ -1,0 +1,2526 @@
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsHeroItem.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsHeroItem.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..29195a9d32a8da7aab7ada78303a649cf323c010
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsHeroItem.swift
+@@ -0,0 +1,171 @@
++import Foundation
++import UIKit
++import Display
++import SwiftSignalKit
++import ItemListUI
++
++/// Rounded, Settings-style icon with a white SF Symbol (iOS 13+).
++func ayuGramRowIcon(_ symbol: String, color: UIColor) -> UIImage {
++    let size = CGSize(width: 29.0, height: 29.0)
++    return UIGraphicsImageRenderer(size: size).image { _ in
++        color.setFill()
++        UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 7.0).fill()
++        let configuration = UIImage.SymbolConfiguration(pointSize: 14.0, weight: .semibold)
++        guard let glyph = UIImage(systemName: symbol, withConfiguration: configuration)?.withTintColor(.white, renderingMode: .alwaysOriginal) else {
++            return
++        }
++        let fitted = glyph.size.width > 0.0 && glyph.size.height > 0.0 ? min(1.0, min(19.0 / glyph.size.width, 19.0 / glyph.size.height)) : 1.0
++        let glyphSize = CGSize(width: glyph.size.width * fitted, height: glyph.size.height * fitted)
++        glyph.draw(in: CGRect(x: (size.width - glyphSize.width) / 2.0, y: (size.height - glyphSize.height) / 2.0, width: glyphSize.width, height: glyphSize.height))
++    }
++}
++
++enum AyuGramRowColor {
++    static let purple = UIColor(red: 0.50, green: 0.30, blue: 0.95, alpha: 1.0)
++    static let indigo = UIColor(red: 0.35, green: 0.34, blue: 0.84, alpha: 1.0)
++    static let blue = UIColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1.0)
++    static let teal = UIColor(red: 0.19, green: 0.69, blue: 0.78, alpha: 1.0)
++    static let green = UIColor(red: 0.20, green: 0.78, blue: 0.35, alpha: 1.0)
++    static let orange = UIColor(red: 1.0, green: 0.58, blue: 0.0, alpha: 1.0)
++    static let red = UIColor(red: 1.0, green: 0.23, blue: 0.19, alpha: 1.0)
++    static let pink = UIColor(red: 1.0, green: 0.18, blue: 0.33, alpha: 1.0)
++    static let gray = UIColor(red: 0.56, green: 0.56, blue: 0.58, alpha: 1.0)
++}
++
++/// Summary card at the top of the AyuGram screen: brand, Ghost Mode state
++/// and how many activity signals are currently hidden.
++final class AyuGramSettingsHeroItem: ListViewItem, ItemListItem {
++    let data: ItemListPresentationData
++    let title: String
++    let status: String
++    let detail: String
++    let isActive: Bool
++    let sectionId: ItemListSectionId
++    var isAlwaysPlain: Bool { true }
++
++    init(data: ItemListPresentationData, title: String, status: String, detail: String, isActive: Bool, sectionId: ItemListSectionId) {
++        self.data = data
++        self.title = title
++        self.status = status
++        self.detail = detail
++        self.isActive = isActive
++        self.sectionId = sectionId
++    }
++
++    func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
++        Queue.mainQueue().async {
++            let node = AyuGramSettingsHeroNode()
++            let layout = node.update(self, params: params)
++            node.contentSize = layout.contentSize
++            node.insets = layout.insets
++            completion(node, { (nil, { _ in }) })
++        }
++    }
++
++    func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, previousItem: ListViewItem?, nextItem: ListViewItem?, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
++        Queue.mainQueue().async {
++            guard let node = node() as? AyuGramSettingsHeroNode else { return }
++            completion(node.update(self, params: params), { _ in })
++        }
++    }
++}
++
++private final class AyuGramSettingsHeroNode: ListViewItemNode {
++    private let card = UIView()
++    private let gradient = CAGradientLayer()
++    private let glow = CAGradientLayer()
++    private let iconBackground = UIView()
++    private let iconView = UIImageView()
++    private let titleLabel = UILabel()
++    private let statusLabel = UILabel()
++    private let detailBackground = UIView()
++    private let detailIcon = UIImageView()
++    private let detailLabel = UILabel()
++
++    init() {
++        super.init(layerBacked: false)
++        card.isUserInteractionEnabled = false
++        card.clipsToBounds = true
++        card.layer.cornerRadius = 22.0
++        card.layer.addSublayer(gradient)
++        card.layer.addSublayer(glow)
++        gradient.startPoint = CGPoint(x: 0.0, y: 0.0)
++        gradient.endPoint = CGPoint(x: 1.0, y: 1.0)
++        glow.type = .radial
++        glow.startPoint = CGPoint(x: 0.85, y: 0.15)
++        glow.endPoint = CGPoint(x: 1.6, y: 1.1)
++        glow.colors = [UIColor.white.withAlphaComponent(0.28).cgColor, UIColor.white.withAlphaComponent(0.0).cgColor]
++        view.addSubview(card)
++
++        iconBackground.layer.cornerRadius = 18.0
++        iconBackground.backgroundColor = UIColor.white.withAlphaComponent(0.16)
++        iconView.contentMode = .scaleAspectFit
++        iconView.image = ayuGramLargeIcon(size: 48.0)
++        iconView.layer.cornerRadius = 14.0
++        iconView.clipsToBounds = true
++        card.addSubview(iconBackground)
++        iconBackground.addSubview(iconView)
++
++        titleLabel.font = .systemFont(ofSize: 24.0, weight: .bold)
++        titleLabel.textColor = .white
++        statusLabel.font = .systemFont(ofSize: 15.0, weight: .medium)
++        statusLabel.textColor = UIColor.white.withAlphaComponent(0.88)
++        statusLabel.numberOfLines = 2
++        card.addSubview(titleLabel)
++        card.addSubview(statusLabel)
++
++        detailBackground.backgroundColor = UIColor.black.withAlphaComponent(0.18)
++        detailBackground.layer.cornerRadius = 13.0
++        detailIcon.tintColor = .white
++        detailIcon.contentMode = .scaleAspectFit
++        detailLabel.font = .systemFont(ofSize: 13.0, weight: .semibold)
++        detailLabel.textColor = .white
++        card.addSubview(detailBackground)
++        detailBackground.addSubview(detailIcon)
++        detailBackground.addSubview(detailLabel)
++        card.isAccessibilityElement = true
++    }
++
++    func update(_ item: AyuGramSettingsHeroItem, params: ListViewItemLayoutParams) -> ListViewItemNodeLayout {
++        let width = max(200.0, params.width - params.leftInset - params.rightInset - 32.0)
++        let colors: [UIColor]
++        if item.isActive {
++            colors = [UIColor(red: 0.42, green: 0.22, blue: 0.93, alpha: 1.0), UIColor(red: 0.20, green: 0.15, blue: 0.48, alpha: 1.0)]
++        } else {
++            colors = [UIColor(red: 0.30, green: 0.27, blue: 0.40, alpha: 1.0), UIColor(red: 0.15, green: 0.14, blue: 0.21, alpha: 1.0)]
++        }
++        gradient.colors = colors.map { $0.cgColor }
++
++        titleLabel.text = item.title
++        statusLabel.text = item.status
++        detailLabel.text = item.detail
++        let symbol = item.isActive ? "eye.slash.fill" : "eye.fill"
++        detailIcon.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.0, weight: .semibold))?.withRenderingMode(.alwaysTemplate)
++
++        let inset: CGFloat = 18.0
++        let iconSize: CGFloat = 64.0
++        iconBackground.frame = CGRect(x: inset, y: inset, width: iconSize, height: iconSize)
++        iconView.frame = iconBackground.bounds.insetBy(dx: 8.0, dy: 8.0)
++        let textX = inset + iconSize + 14.0
++        let textWidth = max(1.0, width - textX - inset)
++        titleLabel.frame = CGRect(x: textX, y: inset + 2.0, width: textWidth, height: 30.0)
++        let statusHeight = ceil(statusLabel.sizeThatFits(CGSize(width: textWidth, height: 44.0)).height)
++        statusLabel.frame = CGRect(x: textX, y: inset + 33.0, width: textWidth, height: min(44.0, statusHeight))
++
++        let pillY = max(iconBackground.frame.maxY, statusLabel.frame.maxY) + 14.0
++        let labelWidth = min(width - inset * 2.0 - 34.0, ceil(detailLabel.sizeThatFits(CGSize(width: width, height: 20.0)).width))
++        detailBackground.frame = CGRect(x: inset, y: pillY, width: labelWidth + 36.0, height: 26.0)
++        detailIcon.frame = CGRect(x: 10.0, y: 6.0, width: 16.0, height: 14.0)
++        detailLabel.frame = CGRect(x: 28.0, y: 3.0, width: labelWidth, height: 20.0)
++
++        let height = detailBackground.frame.maxY + inset
++        card.frame = CGRect(x: params.leftInset + 16.0, y: 10.0, width: width, height: height)
++        CATransaction.begin()
++        CATransaction.setDisableActions(true)
++        gradient.frame = card.bounds
++        glow.frame = card.bounds
++        CATransaction.commit()
++        card.accessibilityLabel = [item.title, item.status, item.detail].joined(separator: ". ")
++        return ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: height + 16.0), insets: .zero)
++    }
++}
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsScreen.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsScreen.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..52ecb8de678b5df861c90f9b6ff07015227566d8
+--- /dev/null
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramSettingsScreen.swift
+@@ -0,0 +1,229 @@
++import Foundation
++import UIKit
++import Display
++import SwiftSignalKit
++import AccountContext
++import TelegramCore
++import TelegramPresentationData
++import PresentationDataUtils
++import ItemListUI
++import SGItemListUI
++import SGSimpleSettings
++import SGStrings
++
++private enum AyuScreenSection: Int32 {
++    case hero, ghost, hide, behavior, content, history, client
++}
++
++private enum AyuScreenToggle: Equatable {
++    case ghost, read, online, typing, recording, uploading, stories
++    case offlineAfterSending, readOnSend, quickToggle
++    case ignoreProtection, screenshots
++    case history, premium
++}
++
++private enum AyuScreenLink: Equatable {
++    case history, appearance
++}
++
++private enum AyuScreenTint: Equatable {
++    case purple, indigo, blue, teal, green, orange, red, pink, gray
++
++    var color: UIColor {
++        switch self {
++        case .purple: return AyuGramRowColor.purple
++        case .indigo: return AyuGramRowColor.indigo
++        case .blue: return AyuGramRowColor.blue
++        case .teal: return AyuGramRowColor.teal
++        case .green: return AyuGramRowColor.green
++        case .orange: return AyuGramRowColor.orange
++        case .red: return AyuGramRowColor.red
++        case .pink: return AyuGramRowColor.pink
++        case .gray: return AyuGramRowColor.gray
++        }
++    }
++}
++
++private final class AyuScreenArguments {
++    let toggle: (AyuScreenToggle, Bool) -> Void
++    let updatePins: (Int32) -> Void
++    let open: (AyuScreenLink) -> Void
++
++    init(toggle: @escaping (AyuScreenToggle, Bool) -> Void, updatePins: @escaping (Int32) -> Void, open: @escaping (AyuScreenLink) -> Void) {
++        self.toggle = toggle
++        self.updatePins = updatePins
++        self.open = open
++    }
++}
++
++private enum AyuScreenEntry: ItemListNodeEntry {
++    case hero(id: Int, title: String, status: String, detail: String, active: Bool)
++    case header(id: Int, section: AyuScreenSection, text: String)
++    case toggle(id: Int, section: AyuScreenSection, key: AyuScreenToggle, symbol: String, tint: AyuScreenTint, title: String, subtitle: String?, value: Bool, enabled: Bool)
++    case link(id: Int, section: AyuScreenSection, link: AyuScreenLink, symbol: String, tint: AyuScreenTint, title: String)
++    case pins(id: Int, section: AyuScreenSection, value: Int32)
++    case footer(id: Int, section: AyuScreenSection, text: String)
++
++    var section: ItemListSectionId {
++        switch self {
++        case .hero:
++            return AyuScreenSection.hero.rawValue
++        case let .header(_, section, _), let .footer(_, section, _), let .pins(_, section, _):
++            return section.rawValue
++        case let .toggle(_, section, _, _, _, _, _, _, _):
++            return section.rawValue
++        case let .link(_, section, _, _, _, _):
++            return section.rawValue
++        }
++    }
++
++    var stableId: Int {
++        switch self {
++        case let .hero(id, _, _, _, _), let .header(id, _, _), let .footer(id, _, _), let .pins(id, _, _):
++            return id
++        case let .toggle(id, _, _, _, _, _, _, _, _):
++            return id
++        case let .link(id, _, _, _, _, _):
++            return id
++        }
++    }
++
++    static func <(lhs: AyuScreenEntry, rhs: AyuScreenEntry) -> Bool {
++        return lhs.stableId < rhs.stableId
++    }
++
++    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
++        let arguments = arguments as! AyuScreenArguments
++        switch self {
++        case let .hero(_, title, status, detail, active):
++            return AyuGramSettingsHeroItem(data: presentationData, title: title, status: status, detail: detail, isActive: active, sectionId: self.section)
++        case let .header(_, _, text):
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
++        case let .toggle(_, _, key, symbol, tint, title, subtitle, value, enabled):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, icon: ayuGramRowIcon(symbol, color: tint.color), title: title, text: subtitle, value: value, enabled: enabled, maximumNumberOfLines: 0, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.toggle(key, value)
++            }, switchTintColor: presentationData.theme.list.itemAccentColor)
++        case let .link(_, _, link, symbol, tint, title):
++            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: ayuGramRowIcon(symbol, color: tint.color), title: title, label: "", sectionId: self.section, style: .blocks, action: {
++                arguments.open(link)
++            })
++        case let .pins(_, _, value):
++            return AyuPinnedCountSliderItem(theme: presentationData.theme, strings: presentationData.strings, value: value, sectionId: self.section, updated: { value in
++                arguments.updatePins(value)
++            })
++        case let .footer(_, _, text):
++            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
++        }
++    }
++}
++
++private func ayuScreenEntries(data: PresentationData, privacy: AyuGramPrivacySettings, extra: AyuGramExtraSettings, client: AyuGramClientSettings, hasAppearance: Bool) -> [AyuScreenEntry] {
++    let locale = data.strings.baseLanguageCode
++    func s(_ key: String) -> String {
++        return i18n(key, locale)
++    }
++    let hidden = [privacy.suppressRead, privacy.suppressOnline, privacy.suppressTyping, privacy.suppressRecording, privacy.suppressUploading, privacy.suppressStoryViews]
++    let hiddenCount = hidden.filter { $0 }.count
++    let ghost = privacy.ghostMode
++    var entries: [AyuScreenEntry] = []
++
++    entries.append(.hero(id: 0, title: "AyuGram", status: s(ghost ? "Ayu.HeroGhostOn" : "Ayu.HeroGhostOff"), detail: i18n("Ayu.HeroHidden", locale, "\(hiddenCount)", "\(hidden.count)"), active: ghost || hiddenCount > 0))
++
++    entries.append(.header(id: 10, section: .ghost, text: s("Ayu.Ghost")))
++    entries.append(.toggle(id: 11, section: .ghost, key: .ghost, symbol: "eye.slash.fill", tint: .purple, title: s("Ayu.Ghost"), subtitle: s("Ayu.GhostSubtitle"), value: ghost, enabled: true))
++    entries.append(.footer(id: 12, section: .ghost, text: s("Ayu.GhostFooter")))
++
++    entries.append(.header(id: 20, section: .hide, text: s("Ayu.HideSection")))
++    entries.append(.toggle(id: 21, section: .hide, key: .read, symbol: "checkmark.circle.fill", tint: .blue, title: s("Ayu.HideRead"), subtitle: nil, value: privacy.suppressRead, enabled: !ghost))
++    entries.append(.toggle(id: 22, section: .hide, key: .online, symbol: "wifi.slash", tint: .green, title: s("Ayu.HideOnline"), subtitle: nil, value: privacy.suppressOnline, enabled: !ghost))
++    entries.append(.toggle(id: 23, section: .hide, key: .typing, symbol: "keyboard", tint: .teal, title: s("Ayu.HideTyping"), subtitle: nil, value: privacy.suppressTyping, enabled: !ghost))
++    entries.append(.toggle(id: 24, section: .hide, key: .recording, symbol: "mic.slash.fill", tint: .red, title: s("Ayu.HideRecording"), subtitle: nil, value: privacy.suppressRecording, enabled: !ghost))
++    entries.append(.toggle(id: 25, section: .hide, key: .uploading, symbol: "icloud.and.arrow.up.fill", tint: .indigo, title: s("Ayu.HideUploading"), subtitle: nil, value: privacy.suppressUploading, enabled: !ghost))
++    entries.append(.toggle(id: 26, section: .hide, key: .stories, symbol: "camera.circle.fill", tint: .pink, title: s("Ayu.HideStories"), subtitle: nil, value: privacy.suppressStoryViews, enabled: !ghost))
++
++    entries.append(.header(id: 30, section: .behavior, text: s("Ayu.BehaviorSection")))
++    entries.append(.toggle(id: 31, section: .behavior, key: .offlineAfterSending, symbol: "moon.fill", tint: .indigo, title: s("Ayu.OfflineAfterSending"), subtitle: s("Ayu.OfflineAfterSendingInfo"), value: extra.offlineAfterSending, enabled: true))
++    entries.append(.toggle(id: 32, section: .behavior, key: .readOnSend, symbol: "arrowshape.turn.up.left.fill", tint: .blue, title: s("Ayu.ReadOnSend"), subtitle: s("Ayu.ReadOnSendInfo"), value: extra.readOnSend, enabled: true))
++    entries.append(.toggle(id: 33, section: .behavior, key: .quickToggle, symbol: "hand.tap.fill", tint: .orange, title: s("Ayu.QuickToggle"), subtitle: nil, value: extra.ghostQuickToggle, enabled: true))
++    entries.append(.footer(id: 34, section: .behavior, text: s("Ayu.QuickToggleInfo")))
++
++    entries.append(.header(id: 40, section: .content, text: s("Ayu.ContentSection")))
++    entries.append(.toggle(id: 41, section: .content, key: .ignoreProtection, symbol: "lock.open.fill", tint: .orange, title: s("Ayu.IgnoreProtection"), subtitle: s("Ayu.IgnoreProtectionInfo"), value: extra.ignoreCopyProtection, enabled: true))
++    entries.append(.toggle(id: 42, section: .content, key: .screenshots, symbol: "camera.fill", tint: .gray, title: s("Ayu.AllowScreenshots"), subtitle: s("Ayu.AllowScreenshotsInfo"), value: extra.allowScreenshots, enabled: true))
++    entries.append(.footer(id: 43, section: .content, text: s("Ayu.ContentFooter")))
++
++    entries.append(.header(id: 50, section: .history, text: s("Ayu.History")))
++    entries.append(.toggle(id: 51, section: .history, key: .history, symbol: "trash.fill", tint: .red, title: s("Ayu.SaveDeleted"), subtitle: s("Ayu.SaveDeletedInfo"), value: privacy.messageHistory, enabled: true))
++    entries.append(.link(id: 52, section: .history, link: .history, symbol: "clock.fill", tint: .teal, title: s("Ayu.OpenHistory")))
++    entries.append(.footer(id: 53, section: .history, text: s("Ayu.HistoryInfo")))
++
++    entries.append(.header(id: 60, section: .client, text: s("Ayu.ClientSection")))
++    entries.append(.toggle(id: 61, section: .client, key: .premium, symbol: "star.fill", tint: .purple, title: s("Ayu.LocalPremium"), subtitle: s("Ayu.LocalPremiumInfo"), value: client.localPremium, enabled: true))
++    if hasAppearance {
++        entries.append(.link(id: 62, section: .client, link: .appearance, symbol: "paintbrush.fill", tint: .pink, title: data.strings.Appearance_Title))
++    }
++    entries.append(.header(id: 63, section: .client, text: s("Ayu.Pins")))
++    entries.append(.pins(id: 64, section: .client, value: client.pinnedChatLimit))
++    entries.append(.footer(id: 65, section: .client, text: s("Ayu.LocalOnly")))
++    return entries
++}
++
++/// Redesigned AyuGram settings: summary card, grouped Ghost Mode controls,
++/// behaviour, content protection, history and client options with icons.
++public func ayuGramSettingsScreen(context: AccountContext) -> ViewController {
++    var pushController: ((ViewController) -> Void)?
++    let changes = Signal<Int, NoError> { subscriber in
++        subscriber.putNext(0)
++        let observer = NotificationCenter.default.addObserver(forName: AyuGramSettings.didChange, object: nil, queue: .main) { _ in
++            subscriber.putNext(0)
++        }
++        return ActionDisposable {
++            NotificationCenter.default.removeObserver(observer)
++        }
++    }
++    let arguments = AyuScreenArguments(toggle: { key, value in
++        let settings = AyuGramSettings.shared
++        switch key {
++        case .ghost: settings.update { $0.ghostMode = value }
++        case .read: settings.update { $0.antiRead = value }
++        case .online: settings.update { $0.antiOnline = value }
++        case .typing: settings.update { $0.antiTyping = value }
++        case .recording: settings.update { $0.antiRecording = value }
++        case .uploading: settings.update { $0.antiUploading = value }
++        case .stories: settings.update { $0.storyPrivacy = value }
++        case .history: settings.update { $0.messageHistory = value }
++        case .offlineAfterSending: settings.updateExtra { $0.offlineAfterSending = value }
++        case .readOnSend: settings.updateExtra { $0.readOnSend = value }
++        case .quickToggle: settings.updateExtra { $0.ghostQuickToggle = value }
++        case .ignoreProtection: settings.updateExtra { $0.ignoreCopyProtection = value }
++        case .screenshots: settings.updateExtra { $0.allowScreenshots = value }
++        case .premium: settings.updateClient { $0.localPremium = value }
++        }
++    }, updatePins: { value in
++        AyuGramSettings.shared.updateClient { $0.maxPinnedChats = value }
++    }, open: { link in
++        switch link {
++        case .history:
++            pushController?(ayuGramHistoryController(context: context))
++        case .appearance:
++            if let controller = ayuGramAppearanceEntryController(context: context) {
++                pushController?(controller)
++            }
++        }
++    })
++    let hasAppearance = ayuGramHasAppearanceEntry
++    let signal = combineLatest(context.sharedContext.presentationData, changes)
++    |> deliverOnMainQueue
++    |> map { data, _ -> (ItemListControllerState, (ItemListNodeState, AyuScreenArguments)) in
++        let settings = AyuGramSettings.shared
++        let entries = ayuScreenEntries(data: data, privacy: settings.snapshot, extra: settings.extra, client: settings.client, hasAppearance: hasAppearance)
++        let state = ItemListControllerState(presentationData: ItemListPresentationData(data), title: .text("AyuGram"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: data.strings.Common_Back))
++        let listState = ItemListNodeState(presentationData: ItemListPresentationData(data), entries: entries, style: .blocks, animateChanges: true)
++        return (state, (listState, arguments))
++    }
++    let controller = ItemListController(context: context, state: signal)
++    pushController = { [weak controller] next in
++        (controller?.navigationController as? NavigationController)?.pushViewController(next)
++    }
++    return controller
++}
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
+index fc1dab74865ebb4de07704438c76fbef564497dd..37fe92e3f5c02c5e19d15211672c50822287128f 100644
+--- a/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
++++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramSettings.swift
+@@ -28,6 +28,9 @@ public final class AyuGramSettings {
+     private let defaults: UserDefaults
+     private let lock = NSLock()
+     private let key = "swiftgram.ayuGram.privacy.v1"
++    private let extraKey = "swiftgram.ayuGram.extra.v1"
++    // Read on hot rendering paths (copy protection checks per message).
++    private var extraCache: AyuGramExtraSettings?
+ 
+     public init(defaults: UserDefaults = .standard) {
+         self.defaults = defaults
+@@ -119,3 +122,64 @@ public extension AyuGramSettings {
+         NotificationCenter.default.post(name: Self.didChange, object: self)
+     }
+ }
++
++/// Options added after the original privacy/client snapshots. Decoding keeps
++/// defaults for missing keys, so future fields never reset stored choices.
++public struct AyuGramExtraSettings: Codable, Equatable {
++    /// Save, copy, share and forward content of protected chats.
++    public var ignoreCopyProtection = true
++    /// Screenshots and screen recordings of protected and secret content.
++    public var allowScreenshots = true
++    /// While online status is hidden, report offline after each sent message.
++    public var offlineAfterSending = true
++    /// While read receipts are hidden, a sent message still reads that chat.
++    public var readOnSend = true
++    /// Ghost Mode item in the Chats tab long-press menu.
++    public var ghostQuickToggle = true
++
++    public init() {}
++
++    public init(from decoder: Decoder) throws {
++        let container = try decoder.container(keyedBy: CodingKeys.self)
++        let defaults = AyuGramExtraSettings()
++        self.ignoreCopyProtection = try container.decodeIfPresent(Bool.self, forKey: .ignoreCopyProtection) ?? defaults.ignoreCopyProtection
++        self.allowScreenshots = try container.decodeIfPresent(Bool.self, forKey: .allowScreenshots) ?? defaults.allowScreenshots
++        self.offlineAfterSending = try container.decodeIfPresent(Bool.self, forKey: .offlineAfterSending) ?? defaults.offlineAfterSending
++        self.readOnSend = try container.decodeIfPresent(Bool.self, forKey: .readOnSend) ?? defaults.readOnSend
++        self.ghostQuickToggle = try container.decodeIfPresent(Bool.self, forKey: .ghostQuickToggle) ?? defaults.ghostQuickToggle
++    }
++}
++
++public extension AyuGramSettings {
++    /// UserDefaults mirror read by the Objective-C screenshot protection helper.
++    static let allowScreenshotsDefaultsKey = "AyuGramAllowScreenshots"
++
++    var extra: AyuGramExtraSettings {
++        lock.lock()
++        defer { lock.unlock() }
++        if let cached = extraCache {
++            return cached
++        }
++        let value = defaults.data(forKey: extraKey).flatMap { try? JSONDecoder().decode(AyuGramExtraSettings.self, from: $0) } ?? AyuGramExtraSettings()
++        extraCache = value
++        return value
++    }
++
++    func updateExtra(_ transform: (inout AyuGramExtraSettings) -> Void) {
++        lock.lock()
++        var value = extraCache ?? defaults.data(forKey: extraKey).flatMap { try? JSONDecoder().decode(AyuGramExtraSettings.self, from: $0) } ?? AyuGramExtraSettings()
++        transform(&value)
++        if let data = try? JSONEncoder().encode(value) {
++            defaults.set(data, forKey: extraKey)
++        }
++        defaults.set(value.allowScreenshots, forKey: Self.allowScreenshotsDefaultsKey)
++        extraCache = value
++        lock.unlock()
++        NotificationCenter.default.post(name: Self.didChange, object: self)
++    }
++
++    /// Ghost Mode switch used by quick toggles outside the settings screen.
++    func setGhostMode(_ enabled: Bool) {
++        update { $0.ghostMode = enabled }
++    }
++}
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+index e0342a623094c3c8fcdc9a8774ce2aaa04e4c2ee..680564029c533cc52039b658359ff9064466c569 100644
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Spookmodus is aan";
++"Ayu.HeroGhostOff" = "Spookmodus is af";
++"Ayu.HeroHidden" = "Versteek: %@ van %@";
++"Ayu.GhostSubtitle" = "Aanlyn, lees, tik, opneem, oplaai en stories";
++"Ayu.GhostFooter" = "Spookmodus skakel al die skakelaars hieronder aan en hou hul eie waardes.";
++"Ayu.HideSection" = "Wat om te versteek";
++"Ayu.BehaviorSection" = "Gedrag";
++"Ayu.OfflineAfterSending" = "Vanlyn ná stuur";
++"Ayu.OfflineAfterSendingInfo" = "Rapporteer vanlyn dadelik ná elke gestuurde boodskap";
++"Ayu.ReadOnSend" = "Lees klets wanneer jy antwoord";
++"Ayu.ReadOnSendInfo" = "’n Gestuurde boodskap merk die klets as gelees";
++"Ayu.QuickToggle" = "Skakelaar in Kletse-oortjie";
++"Ayu.QuickToggleInfo" = "Hou die Kletse-oortjie in om Spookmodus vinnig aan of af te skakel.";
++"Ayu.ContentSection" = "Inhoud";
++"Ayu.IgnoreProtection" = "Ignoreer inhoudbeskerming";
++"Ayu.IgnoreProtectionInfo" = "Stoor, kopieer en stuur aan uit beskermde kletse";
++"Ayu.AllowScreenshots" = "Laat skermkiekies toe";
++"Ayu.AllowScreenshotsInfo" = "Beskermde en geheime kletse verskyn op skermkiekies en opnames";
++"Ayu.ContentFooter" = "Boodskappe uit beskermde kletse word as kopie sonder skrywer aangestuur; media word weer opgelaai. Die skermkiekie-instelling geld vir skerms wat weer oopgemaak word.";
++"Ayu.SaveDeletedInfo" = "Geskrapte en gewysigde boodskappe in gekose kletse";
++"Ayu.OpenHistory" = "Maak geskiedenis oop";
++"Ayu.ClientSection" = "Kliënt";
++"Ayu.LocalPremiumInfo" = "Premium-emoji en statusse net op hierdie toestel";
++"Ayu.GhostEnable" = "Skakel Spookmodus aan";
++"Ayu.GhostDisable" = "Skakel Spookmodus af";
++"Ayu.GhostEnabledToast" = "Spookmodus aangeskakel";
++"Ayu.GhostDisabledToast" = "Spookmodus afgeskakel";
++"Ayu.ChatListBackground" = "Agtergrond van kletslys";
++"Ayu.ConversationBackground" = "Kletsagtergrond";
++"Ayu.ChooseVideo" = "Kies video";
++"Ayu.ShowBackground" = "Wys agtergrond";
++
+ "Settings.ContentSettings" = "Inhoudinstellings";
+ 
+ "Settings.Tabs.Header" = "OORTJIES";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+index c9e5a471cef09bc3dc78b9b291f994b1eaf7712b..07ddc6b50006ad556ba22f195f22c5ac175b7846 100644
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "وضع الشبح مفعّل";
++"Ayu.HeroGhostOff" = "وضع الشبح متوقف";
++"Ayu.HeroHidden" = "المخفي: %@ من %@";
++"Ayu.GhostSubtitle" = "الاتصال والقراءة والكتابة والتسجيل والرفع والقصص";
++"Ayu.GhostFooter" = "يفعّل وضع الشبح كل المفاتيح أدناه ويحتفظ بقيمها الخاصة.";
++"Ayu.HideSection" = "ما الذي يُخفى";
++"Ayu.BehaviorSection" = "السلوك";
++"Ayu.OfflineAfterSending" = "غير متصل بعد الإرسال";
++"Ayu.OfflineAfterSendingInfo" = "الإبلاغ بعدم الاتصال فور كل رسالة مرسلة";
++"Ayu.ReadOnSend" = "قراءة المحادثة عند الرد";
++"Ayu.ReadOnSendInfo" = "الرسالة المرسلة تجعل المحادثة مقروءة";
++"Ayu.QuickToggle" = "مفتاح في تبويب الدردشات";
++"Ayu.QuickToggleInfo" = "اضغط مطولًا على تبويب الدردشات لتشغيل وضع الشبح أو إيقافه بسرعة.";
++"Ayu.ContentSection" = "المحتوى";
++"Ayu.IgnoreProtection" = "تجاهل حماية المحتوى";
++"Ayu.IgnoreProtectionInfo" = "الحفظ والنسخ وإعادة التوجيه من المحادثات المحمية";
++"Ayu.AllowScreenshots" = "السماح بلقطات الشاشة";
++"Ayu.AllowScreenshotsInfo" = "تظهر المحادثات المحمية والسرية في لقطات الشاشة والتسجيلات";
++"Ayu.ContentFooter" = "تُعاد توجيه رسائل المحادثات المحمية كنسخة دون اسم المرسل، ويُعاد رفع الوسائط. يُطبّق إعداد اللقطات على الشاشات المفتوحة من جديد.";
++"Ayu.SaveDeletedInfo" = "الرسائل المحذوفة والمعدّلة في المحادثات المختارة";
++"Ayu.OpenHistory" = "فتح السجل";
++"Ayu.ClientSection" = "التطبيق";
++"Ayu.LocalPremiumInfo" = "رموز وحالات Premium على هذا الجهاز فقط";
++"Ayu.GhostEnable" = "تفعيل وضع الشبح";
++"Ayu.GhostDisable" = "إيقاف وضع الشبح";
++"Ayu.GhostEnabledToast" = "تم تفعيل وضع الشبح";
++"Ayu.GhostDisabledToast" = "تم إيقاف وضع الشبح";
++"Ayu.ChatListBackground" = "خلفية قائمة الدردشات";
++"Ayu.ConversationBackground" = "خلفية الدردشات";
++"Ayu.ChooseVideo" = "اختيار فيديو";
++"Ayu.ShowBackground" = "إظهار الخلفية";
++
+ "Settings.ContentSettings" = "إعدادات المحتوى";
+ 
+ "Settings.Tabs.Header" = "تبويبات";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+index e88aba457f8fe5d91b0deafbe8da1d702bc85f08..898554ea0200b8c022a743ab49c7edd3a06d6cad 100644
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Mode fantasma activat";
++"Ayu.HeroGhostOff" = "Mode fantasma desactivat";
++"Ayu.HeroHidden" = "Ocult: %@ de %@";
++"Ayu.GhostSubtitle" = "En línia, lectura, escriptura, gravació, pujada i històries";
++"Ayu.GhostFooter" = "El mode fantasma activa tots els interruptors de sota i en conserva els valors.";
++"Ayu.HideSection" = "Què amagar";
++"Ayu.BehaviorSection" = "Comportament";
++"Ayu.OfflineAfterSending" = "Desconnectat després d’enviar";
++"Ayu.OfflineAfterSendingInfo" = "Informar desconnexió just després de cada missatge enviat";
++"Ayu.ReadOnSend" = "Llegir el xat en respondre";
++"Ayu.ReadOnSendInfo" = "Un missatge enviat marca el xat com a llegit";
++"Ayu.QuickToggle" = "Interruptor a la pestanya Xats";
++"Ayu.QuickToggleInfo" = "Mantén premuda la pestanya Xats per activar o desactivar ràpidament el mode fantasma.";
++"Ayu.ContentSection" = "Contingut";
++"Ayu.IgnoreProtection" = "Ignorar la protecció de contingut";
++"Ayu.IgnoreProtectionInfo" = "Desar, copiar i reenviar des de xats protegits";
++"Ayu.AllowScreenshots" = "Permetre captures de pantalla";
++"Ayu.AllowScreenshotsInfo" = "Els xats protegits i secrets apareixen a captures i gravacions";
++"Ayu.ContentFooter" = "Els missatges de xats protegits es reenvien com a còpia sense autor; el contingut es torna a pujar. L’opció de captures s’aplica a pantalles obertes de nou.";
++"Ayu.SaveDeletedInfo" = "Missatges eliminats i editats als xats triats";
++"Ayu.OpenHistory" = "Obrir l’historial";
++"Ayu.ClientSection" = "Client";
++"Ayu.LocalPremiumInfo" = "Emojis i estats Premium només en aquest dispositiu";
++"Ayu.GhostEnable" = "Activar mode fantasma";
++"Ayu.GhostDisable" = "Desactivar mode fantasma";
++"Ayu.GhostEnabledToast" = "Mode fantasma activat";
++"Ayu.GhostDisabledToast" = "Mode fantasma desactivat";
++"Ayu.ChatListBackground" = "Fons de la llista de xats";
++"Ayu.ConversationBackground" = "Fons dels xats";
++"Ayu.ChooseVideo" = "Triar vídeo";
++"Ayu.ShowBackground" = "Mostrar fons";
++
+ "Settings.ContentSettings" = "Configuració del Contingut";
+ 
+ "Settings.Tabs.Header" = "PESTANYES";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+index 975cb1cd2a09370676beda2d5c001214d5b777a7..1ea0dec38f9a98f0546e54b6d4b78ba0a5430e5d 100644
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Režim ducha je zapnutý";
++"Ayu.HeroGhostOff" = "Režim ducha je vypnutý";
++"Ayu.HeroHidden" = "Skryto: %@ z %@";
++"Ayu.GhostSubtitle" = "Online, přečtení, psaní, nahrávání, odesílání a příběhy";
++"Ayu.GhostFooter" = "Režim ducha zapne všechny přepínače níže a zachová jejich vlastní hodnoty.";
++"Ayu.HideSection" = "Co skrývat";
++"Ayu.BehaviorSection" = "Chování";
++"Ayu.OfflineAfterSending" = "Offline po odeslání";
++"Ayu.OfflineAfterSendingInfo" = "Hned po každé odeslané zprávě hlásit offline";
++"Ayu.ReadOnSend" = "Přečíst chat při odpovědi";
++"Ayu.ReadOnSendInfo" = "Odeslaná zpráva označí chat jako přečtený";
++"Ayu.QuickToggle" = "Přepínač na kartě Chaty";
++"Ayu.QuickToggleInfo" = "Podržením karty Chaty rychle zapnete nebo vypnete režim ducha.";
++"Ayu.ContentSection" = "Obsah";
++"Ayu.IgnoreProtection" = "Ignorovat ochranu obsahu";
++"Ayu.IgnoreProtectionInfo" = "Ukládání, kopírování a přeposílání z chráněných chatů";
++"Ayu.AllowScreenshots" = "Povolit snímky obrazovky";
++"Ayu.AllowScreenshotsInfo" = "Chráněné a tajné chaty jsou vidět na snímcích a záznamech";
++"Ayu.ContentFooter" = "Zprávy z chráněných chatů se přeposílají jako kopie bez autora; média se nahrají znovu. Nastavení snímků platí pro znovu otevřené obrazovky.";
++"Ayu.SaveDeletedInfo" = "Smazané a upravené zprávy ve vybraných chatech";
++"Ayu.OpenHistory" = "Otevřít historii";
++"Ayu.ClientSection" = "Klient";
++"Ayu.LocalPremiumInfo" = "Prémiové emoji a statusy jen v tomto zařízení";
++"Ayu.GhostEnable" = "Zapnout režim ducha";
++"Ayu.GhostDisable" = "Vypnout režim ducha";
++"Ayu.GhostEnabledToast" = "Režim ducha zapnut";
++"Ayu.GhostDisabledToast" = "Režim ducha vypnut";
++"Ayu.ChatListBackground" = "Pozadí seznamu chatů";
++"Ayu.ConversationBackground" = "Pozadí chatů";
++"Ayu.ChooseVideo" = "Vybrat video";
++"Ayu.ShowBackground" = "Zobrazit pozadí";
++
+ "Settings.ContentSettings" = "Nastavení obsahu";
+ 
+ "Settings.Tabs.Header" = "ZÁLOŽKY";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+index 4b9f0ae0979059be8379729c2e2ada6adac2c3d5..96987ff0899fd7959a1dde35e07d92f2d5357503 100644
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Spøgelsestilstand er slået til";
++"Ayu.HeroGhostOff" = "Spøgelsestilstand er slået fra";
++"Ayu.HeroHidden" = "Skjult: %@ af %@";
++"Ayu.GhostSubtitle" = "Online, læsning, skrivning, optagelse, upload og historier";
++"Ayu.GhostFooter" = "Spøgelsestilstand slår alle kontakter nedenfor til og bevarer deres egne værdier.";
++"Ayu.HideSection" = "Hvad skal skjules";
++"Ayu.BehaviorSection" = "Adfærd";
++"Ayu.OfflineAfterSending" = "Offline efter afsendelse";
++"Ayu.OfflineAfterSendingInfo" = "Meld offline lige efter hver sendt besked";
++"Ayu.ReadOnSend" = "Læs chat ved svar";
++"Ayu.ReadOnSendInfo" = "En sendt besked markerer chatten som læst";
++"Ayu.QuickToggle" = "Kontakt i fanen Chats";
++"Ayu.QuickToggleInfo" = "Hold fanen Chats nede for hurtigt at slå spøgelsestilstand til eller fra.";
++"Ayu.ContentSection" = "Indhold";
++"Ayu.IgnoreProtection" = "Ignorer indholdsbeskyttelse";
++"Ayu.IgnoreProtectionInfo" = "Gem, kopiér og videresend fra beskyttede chats";
++"Ayu.AllowScreenshots" = "Tillad skærmbilleder";
++"Ayu.AllowScreenshotsInfo" = "Beskyttede og hemmelige chats vises på skærmbilleder og optagelser";
++"Ayu.ContentFooter" = "Beskeder fra beskyttede chats videresendes som kopi uden afsender; medier uploades igen. Indstillingen for skærmbilleder gælder for genåbnede skærme.";
++"Ayu.SaveDeletedInfo" = "Slettede og redigerede beskeder i valgte chats";
++"Ayu.OpenHistory" = "Åbn historik";
++"Ayu.ClientSection" = "Klient";
++"Ayu.LocalPremiumInfo" = "Premium-emoji og statusser kun på denne enhed";
++"Ayu.GhostEnable" = "Slå spøgelsestilstand til";
++"Ayu.GhostDisable" = "Slå spøgelsestilstand fra";
++"Ayu.GhostEnabledToast" = "Spøgelsestilstand slået til";
++"Ayu.GhostDisabledToast" = "Spøgelsestilstand slået fra";
++"Ayu.ChatListBackground" = "Baggrund for chatliste";
++"Ayu.ConversationBackground" = "Chatbaggrund";
++"Ayu.ChooseVideo" = "Vælg video";
++"Ayu.ShowBackground" = "Vis baggrund";
++
+ "Settings.ContentSettings" = "Indholdindstillinger";
+ 
+ "Settings.Tabs.Header" = "Tabs";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+index 8383a79487a2218919f6fbb602f63395a854be9e..560f0ca7e08628b472f7ad736e3bdf8a30b5f284 100644
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Geistmodus ist an";
++"Ayu.HeroGhostOff" = "Geistmodus ist aus";
++"Ayu.HeroHidden" = "Verborgen: %@ von %@";
++"Ayu.GhostSubtitle" = "Online, Lesen, Tippen, Aufnehmen, Hochladen und Storys";
++"Ayu.GhostFooter" = "Der Geistmodus aktiviert alle Schalter unten und behält ihre eigenen Werte bei.";
++"Ayu.HideSection" = "Was verbergen";
++"Ayu.BehaviorSection" = "Verhalten";
++"Ayu.OfflineAfterSending" = "Offline nach dem Senden";
++"Ayu.OfflineAfterSendingInfo" = "Nach jeder gesendeten Nachricht sofort offline melden";
++"Ayu.ReadOnSend" = "Chat beim Antworten lesen";
++"Ayu.ReadOnSendInfo" = "Eine gesendete Nachricht markiert den Chat als gelesen";
++"Ayu.QuickToggle" = "Schalter im Chats-Tab";
++"Ayu.QuickToggleInfo" = "Halte den Chats-Tab gedrückt, um den Geistmodus schnell ein- oder auszuschalten.";
++"Ayu.ContentSection" = "Inhalte";
++"Ayu.IgnoreProtection" = "Inhaltsschutz ignorieren";
++"Ayu.IgnoreProtectionInfo" = "Speichern, Kopieren und Weiterleiten aus geschützten Chats";
++"Ayu.AllowScreenshots" = "Bildschirmfotos erlauben";
++"Ayu.AllowScreenshotsInfo" = "Geschützte und geheime Chats erscheinen auf Bildschirmfotos und Aufnahmen";
++"Ayu.ContentFooter" = "Nachrichten aus geschützten Chats werden als Kopie ohne Autor weitergeleitet, Medien werden neu hochgeladen. Die Bildschirmfoto-Einstellung gilt für neu geöffnete Bildschirme.";
++"Ayu.SaveDeletedInfo" = "Gelöschte und bearbeitete Nachrichten in ausgewählten Chats";
++"Ayu.OpenHistory" = "Verlauf öffnen";
++"Ayu.ClientSection" = "Client";
++"Ayu.LocalPremiumInfo" = "Premium-Emojis und Status nur auf diesem Gerät";
++"Ayu.GhostEnable" = "Geistmodus einschalten";
++"Ayu.GhostDisable" = "Geistmodus ausschalten";
++"Ayu.GhostEnabledToast" = "Geistmodus eingeschaltet";
++"Ayu.GhostDisabledToast" = "Geistmodus ausgeschaltet";
++"Ayu.ChatListBackground" = "Hintergrund der Chatliste";
++"Ayu.ConversationBackground" = "Chat-Hintergrund";
++"Ayu.ChooseVideo" = "Video auswählen";
++"Ayu.ShowBackground" = "Hintergrund anzeigen";
++
+ "Settings.ContentSettings" = "Inhaltliche Einstellungen";
+ 
+ "Settings.Tabs.Header" = "Tabs";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+index 25091ddd97e4106998ec094ead9dfd24d459b2f1..bfe8bddc1b85c4bb88c77eceb907c34d376214b0 100644
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Η λειτουργία φάντασμα είναι ενεργή";
++"Ayu.HeroGhostOff" = "Η λειτουργία φάντασμα είναι ανενεργή";
++"Ayu.HeroHidden" = "Κρυφά: %@ από %@";
++"Ayu.GhostSubtitle" = "Σε σύνδεση, ανάγνωση, πληκτρολόγηση, εγγραφή, αποστολή και ιστορίες";
++"Ayu.GhostFooter" = "Η λειτουργία φάντασμα ενεργοποιεί όλους τους διακόπτες παρακάτω και διατηρεί τις δικές τους τιμές.";
++"Ayu.HideSection" = "Τι να κρύβεται";
++"Ayu.BehaviorSection" = "Συμπεριφορά";
++"Ayu.OfflineAfterSending" = "Εκτός σύνδεσης μετά την αποστολή";
++"Ayu.OfflineAfterSendingInfo" = "Αναφορά εκτός σύνδεσης αμέσως μετά από κάθε μήνυμα";
++"Ayu.ReadOnSend" = "Ανάγνωση συνομιλίας κατά την απάντηση";
++"Ayu.ReadOnSendInfo" = "Ένα σταλμένο μήνυμα σημειώνει τη συνομιλία ως αναγνωσμένη";
++"Ayu.QuickToggle" = "Διακόπτης στην καρτέλα Συνομιλίες";
++"Ayu.QuickToggleInfo" = "Πατήστε παρατεταμένα την καρτέλα Συνομιλίες για γρήγορη ενεργοποίηση ή απενεργοποίηση.";
++"Ayu.ContentSection" = "Περιεχόμενο";
++"Ayu.IgnoreProtection" = "Παράβλεψη προστασίας περιεχομένου";
++"Ayu.IgnoreProtectionInfo" = "Αποθήκευση, αντιγραφή και προώθηση από προστατευμένες συνομιλίες";
++"Ayu.AllowScreenshots" = "Να επιτρέπονται στιγμιότυπα";
++"Ayu.AllowScreenshotsInfo" = "Οι προστατευμένες και μυστικές συνομιλίες φαίνονται σε στιγμιότυπα και εγγραφές";
++"Ayu.ContentFooter" = "Τα μηνύματα από προστατευμένες συνομιλίες προωθούνται ως αντίγραφο χωρίς αποστολέα· τα πολυμέσα ανεβαίνουν ξανά. Η ρύθμιση στιγμιότυπων ισχύει για οθόνες που ανοίγουν ξανά.";
++"Ayu.SaveDeletedInfo" = "Διαγραμμένα και επεξεργασμένα μηνύματα σε επιλεγμένες συνομιλίες";
++"Ayu.OpenHistory" = "Άνοιγμα ιστορικού";
++"Ayu.ClientSection" = "Πρόγραμμα";
++"Ayu.LocalPremiumInfo" = "Emoji και καταστάσεις Premium μόνο σε αυτή τη συσκευή";
++"Ayu.GhostEnable" = "Ενεργοποίηση λειτουργίας φάντασμα";
++"Ayu.GhostDisable" = "Απενεργοποίηση λειτουργίας φάντασμα";
++"Ayu.GhostEnabledToast" = "Η λειτουργία φάντασμα ενεργοποιήθηκε";
++"Ayu.GhostDisabledToast" = "Η λειτουργία φάντασμα απενεργοποιήθηκε";
++"Ayu.ChatListBackground" = "Φόντο λίστας συνομιλιών";
++"Ayu.ConversationBackground" = "Φόντο συνομιλιών";
++"Ayu.ChooseVideo" = "Επιλογή βίντεο";
++"Ayu.ShowBackground" = "Εμφάνιση φόντου";
++
+ "Settings.ContentSettings" = "Ρυθμίσεις Περιεχομένου";
+ 
+ "Settings.Tabs.Header" = "TABS";
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+index 992572fc19e2c560870cdc28f6394d2d0a38174b..150d925fb9e3a9b5aeb303e8d2be3c1e4ca10b99 100644
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Ghost Mode is on";
++"Ayu.HeroGhostOff" = "Ghost Mode is off";
++"Ayu.HeroHidden" = "Hidden: %@ of %@";
++"Ayu.GhostSubtitle" = "Online, reading, typing, recording, uploading and stories";
++"Ayu.GhostFooter" = "Ghost Mode enables every switch below and keeps their own values for later.";
++"Ayu.HideSection" = "What to hide";
++"Ayu.BehaviorSection" = "Behavior";
++"Ayu.OfflineAfterSending" = "Offline after sending";
++"Ayu.OfflineAfterSendingInfo" = "Report offline right after each sent message";
++"Ayu.ReadOnSend" = "Read chat when replying";
++"Ayu.ReadOnSendInfo" = "A sent message marks that chat as read";
++"Ayu.QuickToggle" = "Ghost toggle in Chats tab";
++"Ayu.QuickToggleInfo" = "Long-press the Chats tab to turn Ghost Mode on or off quickly.";
++"Ayu.ContentSection" = "Content";
++"Ayu.IgnoreProtection" = "Ignore content protection";
++"Ayu.IgnoreProtectionInfo" = "Save, copy and forward from protected chats";
++"Ayu.AllowScreenshots" = "Allow screenshots";
++"Ayu.AllowScreenshotsInfo" = "Protected and secret chats appear in screenshots and recordings";
++"Ayu.ContentFooter" = "Messages from protected chats are forwarded as copies without the author; media is uploaded again. The screenshot setting applies to newly opened screens.";
++"Ayu.SaveDeletedInfo" = "Deleted and edited messages in selected chats";
++"Ayu.OpenHistory" = "Open history";
++"Ayu.ClientSection" = "Client";
++"Ayu.LocalPremiumInfo" = "Premium emoji and statuses on this device only";
++"Ayu.GhostEnable" = "Enable Ghost Mode";
++"Ayu.GhostDisable" = "Disable Ghost Mode";
++"Ayu.GhostEnabledToast" = "Ghost Mode enabled";
++"Ayu.GhostDisabledToast" = "Ghost Mode disabled";
++"Ayu.ChatListBackground" = "Chat list background";
++"Ayu.ConversationBackground" = "Chat background";
++"Ayu.ChooseVideo" = "Choose video";
++"Ayu.ShowBackground" = "Show background";
++
+ "Settings.ContentSettings" = "Content Settings";
+ 
+ "Settings.Tabs.Header" = "TABS";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+index 055f00cdad49d81c531569d344acd487963e50de..896138f466ca0d3d4595b2b8b250bebb972eff41 100644
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Modo fantasma activado";
++"Ayu.HeroGhostOff" = "Modo fantasma desactivado";
++"Ayu.HeroHidden" = "Oculto: %@ de %@";
++"Ayu.GhostSubtitle" = "En línea, lectura, escritura, grabación, subida e historias";
++"Ayu.GhostFooter" = "El modo fantasma activa todos los interruptores de abajo y conserva sus propios valores.";
++"Ayu.HideSection" = "Qué ocultar";
++"Ayu.BehaviorSection" = "Comportamiento";
++"Ayu.OfflineAfterSending" = "Desconectado tras enviar";
++"Ayu.OfflineAfterSendingInfo" = "Informar desconexión justo después de cada mensaje enviado";
++"Ayu.ReadOnSend" = "Leer el chat al responder";
++"Ayu.ReadOnSendInfo" = "Un mensaje enviado marca el chat como leído";
++"Ayu.QuickToggle" = "Interruptor en la pestaña Chats";
++"Ayu.QuickToggleInfo" = "Mantén pulsada la pestaña Chats para activar o desactivar rápidamente el modo fantasma.";
++"Ayu.ContentSection" = "Contenido";
++"Ayu.IgnoreProtection" = "Ignorar la protección de contenido";
++"Ayu.IgnoreProtectionInfo" = "Guardar, copiar y reenviar desde chats protegidos";
++"Ayu.AllowScreenshots" = "Permitir capturas de pantalla";
++"Ayu.AllowScreenshotsInfo" = "Los chats protegidos y secretos aparecen en capturas y grabaciones";
++"Ayu.ContentFooter" = "Los mensajes de chats protegidos se reenvían como copia sin autor; el contenido multimedia se vuelve a subir. El ajuste de capturas se aplica a pantallas abiertas de nuevo.";
++"Ayu.SaveDeletedInfo" = "Mensajes eliminados y editados en los chats elegidos";
++"Ayu.OpenHistory" = "Abrir historial";
++"Ayu.ClientSection" = "Cliente";
++"Ayu.LocalPremiumInfo" = "Emojis y estados Premium solo en este dispositivo";
++"Ayu.GhostEnable" = "Activar modo fantasma";
++"Ayu.GhostDisable" = "Desactivar modo fantasma";
++"Ayu.GhostEnabledToast" = "Modo fantasma activado";
++"Ayu.GhostDisabledToast" = "Modo fantasma desactivado";
++"Ayu.ChatListBackground" = "Fondo de la lista de chats";
++"Ayu.ConversationBackground" = "Fondo de los chats";
++"Ayu.ChooseVideo" = "Elegir vídeo";
++"Ayu.ShowBackground" = "Mostrar fondo";
++
+ "Settings.ContentSettings" = "Configuración de contenido";
+ 
+ "Settings.Tabs.Header" = "PESTAÑAS";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+index 7e330b227af15d9c4c2f9f996da12f7a02464f03..ff15cec4e14d84399bec7f063d7a1f3b7f7f861a 100644
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "حالت روح روشن است";
++"Ayu.HeroGhostOff" = "حالت روح خاموش است";
++"Ayu.HeroHidden" = "پنهان: %@ از %@";
++"Ayu.GhostSubtitle" = "آنلاین، خواندن، نوشتن، ضبط، بارگذاری و استوری‌ها";
++"Ayu.GhostFooter" = "حالت روح همهٔ کلیدهای زیر را روشن می‌کند و مقدار خودشان را نگه می‌دارد.";
++"Ayu.HideSection" = "چه چیزی پنهان شود";
++"Ayu.BehaviorSection" = "رفتار";
++"Ayu.OfflineAfterSending" = "آفلاین پس از ارسال";
++"Ayu.OfflineAfterSendingInfo" = "بلافاصله پس از هر پیام ارسالی آفلاین گزارش شود";
++"Ayu.ReadOnSend" = "خواندن گفتگو هنگام پاسخ";
++"Ayu.ReadOnSendInfo" = "پیام ارسالی گفتگو را خوانده‌شده علامت می‌زند";
++"Ayu.QuickToggle" = "کلید در زبانهٔ گفتگوها";
++"Ayu.QuickToggleInfo" = "برای روشن یا خاموش کردن سریع حالت روح، زبانهٔ گفتگوها را نگه دارید.";
++"Ayu.ContentSection" = "محتوا";
++"Ayu.IgnoreProtection" = "نادیده گرفتن محافظت محتوا";
++"Ayu.IgnoreProtectionInfo" = "ذخیره، کپی و هدایت از گفتگوهای محافظت‌شده";
++"Ayu.AllowScreenshots" = "اجازهٔ اسکرین‌شات";
++"Ayu.AllowScreenshotsInfo" = "گفتگوهای محافظت‌شده و مخفی در اسکرین‌شات و ضبط دیده می‌شوند";
++"Ayu.ContentFooter" = "پیام‌های گفتگوهای محافظت‌شده بدون نام فرستنده به‌صورت کپی هدایت می‌شوند و رسانه دوباره بارگذاری می‌شود. تنظیم اسکرین‌شات برای صفحه‌های دوباره باز شده اعمال می‌شود.";
++"Ayu.SaveDeletedInfo" = "پیام‌های حذف‌شده و ویرایش‌شده در گفتگوهای انتخابی";
++"Ayu.OpenHistory" = "باز کردن تاریخچه";
++"Ayu.ClientSection" = "برنامه";
++"Ayu.LocalPremiumInfo" = "ایموجی و وضعیت Premium فقط روی این دستگاه";
++"Ayu.GhostEnable" = "روشن کردن حالت روح";
++"Ayu.GhostDisable" = "خاموش کردن حالت روح";
++"Ayu.GhostEnabledToast" = "حالت روح روشن شد";
++"Ayu.GhostDisabledToast" = "حالت روح خاموش شد";
++"Ayu.ChatListBackground" = "پس‌زمینهٔ فهرست گفتگوها";
++"Ayu.ConversationBackground" = "پس‌زمینهٔ گفتگوها";
++"Ayu.ChooseVideo" = "انتخاب ویدیو";
++"Ayu.ShowBackground" = "نمایش پس‌زمینه";
++
+ "Settings.Tabs.Header" = "زبانه ها";
+ "Settings.Tabs.ShowContacts" = "نمایش برگه مخاطبین";
+ "Settings.VideoNotes.Header" = "فیلم های round";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+index 9c0dd8f3c5df5a60efaffc7e9ad2b725b32de1e4..d468d3063c4936acd41aa77258820f5aaf3bea55 100644
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Haamutila on päällä";
++"Ayu.HeroGhostOff" = "Haamutila on pois";
++"Ayu.HeroHidden" = "Piilotettu: %@/%@";
++"Ayu.GhostSubtitle" = "Paikalla, lukeminen, kirjoittaminen, nauhoitus, lähetys ja tarinat";
++"Ayu.GhostFooter" = "Haamutila ottaa käyttöön kaikki alla olevat kytkimet ja säilyttää niiden omat arvot.";
++"Ayu.HideSection" = "Mitä piilotetaan";
++"Ayu.BehaviorSection" = "Toiminta";
++"Ayu.OfflineAfterSending" = "Poissa lähettämisen jälkeen";
++"Ayu.OfflineAfterSendingInfo" = "Ilmoita poissaolo heti jokaisen lähetetyn viestin jälkeen";
++"Ayu.ReadOnSend" = "Lue keskustelu vastatessa";
++"Ayu.ReadOnSendInfo" = "Lähetetty viesti merkitsee keskustelun luetuksi";
++"Ayu.QuickToggle" = "Kytkin Keskustelut-välilehdellä";
++"Ayu.QuickToggleInfo" = "Pidä Keskustelut-välilehteä painettuna kytkeäksesi haamutilan nopeasti päälle tai pois.";
++"Ayu.ContentSection" = "Sisältö";
++"Ayu.IgnoreProtection" = "Ohita sisällön suojaus";
++"Ayu.IgnoreProtectionInfo" = "Tallenna, kopioi ja välitä suojatuista keskusteluista";
++"Ayu.AllowScreenshots" = "Salli kuvakaappaukset";
++"Ayu.AllowScreenshotsInfo" = "Suojatut ja salaiset keskustelut näkyvät kuvakaappauksissa ja tallenteissa";
++"Ayu.ContentFooter" = "Suojattujen keskustelujen viestit välitetään kopiona ilman lähettäjää; media ladataan uudelleen. Kuvakaappausasetus koskee uudelleen avattuja näkymiä.";
++"Ayu.SaveDeletedInfo" = "Poistetut ja muokatut viestit valituissa keskusteluissa";
++"Ayu.OpenHistory" = "Avaa historia";
++"Ayu.ClientSection" = "Sovellus";
++"Ayu.LocalPremiumInfo" = "Premium-emojit ja tilat vain tällä laitteella";
++"Ayu.GhostEnable" = "Ota haamutila käyttöön";
++"Ayu.GhostDisable" = "Poista haamutila käytöstä";
++"Ayu.GhostEnabledToast" = "Haamutila otettu käyttöön";
++"Ayu.GhostDisabledToast" = "Haamutila poistettu käytöstä";
++"Ayu.ChatListBackground" = "Keskustelulistan tausta";
++"Ayu.ConversationBackground" = "Keskustelujen tausta";
++"Ayu.ChooseVideo" = "Valitse video";
++"Ayu.ShowBackground" = "Näytä tausta";
++
+ "Settings.ContentSettings" = "Sisällön Asetukset";
+ 
+ "Settings.Tabs.Header" = "VÄLILEHDET";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+index da9c41a5a60e9a07b22647057e9b984b1501800e..da183c7ed156c22d8979c69746a83af9a23410c5 100644
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Mode fantôme activé";
++"Ayu.HeroGhostOff" = "Mode fantôme désactivé";
++"Ayu.HeroHidden" = "Masqué : %@ sur %@";
++"Ayu.GhostSubtitle" = "En ligne, lecture, saisie, enregistrement, envoi et stories";
++"Ayu.GhostFooter" = "Le mode fantôme active tous les interrupteurs ci-dessous et conserve leurs propres valeurs.";
++"Ayu.HideSection" = "Que masquer";
++"Ayu.BehaviorSection" = "Comportement";
++"Ayu.OfflineAfterSending" = "Hors ligne après l’envoi";
++"Ayu.OfflineAfterSendingInfo" = "Signaler hors ligne juste après chaque message envoyé";
++"Ayu.ReadOnSend" = "Lire le chat en répondant";
++"Ayu.ReadOnSendInfo" = "Un message envoyé marque le chat comme lu";
++"Ayu.QuickToggle" = "Interrupteur dans l’onglet Discussions";
++"Ayu.QuickToggleInfo" = "Maintenez l’onglet Discussions pour activer ou désactiver rapidement le mode fantôme.";
++"Ayu.ContentSection" = "Contenu";
++"Ayu.IgnoreProtection" = "Ignorer la protection du contenu";
++"Ayu.IgnoreProtectionInfo" = "Enregistrer, copier et transférer depuis les chats protégés";
++"Ayu.AllowScreenshots" = "Autoriser les captures d’écran";
++"Ayu.AllowScreenshotsInfo" = "Les chats protégés et secrets apparaissent sur les captures et enregistrements";
++"Ayu.ContentFooter" = "Les messages des chats protégés sont transférés en copie sans auteur ; les médias sont renvoyés. Le réglage des captures s’applique aux écrans rouverts.";
++"Ayu.SaveDeletedInfo" = "Messages supprimés et modifiés dans les chats choisis";
++"Ayu.OpenHistory" = "Ouvrir l’historique";
++"Ayu.ClientSection" = "Client";
++"Ayu.LocalPremiumInfo" = "Emoji et statuts Premium sur cet appareil uniquement";
++"Ayu.GhostEnable" = "Activer le mode fantôme";
++"Ayu.GhostDisable" = "Désactiver le mode fantôme";
++"Ayu.GhostEnabledToast" = "Mode fantôme activé";
++"Ayu.GhostDisabledToast" = "Mode fantôme désactivé";
++"Ayu.ChatListBackground" = "Fond de la liste des chats";
++"Ayu.ConversationBackground" = "Fond des chats";
++"Ayu.ChooseVideo" = "Choisir une vidéo";
++"Ayu.ShowBackground" = "Afficher le fond";
++
+ "Settings.ContentSettings" = "Paramètres du contenu";
+ 
+ "Settings.Tabs.Header" = "ONGLETS";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+index 4bb7127075e6590c1db1e95b437e8027608d49b2..4988212824c0e57b277ff110dc06bbf0d922fbbb 100644
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "מצב רוח פעיל";
++"Ayu.HeroGhostOff" = "מצב רוח כבוי";
++"Ayu.HeroHidden" = "מוסתר: %@ מתוך %@";
++"Ayu.GhostSubtitle" = "מקוון, קריאה, הקלדה, הקלטה, העלאה וסטוריז";
++"Ayu.GhostFooter" = "מצב רוח מפעיל את כל המתגים שלמטה ושומר על הערכים שלהם.";
++"Ayu.HideSection" = "מה להסתיר";
++"Ayu.BehaviorSection" = "התנהגות";
++"Ayu.OfflineAfterSending" = "לא מקוון אחרי שליחה";
++"Ayu.OfflineAfterSendingInfo" = "לדווח לא מקוון מיד אחרי כל הודעה שנשלחה";
++"Ayu.ReadOnSend" = "לקרוא את הצ׳אט בעת מענה";
++"Ayu.ReadOnSendInfo" = "הודעה שנשלחה מסמנת את הצ׳אט כנקרא";
++"Ayu.QuickToggle" = "מתג בלשונית צ׳אטים";
++"Ayu.QuickToggleInfo" = "לחיצה ארוכה על לשונית הצ׳אטים מפעילה או מכבה במהירות את מצב רוח.";
++"Ayu.ContentSection" = "תוכן";
++"Ayu.IgnoreProtection" = "להתעלם מהגנת תוכן";
++"Ayu.IgnoreProtectionInfo" = "שמירה, העתקה והעברה מצ׳אטים מוגנים";
++"Ayu.AllowScreenshots" = "לאפשר צילומי מסך";
++"Ayu.AllowScreenshotsInfo" = "צ׳אטים מוגנים וסודיים מופיעים בצילומי מסך ובהקלטות";
++"Ayu.ContentFooter" = "הודעות מצ׳אטים מוגנים מועברות כהעתק ללא שם השולח; המדיה מועלית מחדש. הגדרת צילומי המסך חלה על מסכים שנפתחים מחדש.";
++"Ayu.SaveDeletedInfo" = "הודעות שנמחקו ונערכו בצ׳אטים שנבחרו";
++"Ayu.OpenHistory" = "פתיחת היסטוריה";
++"Ayu.ClientSection" = "לקוח";
++"Ayu.LocalPremiumInfo" = "אמוג׳י וסטטוסים של Premium במכשיר זה בלבד";
++"Ayu.GhostEnable" = "הפעלת מצב רוח";
++"Ayu.GhostDisable" = "כיבוי מצב רוח";
++"Ayu.GhostEnabledToast" = "מצב רוח הופעל";
++"Ayu.GhostDisabledToast" = "מצב רוח כובה";
++"Ayu.ChatListBackground" = "רקע רשימת הצ׳אטים";
++"Ayu.ConversationBackground" = "רקע הצ׳אטים";
++"Ayu.ChooseVideo" = "בחירת סרטון";
++"Ayu.ShowBackground" = "הצגת רקע";
++
+ "Settings.ContentSettings" = "הגדרות תוכן";
+ 
+ "Settings.Tabs.Header" = "כרטיסיות";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+index 754e5662f960ae854cbef327eb450df5fe25063d..b0baecf8c094a9bc01b23c1ac6b9e6f12c3fad35 100644
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "घोस्ट मोड चालू है";
++"Ayu.HeroGhostOff" = "घोस्ट मोड बंद है";
++"Ayu.HeroHidden" = "छिपे हुए: %@ में से %@";
++"Ayu.GhostSubtitle" = "ऑनलाइन, पढ़ना, टाइपिंग, रिकॉर्डिंग, अपलोड और स्टोरी";
++"Ayu.GhostFooter" = "घोस्ट मोड नीचे के सभी स्विच चालू करता है और उनके अपने मान रखता है।";
++"Ayu.HideSection" = "क्या छिपाना है";
++"Ayu.BehaviorSection" = "व्यवहार";
++"Ayu.OfflineAfterSending" = "भेजने के बाद ऑफ़लाइन";
++"Ayu.OfflineAfterSendingInfo" = "हर भेजे गए संदेश के तुरंत बाद ऑफ़लाइन बताएँ";
++"Ayu.ReadOnSend" = "जवाब देते समय चैट पढ़ें";
++"Ayu.ReadOnSendInfo" = "भेजा गया संदेश चैट को पढ़ा हुआ चिह्नित करता है";
++"Ayu.QuickToggle" = "चैट टैब में स्विच";
++"Ayu.QuickToggleInfo" = "घोस्ट मोड जल्दी चालू या बंद करने के लिए चैट टैब को दबाकर रखें।";
++"Ayu.ContentSection" = "सामग्री";
++"Ayu.IgnoreProtection" = "सामग्री सुरक्षा को अनदेखा करें";
++"Ayu.IgnoreProtectionInfo" = "सुरक्षित चैट से सहेजें, कॉपी करें और फ़ॉरवर्ड करें";
++"Ayu.AllowScreenshots" = "स्क्रीनशॉट की अनुमति दें";
++"Ayu.AllowScreenshotsInfo" = "सुरक्षित और गुप्त चैट स्क्रीनशॉट और रिकॉर्डिंग में दिखती हैं";
++"Ayu.ContentFooter" = "सुरक्षित चैट के संदेश लेखक के बिना कॉपी के रूप में फ़ॉरवर्ड होते हैं; मीडिया फिर से अपलोड होता है। स्क्रीनशॉट सेटिंग दोबारा खोली गई स्क्रीन पर लागू होती है।";
++"Ayu.SaveDeletedInfo" = "चुनी गई चैट में हटाए और संपादित संदेश";
++"Ayu.OpenHistory" = "इतिहास खोलें";
++"Ayu.ClientSection" = "क्लाइंट";
++"Ayu.LocalPremiumInfo" = "प्रीमियम इमोजी और स्टेटस केवल इस डिवाइस पर";
++"Ayu.GhostEnable" = "घोस्ट मोड चालू करें";
++"Ayu.GhostDisable" = "घोस्ट मोड बंद करें";
++"Ayu.GhostEnabledToast" = "घोस्ट मोड चालू हुआ";
++"Ayu.GhostDisabledToast" = "घोस्ट मोड बंद हुआ";
++"Ayu.ChatListBackground" = "चैट सूची पृष्ठभूमि";
++"Ayu.ConversationBackground" = "चैट पृष्ठभूमि";
++"Ayu.ChooseVideo" = "वीडियो चुनें";
++"Ayu.ShowBackground" = "पृष्ठभूमि दिखाएँ";
++
+ "Settings.ContentSettings" = "कंटेंट सेटिंग्स";
+ 
+ "Settings.Tabs.Header" = "टैब";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+index 08f460b4d60ae906ba022befba986fb717b81826..c2d7da16c5a8ac1e54e25b30591b5a6ee862102b 100644
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Szellemmód bekapcsolva";
++"Ayu.HeroGhostOff" = "Szellemmód kikapcsolva";
++"Ayu.HeroHidden" = "Elrejtve: %@ / %@";
++"Ayu.GhostSubtitle" = "Online, olvasás, gépelés, felvétel, feltöltés és történetek";
++"Ayu.GhostFooter" = "A szellemmód bekapcsolja az összes alábbi kapcsolót, és megőrzi saját értékeiket.";
++"Ayu.HideSection" = "Mit rejtsen el";
++"Ayu.BehaviorSection" = "Viselkedés";
++"Ayu.OfflineAfterSending" = "Offline küldés után";
++"Ayu.OfflineAfterSendingInfo" = "Minden elküldött üzenet után azonnal offline jelzés";
++"Ayu.ReadOnSend" = "Csevegés olvasása válaszkor";
++"Ayu.ReadOnSendInfo" = "Az elküldött üzenet olvasottnak jelöli a csevegést";
++"Ayu.QuickToggle" = "Kapcsoló a Csevegések lapon";
++"Ayu.QuickToggleInfo" = "Tartsd lenyomva a Csevegések lapot a szellemmód gyors be- vagy kikapcsolásához.";
++"Ayu.ContentSection" = "Tartalom";
++"Ayu.IgnoreProtection" = "Tartalomvédelem figyelmen kívül hagyása";
++"Ayu.IgnoreProtectionInfo" = "Mentés, másolás és továbbítás védett csevegésekből";
++"Ayu.AllowScreenshots" = "Képernyőképek engedélyezése";
++"Ayu.AllowScreenshotsInfo" = "A védett és titkos csevegések látszanak a képernyőképeken és felvételeken";
++"Ayu.ContentFooter" = "A védett csevegések üzenetei szerző nélküli másolatként továbbítódnak, a média újra feltöltődik. A képernyőkép-beállítás az újra megnyitott képernyőkre vonatkozik.";
++"Ayu.SaveDeletedInfo" = "Törölt és szerkesztett üzenetek a kiválasztott csevegésekben";
++"Ayu.OpenHistory" = "Előzmények megnyitása";
++"Ayu.ClientSection" = "Kliens";
++"Ayu.LocalPremiumInfo" = "Prémium emojik és állapotok csak ezen az eszközön";
++"Ayu.GhostEnable" = "Szellemmód bekapcsolása";
++"Ayu.GhostDisable" = "Szellemmód kikapcsolása";
++"Ayu.GhostEnabledToast" = "Szellemmód bekapcsolva";
++"Ayu.GhostDisabledToast" = "Szellemmód kikapcsolva";
++"Ayu.ChatListBackground" = "Csevegéslista háttere";
++"Ayu.ConversationBackground" = "Csevegések háttere";
++"Ayu.ChooseVideo" = "Videó kiválasztása";
++"Ayu.ShowBackground" = "Háttér megjelenítése";
++
+ "Settings.ContentSettings" = "Tartalombeállítások";
+ 
+ "Settings.Tabs.Header" = "FÜLEK";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+index 685783db0c8f87b387d8d9d79929f4f7ce80415c..b45863f864e1b2fe71ca4499abfe1c8219a4d9f8 100644
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Mode Hantu aktif";
++"Ayu.HeroGhostOff" = "Mode Hantu nonaktif";
++"Ayu.HeroHidden" = "Disembunyikan: %@ dari %@";
++"Ayu.GhostSubtitle" = "Online, membaca, mengetik, merekam, mengunggah, dan cerita";
++"Ayu.GhostFooter" = "Mode Hantu mengaktifkan semua sakelar di bawah dan menyimpan nilainya sendiri.";
++"Ayu.HideSection" = "Yang disembunyikan";
++"Ayu.BehaviorSection" = "Perilaku";
++"Ayu.OfflineAfterSending" = "Offline setelah mengirim";
++"Ayu.OfflineAfterSendingInfo" = "Laporkan offline segera setelah setiap pesan terkirim";
++"Ayu.ReadOnSend" = "Baca obrolan saat membalas";
++"Ayu.ReadOnSendInfo" = "Pesan terkirim menandai obrolan sebagai dibaca";
++"Ayu.QuickToggle" = "Sakelar di tab Obrolan";
++"Ayu.QuickToggleInfo" = "Tekan lama tab Obrolan untuk menyalakan atau mematikan Mode Hantu dengan cepat.";
++"Ayu.ContentSection" = "Konten";
++"Ayu.IgnoreProtection" = "Abaikan perlindungan konten";
++"Ayu.IgnoreProtectionInfo" = "Simpan, salin, dan teruskan dari obrolan terlindungi";
++"Ayu.AllowScreenshots" = "Izinkan tangkapan layar";
++"Ayu.AllowScreenshotsInfo" = "Obrolan terlindungi dan rahasia terlihat di tangkapan dan rekaman layar";
++"Ayu.ContentFooter" = "Pesan dari obrolan terlindungi diteruskan sebagai salinan tanpa pengirim; media diunggah ulang. Pengaturan tangkapan layar berlaku untuk layar yang dibuka ulang.";
++"Ayu.SaveDeletedInfo" = "Pesan yang dihapus dan diedit di obrolan terpilih";
++"Ayu.OpenHistory" = "Buka riwayat";
++"Ayu.ClientSection" = "Klien";
++"Ayu.LocalPremiumInfo" = "Emoji dan status Premium hanya di perangkat ini";
++"Ayu.GhostEnable" = "Aktifkan Mode Hantu";
++"Ayu.GhostDisable" = "Nonaktifkan Mode Hantu";
++"Ayu.GhostEnabledToast" = "Mode Hantu diaktifkan";
++"Ayu.GhostDisabledToast" = "Mode Hantu dinonaktifkan";
++"Ayu.ChatListBackground" = "Latar daftar obrolan";
++"Ayu.ConversationBackground" = "Latar obrolan";
++"Ayu.ChooseVideo" = "Pilih video";
++"Ayu.ShowBackground" = "Tampilkan latar";
++
+ "Settings.ContentSettings" = "Pengaturan Konten";
+ 
+ "Settings.Tabs.Header" = "TABS";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+index e982ec24c08362c77c3f8c011f6f3694d7e31ec6..15f577a458c5a1644b16d6315d7bcc8dfbeb276e 100644
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Modalità fantasma attiva";
++"Ayu.HeroGhostOff" = "Modalità fantasma disattivata";
++"Ayu.HeroHidden" = "Nascosti: %@ di %@";
++"Ayu.GhostSubtitle" = "Online, lettura, digitazione, registrazione, caricamento e storie";
++"Ayu.GhostFooter" = "La modalità fantasma attiva tutti gli interruttori sotto e conserva i loro valori.";
++"Ayu.HideSection" = "Cosa nascondere";
++"Ayu.BehaviorSection" = "Comportamento";
++"Ayu.OfflineAfterSending" = "Offline dopo l’invio";
++"Ayu.OfflineAfterSendingInfo" = "Segnala offline subito dopo ogni messaggio inviato";
++"Ayu.ReadOnSend" = "Leggi la chat quando rispondi";
++"Ayu.ReadOnSendInfo" = "Un messaggio inviato segna la chat come letta";
++"Ayu.QuickToggle" = "Interruttore nella scheda Chat";
++"Ayu.QuickToggleInfo" = "Tieni premuta la scheda Chat per attivare o disattivare rapidamente la modalità fantasma.";
++"Ayu.ContentSection" = "Contenuti";
++"Ayu.IgnoreProtection" = "Ignora la protezione dei contenuti";
++"Ayu.IgnoreProtectionInfo" = "Salva, copia e inoltra dalle chat protette";
++"Ayu.AllowScreenshots" = "Consenti screenshot";
++"Ayu.AllowScreenshotsInfo" = "Le chat protette e segrete compaiono in screenshot e registrazioni";
++"Ayu.ContentFooter" = "I messaggi delle chat protette vengono inoltrati come copia senza autore; i media vengono ricaricati. L’impostazione screenshot vale per le schermate riaperte.";
++"Ayu.SaveDeletedInfo" = "Messaggi eliminati e modificati nelle chat scelte";
++"Ayu.OpenHistory" = "Apri cronologia";
++"Ayu.ClientSection" = "Client";
++"Ayu.LocalPremiumInfo" = "Emoji e stati Premium solo su questo dispositivo";
++"Ayu.GhostEnable" = "Attiva modalità fantasma";
++"Ayu.GhostDisable" = "Disattiva modalità fantasma";
++"Ayu.GhostEnabledToast" = "Modalità fantasma attivata";
++"Ayu.GhostDisabledToast" = "Modalità fantasma disattivata";
++"Ayu.ChatListBackground" = "Sfondo della lista chat";
++"Ayu.ConversationBackground" = "Sfondo delle chat";
++"Ayu.ChooseVideo" = "Scegli video";
++"Ayu.ShowBackground" = "Mostra sfondo";
++
+ "Settings.ContentSettings" = "Impostazioni Contenuto";
+ 
+ "Settings.Tabs.Header" = "TAB";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+index b466e5de959a424b85e5c635f1cb094703ece273..58ee141646c68d1988985b92029ed3fe72b2bb0a 100644
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "ゴーストモード：オン";
++"Ayu.HeroGhostOff" = "ゴーストモード：オフ";
++"Ayu.HeroHidden" = "非表示：%@ / %@";
++"Ayu.GhostSubtitle" = "オンライン、既読、入力中、録音、アップロード、ストーリー";
++"Ayu.GhostFooter" = "ゴーストモードは下のすべてのスイッチを有効にし、それぞれの設定値は保持されます。";
++"Ayu.HideSection" = "非表示にする項目";
++"Ayu.BehaviorSection" = "動作";
++"Ayu.OfflineAfterSending" = "送信後にオフライン";
++"Ayu.OfflineAfterSendingInfo" = "メッセージを送信するたびにすぐオフラインを通知";
++"Ayu.ReadOnSend" = "返信時にチャットを既読にする";
++"Ayu.ReadOnSendInfo" = "送信したメッセージでそのチャットを既読にします";
++"Ayu.QuickToggle" = "チャットタブのスイッチ";
++"Ayu.QuickToggleInfo" = "チャットタブを長押しすると、ゴーストモードをすばやく切り替えられます。";
++"Ayu.ContentSection" = "コンテンツ";
++"Ayu.IgnoreProtection" = "コンテンツ保護を無視";
++"Ayu.IgnoreProtectionInfo" = "保護されたチャットから保存・コピー・転送";
++"Ayu.AllowScreenshots" = "スクリーンショットを許可";
++"Ayu.AllowScreenshotsInfo" = "保護・シークレットチャットがスクリーンショットや録画に写ります";
++"Ayu.ContentFooter" = "保護されたチャットのメッセージは送信者なしのコピーとして転送され、メディアは再アップロードされます。スクリーンショット設定は開き直した画面に適用されます。";
++"Ayu.SaveDeletedInfo" = "選択したチャットの削除・編集されたメッセージ";
++"Ayu.OpenHistory" = "履歴を開く";
++"Ayu.ClientSection" = "クライアント";
++"Ayu.LocalPremiumInfo" = "Premium絵文字とステータスはこの端末のみ";
++"Ayu.GhostEnable" = "ゴーストモードをオン";
++"Ayu.GhostDisable" = "ゴーストモードをオフ";
++"Ayu.GhostEnabledToast" = "ゴーストモードをオンにしました";
++"Ayu.GhostDisabledToast" = "ゴーストモードをオフにしました";
++"Ayu.ChatListBackground" = "チャット一覧の背景";
++"Ayu.ConversationBackground" = "チャットの背景";
++"Ayu.ChooseVideo" = "動画を選択";
++"Ayu.ShowBackground" = "背景を表示";
++
+ "Settings.ContentSettings" = "コンテンツの設定";
+ 
+ "Settings.Tabs.Header" = "タブ";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+index ec0a3c8589974243161fa5671b91b5c293bf5c8f..db64cc10f255c2d6e64f5ef037ef8fc8aa9dd1fa 100644
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "មុខងារលាក់ខ្លួនបានបើក";
++"Ayu.HeroGhostOff" = "មុខងារលាក់ខ្លួនបានបិទ";
++"Ayu.HeroHidden" = "បានលាក់៖ %@ ក្នុងចំណោម %@";
++"Ayu.GhostSubtitle" = "អនឡាញ ការអាន ការវាយ ការថត ការផ្ទុកឡើង និងស្តូរី";
++"Ayu.GhostFooter" = "មុខងារលាក់ខ្លួនបើកកុងតាក់ទាំងអស់ខាងក្រោម ហើយរក្សាតម្លៃរបស់វា។";
++"Ayu.HideSection" = "អ្វីដែលត្រូវលាក់";
++"Ayu.BehaviorSection" = "ឥរិយាបថ";
++"Ayu.OfflineAfterSending" = "អហ្វឡាញក្រោយផ្ញើ";
++"Ayu.OfflineAfterSendingInfo" = "រាយការណ៍អហ្វឡាញភ្លាមៗក្រោយសារនីមួយៗ";
++"Ayu.ReadOnSend" = "អានជជែកពេលឆ្លើយតប";
++"Ayu.ReadOnSendInfo" = "សារដែលបានផ្ញើសម្គាល់ជជែកថាបានអាន";
++"Ayu.QuickToggle" = "កុងតាក់នៅផ្ទាំងជជែក";
++"Ayu.QuickToggleInfo" = "ចុចសង្កត់ផ្ទាំងជជែក ដើម្បីបើក ឬបិទមុខងារលាក់ខ្លួនយ៉ាងរហ័ស។";
++"Ayu.ContentSection" = "មាតិកា";
++"Ayu.IgnoreProtection" = "មិនអើពើការការពារមាតិកា";
++"Ayu.IgnoreProtectionInfo" = "រក្សាទុក ចម្លង និងបញ្ជូនបន្តពីជជែកដែលបានការពារ";
++"Ayu.AllowScreenshots" = "អនុញ្ញាតរូបថតអេក្រង់";
++"Ayu.AllowScreenshotsInfo" = "ជជែកដែលបានការពារ និងសម្ងាត់បង្ហាញក្នុងរូបថត និងការថតអេក្រង់";
++"Ayu.ContentFooter" = "សារពីជជែកដែលបានការពារត្រូវបញ្ជូនបន្តជាច្បាប់ចម្លងគ្មានអ្នកនិពន្ធ មេឌៀត្រូវផ្ទុកឡើងម្តងទៀត។ ការកំណត់រូបថតអេក្រង់អនុវត្តចំពោះអេក្រង់ដែលបើកម្តងទៀត។";
++"Ayu.SaveDeletedInfo" = "សារដែលបានលុប និងកែក្នុងជជែកដែលបានជ្រើស";
++"Ayu.OpenHistory" = "បើកប្រវត្តិ";
++"Ayu.ClientSection" = "កម្មវិធី";
++"Ayu.LocalPremiumInfo" = "អ៊ីម៉ូជិ និងស្ថានភាព Premium តែលើឧបករណ៍នេះ";
++"Ayu.GhostEnable" = "បើកមុខងារលាក់ខ្លួន";
++"Ayu.GhostDisable" = "បិទមុខងារលាក់ខ្លួន";
++"Ayu.GhostEnabledToast" = "បានបើកមុខងារលាក់ខ្លួន";
++"Ayu.GhostDisabledToast" = "បានបិទមុខងារលាក់ខ្លួន";
++"Ayu.ChatListBackground" = "ផ្ទៃខាងក្រោយបញ្ជីជជែក";
++"Ayu.ConversationBackground" = "ផ្ទៃខាងក្រោយជជែក";
++"Ayu.ChooseVideo" = "ជ្រើសវីដេអូ";
++"Ayu.ShowBackground" = "បង្ហាញផ្ទៃខាងក្រោយ";
++
+ "Settings.Tabs.Header" = "ថេប";
+ "Settings.Tabs.ShowContacts" = "បង្ហាញថេបទំនាក់ទំនង";
+ "Settings.VideoNotes.Header" = "រង្វង់វីដេអូ";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+index bf1ab6425fa30de8739f0e2b4a8eda2773628dc3..a98efc71bb100777a562d460724956688a26f830 100644
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "고스트 모드 켜짐";
++"Ayu.HeroGhostOff" = "고스트 모드 꺼짐";
++"Ayu.HeroHidden" = "숨김: %@ / %@";
++"Ayu.GhostSubtitle" = "온라인, 읽음, 입력, 녹음, 업로드, 스토리";
++"Ayu.GhostFooter" = "고스트 모드는 아래 모든 스위치를 켜고 각자의 값은 그대로 유지합니다.";
++"Ayu.HideSection" = "숨길 항목";
++"Ayu.BehaviorSection" = "동작";
++"Ayu.OfflineAfterSending" = "보낸 후 오프라인";
++"Ayu.OfflineAfterSendingInfo" = "메시지를 보낼 때마다 즉시 오프라인으로 알림";
++"Ayu.ReadOnSend" = "답장 시 채팅 읽음";
++"Ayu.ReadOnSendInfo" = "보낸 메시지로 해당 채팅을 읽음으로 표시";
++"Ayu.QuickToggle" = "채팅 탭 스위치";
++"Ayu.QuickToggleInfo" = "채팅 탭을 길게 눌러 고스트 모드를 빠르게 켜거나 끕니다.";
++"Ayu.ContentSection" = "콘텐츠";
++"Ayu.IgnoreProtection" = "콘텐츠 보호 무시";
++"Ayu.IgnoreProtectionInfo" = "보호된 채팅에서 저장, 복사, 전달";
++"Ayu.AllowScreenshots" = "스크린샷 허용";
++"Ayu.AllowScreenshotsInfo" = "보호된 채팅과 비밀 채팅이 스크린샷과 녹화에 표시됩니다";
++"Ayu.ContentFooter" = "보호된 채팅의 메시지는 작성자 없이 사본으로 전달되며 미디어는 다시 업로드됩니다. 스크린샷 설정은 다시 연 화면에 적용됩니다.";
++"Ayu.SaveDeletedInfo" = "선택한 채팅의 삭제·수정된 메시지";
++"Ayu.OpenHistory" = "기록 열기";
++"Ayu.ClientSection" = "클라이언트";
++"Ayu.LocalPremiumInfo" = "프리미엄 이모지와 상태는 이 기기에서만";
++"Ayu.GhostEnable" = "고스트 모드 켜기";
++"Ayu.GhostDisable" = "고스트 모드 끄기";
++"Ayu.GhostEnabledToast" = "고스트 모드를 켰습니다";
++"Ayu.GhostDisabledToast" = "고스트 모드를 껐습니다";
++"Ayu.ChatListBackground" = "채팅 목록 배경";
++"Ayu.ConversationBackground" = "채팅 배경";
++"Ayu.ChooseVideo" = "동영상 선택";
++"Ayu.ShowBackground" = "배경 표시";
++
+ "Settings.ContentSettings" = "콘텐츠 설정";
+ 
+ "Settings.Tabs.Header" = "탭";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+index afe21360b4bbb6918b19f6c2b7a41b3b02e001bd..d8b9306079f85e087c7676282bfe0267b24be305 100644
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Moda ruhê vekirî ye";
++"Ayu.HeroGhostOff" = "Moda ruhê girtî ye";
++"Ayu.HeroHidden" = "Veşartî: %@ ji %@";
++"Ayu.GhostSubtitle" = "Serhêl, xwendin, nivîsîn, tomarkirin, barkirin û çîrok";
++"Ayu.GhostFooter" = "Moda ruhê hemû guhêrbarên jêrîn vedike û nirxên wan diparêze.";
++"Ayu.HideSection" = "Çi were veşartin";
++"Ayu.BehaviorSection" = "Tevger";
++"Ayu.OfflineAfterSending" = "Piştî şandinê derhêl";
++"Ayu.OfflineAfterSendingInfo" = "Piştî her peyamê tavilê derhêl ragihîne";
++"Ayu.ReadOnSend" = "Dema bersivê sohbetê bixwîne";
++"Ayu.ReadOnSendInfo" = "Peyama şandî sohbetê wek xwendî nîşan dide";
++"Ayu.QuickToggle" = "Guhêrbar di beşa Sohbetan de";
++"Ayu.QuickToggleInfo" = "Ji bo vekirin an girtina bilez a moda ruhê, beşa Sohbetan bigire.";
++"Ayu.ContentSection" = "Naverok";
++"Ayu.IgnoreProtection" = "Parastina naverokê paşguh bike";
++"Ayu.IgnoreProtectionInfo" = "Ji sohbetên parastî tomarkirin, kopîkirin û şandin";
++"Ayu.AllowScreenshots" = "Destûra wêneyên ekranê";
++"Ayu.AllowScreenshotsInfo" = "Sohbetên parastî û veşartî di wêneyên ekranê de xuya dibin";
++"Ayu.ContentFooter" = "Peyamên sohbetên parastî wek kopî bê nivîskar têne şandin; medya ji nû ve tê barkirin. Mîhenga wêneyên ekranê ji bo ekranên ji nû ve vebûyî derbas dibe.";
++"Ayu.SaveDeletedInfo" = "Peyamên jêbirî û guhertî di sohbetên hilbijartî de";
++"Ayu.OpenHistory" = "Dîrokê veke";
++"Ayu.ClientSection" = "Bername";
++"Ayu.LocalPremiumInfo" = "Emojî û rewşên Premium tenê li ser vê amûrê";
++"Ayu.GhostEnable" = "Moda ruhê veke";
++"Ayu.GhostDisable" = "Moda ruhê bigire";
++"Ayu.GhostEnabledToast" = "Moda ruhê vebû";
++"Ayu.GhostDisabledToast" = "Moda ruhê hate girtin";
++"Ayu.ChatListBackground" = "Paşxana lîsteya sohbetan";
++"Ayu.ConversationBackground" = "Paşxana sohbetan";
++"Ayu.ChooseVideo" = "Vîdyoyê hilbijêre";
++"Ayu.ShowBackground" = "Paşxanê nîşan bide";
++
+ "Settings.Tabs.Header" = "تابەکان";
+ "Settings.Tabs.ShowContacts" = "نیشاندانی تابی کۆنتاکتەکان";
+ "Settings.VideoNotes.Header" = "ڤیدیۆ بازنەییەکان";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+index 4186a606978116718c1e76fa806d4295bffddc8b..ba46d50c20868ba006629b59c39091cb567e7af1 100644
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Spookmodus staat aan";
++"Ayu.HeroGhostOff" = "Spookmodus staat uit";
++"Ayu.HeroHidden" = "Verborgen: %@ van %@";
++"Ayu.GhostSubtitle" = "Online, lezen, typen, opnemen, uploaden en verhalen";
++"Ayu.GhostFooter" = "Spookmodus zet alle schakelaars hieronder aan en bewaart hun eigen waarden.";
++"Ayu.HideSection" = "Wat verbergen";
++"Ayu.BehaviorSection" = "Gedrag";
++"Ayu.OfflineAfterSending" = "Offline na verzenden";
++"Ayu.OfflineAfterSendingInfo" = "Direct na elk verzonden bericht offline melden";
++"Ayu.ReadOnSend" = "Chat lezen bij antwoorden";
++"Ayu.ReadOnSendInfo" = "Een verzonden bericht markeert de chat als gelezen";
++"Ayu.QuickToggle" = "Schakelaar in tabblad Chats";
++"Ayu.QuickToggleInfo" = "Houd het tabblad Chats ingedrukt om Spookmodus snel aan of uit te zetten.";
++"Ayu.ContentSection" = "Inhoud";
++"Ayu.IgnoreProtection" = "Inhoudsbeveiliging negeren";
++"Ayu.IgnoreProtectionInfo" = "Opslaan, kopiëren en doorsturen uit beveiligde chats";
++"Ayu.AllowScreenshots" = "Schermafbeeldingen toestaan";
++"Ayu.AllowScreenshotsInfo" = "Beveiligde en geheime chats verschijnen op schermafbeeldingen en opnames";
++"Ayu.ContentFooter" = "Berichten uit beveiligde chats worden als kopie zonder auteur doorgestuurd; media wordt opnieuw geüpload. De instelling voor schermafbeeldingen geldt voor opnieuw geopende schermen.";
++"Ayu.SaveDeletedInfo" = "Verwijderde en bewerkte berichten in gekozen chats";
++"Ayu.OpenHistory" = "Geschiedenis openen";
++"Ayu.ClientSection" = "Client";
++"Ayu.LocalPremiumInfo" = "Premium-emoji en statussen alleen op dit apparaat";
++"Ayu.GhostEnable" = "Spookmodus aanzetten";
++"Ayu.GhostDisable" = "Spookmodus uitzetten";
++"Ayu.GhostEnabledToast" = "Spookmodus aangezet";
++"Ayu.GhostDisabledToast" = "Spookmodus uitgezet";
++"Ayu.ChatListBackground" = "Achtergrond chatlijst";
++"Ayu.ConversationBackground" = "Chatachtergrond";
++"Ayu.ChooseVideo" = "Video kiezen";
++"Ayu.ShowBackground" = "Achtergrond tonen";
++
+ "Settings.ContentSettings" = "Inhoudsinstellingen";
+ 
+ "Settings.Tabs.Header" = "TABS";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+index e4e47af38ba289cddaf9cc69d8de9b2c34dd368e..3c870082cddd5c18f533b9e5e718a87a6f4aae1b 100644
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Spøkelsesmodus er på";
++"Ayu.HeroGhostOff" = "Spøkelsesmodus er av";
++"Ayu.HeroHidden" = "Skjult: %@ av %@";
++"Ayu.GhostSubtitle" = "Pålogget, lesing, skriving, opptak, opplasting og historier";
++"Ayu.GhostFooter" = "Spøkelsesmodus slår på alle bryterne nedenfor og beholder deres egne verdier.";
++"Ayu.HideSection" = "Hva som skal skjules";
++"Ayu.BehaviorSection" = "Oppførsel";
++"Ayu.OfflineAfterSending" = "Frakoblet etter sending";
++"Ayu.OfflineAfterSendingInfo" = "Meld frakoblet rett etter hver sendt melding";
++"Ayu.ReadOnSend" = "Les chatten når du svarer";
++"Ayu.ReadOnSendInfo" = "En sendt melding markerer chatten som lest";
++"Ayu.QuickToggle" = "Bryter i Chatter-fanen";
++"Ayu.QuickToggleInfo" = "Hold inne Chatter-fanen for raskt å slå spøkelsesmodus av eller på.";
++"Ayu.ContentSection" = "Innhold";
++"Ayu.IgnoreProtection" = "Ignorer innholdsbeskyttelse";
++"Ayu.IgnoreProtectionInfo" = "Lagre, kopiere og videresende fra beskyttede chatter";
++"Ayu.AllowScreenshots" = "Tillat skjermbilder";
++"Ayu.AllowScreenshotsInfo" = "Beskyttede og hemmelige chatter vises på skjermbilder og opptak";
++"Ayu.ContentFooter" = "Meldinger fra beskyttede chatter videresendes som kopi uten avsender; medier lastes opp på nytt. Innstillingen for skjermbilder gjelder for skjermer som åpnes på nytt.";
++"Ayu.SaveDeletedInfo" = "Slettede og redigerte meldinger i valgte chatter";
++"Ayu.OpenHistory" = "Åpne historikk";
++"Ayu.ClientSection" = "Klient";
++"Ayu.LocalPremiumInfo" = "Premium-emoji og statuser kun på denne enheten";
++"Ayu.GhostEnable" = "Slå på spøkelsesmodus";
++"Ayu.GhostDisable" = "Slå av spøkelsesmodus";
++"Ayu.GhostEnabledToast" = "Spøkelsesmodus slått på";
++"Ayu.GhostDisabledToast" = "Spøkelsesmodus slått av";
++"Ayu.ChatListBackground" = "Bakgrunn for chatliste";
++"Ayu.ConversationBackground" = "Chatbakgrunn";
++"Ayu.ChooseVideo" = "Velg video";
++"Ayu.ShowBackground" = "Vis bakgrunn";
++
+ "Settings.ContentSettings" = "Innholdsinnstillinger";
+ 
+ "Settings.Tabs.Header" = "FANER";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+index 026a09928cda1492e1969b1620c0c4689fd0bfcd..ecb7721c5c88210dbc86f0d2bfa774fa5bbfed69 100644
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Tryb ducha włączony";
++"Ayu.HeroGhostOff" = "Tryb ducha wyłączony";
++"Ayu.HeroHidden" = "Ukryte: %@ z %@";
++"Ayu.GhostSubtitle" = "Online, odczyt, pisanie, nagrywanie, wysyłanie i relacje";
++"Ayu.GhostFooter" = "Tryb ducha włącza wszystkie przełączniki poniżej i zachowuje ich własne wartości.";
++"Ayu.HideSection" = "Co ukrywać";
++"Ayu.BehaviorSection" = "Zachowanie";
++"Ayu.OfflineAfterSending" = "Offline po wysłaniu";
++"Ayu.OfflineAfterSendingInfo" = "Zgłaszaj offline zaraz po każdej wysłanej wiadomości";
++"Ayu.ReadOnSend" = "Czytaj czat przy odpowiedzi";
++"Ayu.ReadOnSendInfo" = "Wysłana wiadomość oznacza czat jako przeczytany";
++"Ayu.QuickToggle" = "Przełącznik w karcie Czaty";
++"Ayu.QuickToggleInfo" = "Przytrzymaj kartę Czaty, aby szybko włączyć lub wyłączyć tryb ducha.";
++"Ayu.ContentSection" = "Treści";
++"Ayu.IgnoreProtection" = "Ignoruj ochronę treści";
++"Ayu.IgnoreProtectionInfo" = "Zapisywanie, kopiowanie i przekazywanie z chronionych czatów";
++"Ayu.AllowScreenshots" = "Zezwalaj na zrzuty ekranu";
++"Ayu.AllowScreenshotsInfo" = "Chronione i tajne czaty są widoczne na zrzutach i nagraniach";
++"Ayu.ContentFooter" = "Wiadomości z chronionych czatów są przekazywane jako kopia bez autora; multimedia są wysyłane ponownie. Ustawienie zrzutów dotyczy ponownie otwartych ekranów.";
++"Ayu.SaveDeletedInfo" = "Usunięte i edytowane wiadomości w wybranych czatach";
++"Ayu.OpenHistory" = "Otwórz historię";
++"Ayu.ClientSection" = "Klient";
++"Ayu.LocalPremiumInfo" = "Emoji i statusy Premium tylko na tym urządzeniu";
++"Ayu.GhostEnable" = "Włącz tryb ducha";
++"Ayu.GhostDisable" = "Wyłącz tryb ducha";
++"Ayu.GhostEnabledToast" = "Tryb ducha włączony";
++"Ayu.GhostDisabledToast" = "Tryb ducha wyłączony";
++"Ayu.ChatListBackground" = "Tło listy czatów";
++"Ayu.ConversationBackground" = "Tło czatów";
++"Ayu.ChooseVideo" = "Wybierz wideo";
++"Ayu.ShowBackground" = "Pokaż tło";
++
+ "Settings.ContentSettings" = "Ustawienia zawartości";
+ 
+ "Settings.Tabs.Header" = "ZAKŁADKI";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+index 4c3fae1a0e60cbf24c1f60254cd304171e28c4ec..de5fe5db24af268731a079c08a6cd633e4a9f5e3 100644
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Modo fantasma ativado";
++"Ayu.HeroGhostOff" = "Modo fantasma desativado";
++"Ayu.HeroHidden" = "Ocultos: %@ de %@";
++"Ayu.GhostSubtitle" = "Online, leitura, digitação, gravação, envio e stories";
++"Ayu.GhostFooter" = "O modo fantasma ativa todas as opções abaixo e mantém os valores delas.";
++"Ayu.HideSection" = "O que ocultar";
++"Ayu.BehaviorSection" = "Comportamento";
++"Ayu.OfflineAfterSending" = "Offline após enviar";
++"Ayu.OfflineAfterSendingInfo" = "Informar offline logo após cada mensagem enviada";
++"Ayu.ReadOnSend" = "Ler o chat ao responder";
++"Ayu.ReadOnSendInfo" = "Uma mensagem enviada marca o chat como lido";
++"Ayu.QuickToggle" = "Botão na aba Conversas";
++"Ayu.QuickToggleInfo" = "Mantenha pressionada a aba Conversas para ligar ou desligar rapidamente o modo fantasma.";
++"Ayu.ContentSection" = "Conteúdo";
++"Ayu.IgnoreProtection" = "Ignorar proteção de conteúdo";
++"Ayu.IgnoreProtectionInfo" = "Salvar, copiar e encaminhar de chats protegidos";
++"Ayu.AllowScreenshots" = "Permitir capturas de tela";
++"Ayu.AllowScreenshotsInfo" = "Chats protegidos e secretos aparecem em capturas e gravações";
++"Ayu.ContentFooter" = "Mensagens de chats protegidos são encaminhadas como cópia sem autor; a mídia é enviada novamente. A opção de capturas vale para telas abertas de novo.";
++"Ayu.SaveDeletedInfo" = "Mensagens apagadas e editadas nos chats escolhidos";
++"Ayu.OpenHistory" = "Abrir histórico";
++"Ayu.ClientSection" = "Cliente";
++"Ayu.LocalPremiumInfo" = "Emojis e status Premium apenas neste dispositivo";
++"Ayu.GhostEnable" = "Ativar modo fantasma";
++"Ayu.GhostDisable" = "Desativar modo fantasma";
++"Ayu.GhostEnabledToast" = "Modo fantasma ativado";
++"Ayu.GhostDisabledToast" = "Modo fantasma desativado";
++"Ayu.ChatListBackground" = "Fundo da lista de chats";
++"Ayu.ConversationBackground" = "Fundo dos chats";
++"Ayu.ChooseVideo" = "Escolher vídeo";
++"Ayu.ShowBackground" = "Mostrar fundo";
++
+ "Settings.ContentSettings" = "Configurações de Conteúdo";
+ 
+ "Settings.Tabs.Header" = "ABAS";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+index 970192e40ff3e3eff8a0bb9a0c8dba119e567698..37dca428b2756acc8d587c6798ecf650d1223fa6 100644
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Modul fantomă este activ";
++"Ayu.HeroGhostOff" = "Modul fantomă este dezactivat";
++"Ayu.HeroHidden" = "Ascunse: %@ din %@";
++"Ayu.GhostSubtitle" = "Online, citire, scriere, înregistrare, încărcare și povești";
++"Ayu.GhostFooter" = "Modul fantomă activează toate comutatoarele de mai jos și le păstrează valorile proprii.";
++"Ayu.HideSection" = "Ce se ascunde";
++"Ayu.BehaviorSection" = "Comportament";
++"Ayu.OfflineAfterSending" = "Offline după trimitere";
++"Ayu.OfflineAfterSendingInfo" = "Raportează offline imediat după fiecare mesaj trimis";
++"Ayu.ReadOnSend" = "Citește chatul la răspuns";
++"Ayu.ReadOnSendInfo" = "Un mesaj trimis marchează chatul ca citit";
++"Ayu.QuickToggle" = "Comutator în fila Chaturi";
++"Ayu.QuickToggleInfo" = "Ține apăsat pe fila Chaturi pentru a porni sau opri rapid modul fantomă.";
++"Ayu.ContentSection" = "Conținut";
++"Ayu.IgnoreProtection" = "Ignoră protecția conținutului";
++"Ayu.IgnoreProtectionInfo" = "Salvare, copiere și redirecționare din chaturi protejate";
++"Ayu.AllowScreenshots" = "Permite capturi de ecran";
++"Ayu.AllowScreenshotsInfo" = "Chaturile protejate și secrete apar în capturi și înregistrări";
++"Ayu.ContentFooter" = "Mesajele din chaturi protejate sunt redirecționate ca o copie fără autor; fișierele media se încarcă din nou. Setarea pentru capturi se aplică ecranelor redeschise.";
++"Ayu.SaveDeletedInfo" = "Mesaje șterse și editate în chaturile alese";
++"Ayu.OpenHistory" = "Deschide istoricul";
++"Ayu.ClientSection" = "Client";
++"Ayu.LocalPremiumInfo" = "Emoji și stări Premium doar pe acest dispozitiv";
++"Ayu.GhostEnable" = "Activează modul fantomă";
++"Ayu.GhostDisable" = "Dezactivează modul fantomă";
++"Ayu.GhostEnabledToast" = "Mod fantomă activat";
++"Ayu.GhostDisabledToast" = "Mod fantomă dezactivat";
++"Ayu.ChatListBackground" = "Fundalul listei de chaturi";
++"Ayu.ConversationBackground" = "Fundalul chaturilor";
++"Ayu.ChooseVideo" = "Alege videoclip";
++"Ayu.ShowBackground" = "Arată fundalul";
++
+ "Settings.ContentSettings" = "Setări Conținut";
+ 
+ "Settings.Tabs.Header" = "FERESTRE";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+index 14d9d3ea0670aabcee9add65f351c66a74aeead8..ba81953c60e256c686076fa2664cf670ef37be37 100644
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Режим призрака включён";
++"Ayu.HeroGhostOff" = "Режим призрака выключен";
++"Ayu.HeroHidden" = "Скрыто: %@ из %@";
++"Ayu.GhostSubtitle" = "Онлайн, прочтение, набор, запись, загрузка и истории";
++"Ayu.GhostFooter" = "Режим призрака включает все переключатели ниже и сохраняет их собственные значения.";
++"Ayu.HideSection" = "Что скрывать";
++"Ayu.BehaviorSection" = "Поведение";
++"Ayu.OfflineAfterSending" = "Офлайн после отправки";
++"Ayu.OfflineAfterSendingInfo" = "Сразу сообщать «не в сети» после каждого сообщения";
++"Ayu.ReadOnSend" = "Читать чат при ответе";
++"Ayu.ReadOnSendInfo" = "Отправленное сообщение отмечает чат прочитанным";
++"Ayu.QuickToggle" = "Переключатель во вкладке «Чаты»";
++"Ayu.QuickToggleInfo" = "Удерживайте вкладку «Чаты», чтобы быстро включить или выключить режим призрака.";
++"Ayu.ContentSection" = "Контент";
++"Ayu.IgnoreProtection" = "Обходить запрет копирования";
++"Ayu.IgnoreProtectionInfo" = "Сохранение, копирование и пересылка из защищённых чатов";
++"Ayu.AllowScreenshots" = "Разрешить скриншоты";
++"Ayu.AllowScreenshotsInfo" = "Защищённые и секретные чаты видны на снимках и записи экрана";
++"Ayu.ContentFooter" = "Сообщения из защищённых чатов пересылаются копией без автора, медиа загружается заново. Настройка скриншотов применяется к заново открытым экранам.";
++"Ayu.SaveDeletedInfo" = "Удалённые и изменённые сообщения в выбранных чатах";
++"Ayu.OpenHistory" = "Открыть историю";
++"Ayu.ClientSection" = "Клиент";
++"Ayu.LocalPremiumInfo" = "Premium-эмодзи и статусы только на этом устройстве";
++"Ayu.GhostEnable" = "Включить режим призрака";
++"Ayu.GhostDisable" = "Выключить режим призрака";
++"Ayu.GhostEnabledToast" = "Режим призрака включён";
++"Ayu.GhostDisabledToast" = "Режим призрака выключен";
++"Ayu.ChatListBackground" = "Фон списка чатов";
++"Ayu.ConversationBackground" = "Фон чатов";
++"Ayu.ChooseVideo" = "Выбрать видео";
++"Ayu.ShowBackground" = "Показывать фон";
++
+ "Settings.ContentSettings" = "Настройки контента";
+ 
+ "Settings.Tabs.Header" = "ВКЛАДКИ";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+index 8d338854b1cef9c509687406241a2118be61cc5e..7e50e22db5eddd9dea5f00a24c6f94227bd5ce37 100644
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "සැඟවුණු මාදිලිය සක්‍රියයි";
++"Ayu.HeroGhostOff" = "සැඟවුණු මාදිලිය අක්‍රියයි";
++"Ayu.HeroHidden" = "සඟවා ඇත: %@ න් %@";
++"Ayu.GhostSubtitle" = "සබැඳි, කියවීම, ටයිප් කිරීම, පටිගත කිරීම, උඩුගත කිරීම සහ කතා";
++"Ayu.GhostFooter" = "සැඟවුණු මාදිලිය පහත සියලු ස්විච සක්‍රිය කර ඒවායේ අගයන් රඳවා ගනී.";
++"Ayu.HideSection" = "සැඟවිය යුතු දේ";
++"Ayu.BehaviorSection" = "හැසිරීම";
++"Ayu.OfflineAfterSending" = "යැවීමෙන් පසු නොබැඳි";
++"Ayu.OfflineAfterSendingInfo" = "සෑම පණිවිඩයකටම පසු වහාම නොබැඳි ලෙස දන්වන්න";
++"Ayu.ReadOnSend" = "පිළිතුරු දෙන විට කතාබහ කියවන්න";
++"Ayu.ReadOnSendInfo" = "යැවූ පණිවිඩය කතාබහ කියවූ ලෙස සලකුණු කරයි";
++"Ayu.QuickToggle" = "කතාබහ ටැබයේ ස්විචය";
++"Ayu.QuickToggleInfo" = "සැඟවුණු මාදිලිය ඉක්මනින් සක්‍රිය හෝ අක්‍රිය කිරීමට කතාබහ ටැබය ඔබාගෙන සිටින්න.";
++"Ayu.ContentSection" = "අන්තර්ගතය";
++"Ayu.IgnoreProtection" = "අන්තර්ගත ආරක්ෂාව නොසලකන්න";
++"Ayu.IgnoreProtectionInfo" = "ආරක්ෂිත කතාබහවලින් සුරකින්න, පිටපත් කරන්න, යොමු කරන්න";
++"Ayu.AllowScreenshots" = "තිර රූවලට ඉඩ දෙන්න";
++"Ayu.AllowScreenshotsInfo" = "ආරක්ෂිත සහ රහස් කතාබහ තිර රූ සහ පටිගත කිරීම්වල පෙනේ";
++"Ayu.ContentFooter" = "ආරක්ෂිත කතාබහවල පණිවිඩ කතුවරයා නොමැති පිටපතක් ලෙස යොමු වේ; මාධ්‍ය නැවත උඩුගත වේ. තිර රූ සැකසුම නැවත විවෘත කළ තිරවලට අදාළ වේ.";
++"Ayu.SaveDeletedInfo" = "තෝරාගත් කතාබහවල මකා දැමූ සහ සංස්කරණය කළ පණිවිඩ";
++"Ayu.OpenHistory" = "ඉතිහාසය විවෘත කරන්න";
++"Ayu.ClientSection" = "සේවාලාභියා";
++"Ayu.LocalPremiumInfo" = "Premium ඉමෝජි සහ තත්ත්ව මෙම උපාංගයේ පමණි";
++"Ayu.GhostEnable" = "සැඟවුණු මාදිලිය සක්‍රිය කරන්න";
++"Ayu.GhostDisable" = "සැඟවුණු මාදිලිය අක්‍රිය කරන්න";
++"Ayu.GhostEnabledToast" = "සැඟවුණු මාදිලිය සක්‍රිය කළා";
++"Ayu.GhostDisabledToast" = "සැඟවුණු මාදිලිය අක්‍රිය කළා";
++"Ayu.ChatListBackground" = "කතාබහ ලැයිස්තු පසුබිම";
++"Ayu.ConversationBackground" = "කතාබහ පසුබිම";
++"Ayu.ChooseVideo" = "වීඩියෝව තෝරන්න";
++"Ayu.ShowBackground" = "පසුබිම පෙන්වන්න";
++
+ "Settings.Tabs.Header" = "පටිති";
+ "ContextMenu.SaveToCloud" = "මේඝයට සුරකින්න";
+ 
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+index 128bd0788d4a7eca7496a3c74586a45fd2fdffef..86f204c27697038b168d5abd41f91d93701d7a09 100644
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Režim ducha je zapnutý";
++"Ayu.HeroGhostOff" = "Režim ducha je vypnutý";
++"Ayu.HeroHidden" = "Skryté: %@ z %@";
++"Ayu.GhostSubtitle" = "Online, prečítanie, písanie, nahrávanie, odosielanie a príbehy";
++"Ayu.GhostFooter" = "Režim ducha zapne všetky prepínače nižšie a zachová ich vlastné hodnoty.";
++"Ayu.HideSection" = "Čo skrývať";
++"Ayu.BehaviorSection" = "Správanie";
++"Ayu.OfflineAfterSending" = "Offline po odoslaní";
++"Ayu.OfflineAfterSendingInfo" = "Hneď po každej odoslanej správe hlásiť offline";
++"Ayu.ReadOnSend" = "Prečítať chat pri odpovedi";
++"Ayu.ReadOnSendInfo" = "Odoslaná správa označí chat ako prečítaný";
++"Ayu.QuickToggle" = "Prepínač na karte Chaty";
++"Ayu.QuickToggleInfo" = "Podržaním karty Chaty rýchlo zapnete alebo vypnete režim ducha.";
++"Ayu.ContentSection" = "Obsah";
++"Ayu.IgnoreProtection" = "Ignorovať ochranu obsahu";
++"Ayu.IgnoreProtectionInfo" = "Ukladanie, kopírovanie a preposielanie z chránených chatov";
++"Ayu.AllowScreenshots" = "Povoliť snímky obrazovky";
++"Ayu.AllowScreenshotsInfo" = "Chránené a tajné chaty sú viditeľné na snímkach a záznamoch";
++"Ayu.ContentFooter" = "Správy z chránených chatov sa preposielajú ako kópia bez autora; médiá sa nahrajú znova. Nastavenie snímok platí pre znova otvorené obrazovky.";
++"Ayu.SaveDeletedInfo" = "Odstránené a upravené správy vo vybraných chatoch";
++"Ayu.OpenHistory" = "Otvoriť históriu";
++"Ayu.ClientSection" = "Klient";
++"Ayu.LocalPremiumInfo" = "Prémiové emoji a stavy len v tomto zariadení";
++"Ayu.GhostEnable" = "Zapnúť režim ducha";
++"Ayu.GhostDisable" = "Vypnúť režim ducha";
++"Ayu.GhostEnabledToast" = "Režim ducha zapnutý";
++"Ayu.GhostDisabledToast" = "Režim ducha vypnutý";
++"Ayu.ChatListBackground" = "Pozadie zoznamu chatov";
++"Ayu.ConversationBackground" = "Pozadie chatov";
++"Ayu.ChooseVideo" = "Vybrať video";
++"Ayu.ShowBackground" = "Zobraziť pozadie";
++
+ "Settings.Tabs.Header" = "ZÁLOŽKY";
+ "Settings.Tabs.ShowContacts" = "Zobraziť kontakty";
+ "Settings.Tabs.ShowNames" = "Zobraziť názvy záložiek";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+index f5564e176d36a5101c3a3d88c65120b42a571d87..b65f7296b5a1ecee1622c8626b7857866906927c 100644
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Режим духа је укључен";
++"Ayu.HeroGhostOff" = "Режим духа је искључен";
++"Ayu.HeroHidden" = "Скривено: %@ од %@";
++"Ayu.GhostSubtitle" = "На мрежи, читање, куцање, снимање, отпремање и приче";
++"Ayu.GhostFooter" = "Режим духа укључује све прекидаче испод и задржава њихове вредности.";
++"Ayu.HideSection" = "Шта сакрити";
++"Ayu.BehaviorSection" = "Понашање";
++"Ayu.OfflineAfterSending" = "Ван мреже после слања";
++"Ayu.OfflineAfterSendingInfo" = "Пријави ван мреже одмах после сваке послате поруке";
++"Ayu.ReadOnSend" = "Читај ћаскање при одговору";
++"Ayu.ReadOnSendInfo" = "Послата порука означава ћаскање као прочитано";
++"Ayu.QuickToggle" = "Прекидач у картици Ћаскања";
++"Ayu.QuickToggleInfo" = "Држите картицу Ћаскања да брзо укључите или искључите режим духа.";
++"Ayu.ContentSection" = "Садржај";
++"Ayu.IgnoreProtection" = "Занемари заштиту садржаја";
++"Ayu.IgnoreProtectionInfo" = "Чување, копирање и прослеђивање из заштићених ћаскања";
++"Ayu.AllowScreenshots" = "Дозволи снимке екрана";
++"Ayu.AllowScreenshotsInfo" = "Заштићена и тајна ћаскања виде се на снимцима екрана";
++"Ayu.ContentFooter" = "Поруке из заштићених ћаскања прослеђују се као копија без аутора; медији се поново отпремају. Подешавање снимака важи за поново отворене екране.";
++"Ayu.SaveDeletedInfo" = "Обрисане и измењене поруке у изабраним ћаскањима";
++"Ayu.OpenHistory" = "Отвори историју";
++"Ayu.ClientSection" = "Клијент";
++"Ayu.LocalPremiumInfo" = "Premium емоџији и статуси само на овом уређају";
++"Ayu.GhostEnable" = "Укључи режим духа";
++"Ayu.GhostDisable" = "Искључи режим духа";
++"Ayu.GhostEnabledToast" = "Режим духа укључен";
++"Ayu.GhostDisabledToast" = "Режим духа искључен";
++"Ayu.ChatListBackground" = "Позадина листе ћаскања";
++"Ayu.ConversationBackground" = "Позадина ћаскања";
++"Ayu.ChooseVideo" = "Изабери видео";
++"Ayu.ShowBackground" = "Прикажи позадину";
++
+ "Settings.ContentSettings" = "Подешавања садржаја";
+ 
+ "Settings.Tabs.Header" = "ТАБОВИ";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+index 800927efdd265ae3f4b5c64dfd4dc0d28baae312..c6e72430cb5e8b0ee91a44e7058cfb38713665fa 100644
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Spökläget är på";
++"Ayu.HeroGhostOff" = "Spökläget är av";
++"Ayu.HeroHidden" = "Dolt: %@ av %@";
++"Ayu.GhostSubtitle" = "Online, läsning, skrivande, inspelning, uppladdning och berättelser";
++"Ayu.GhostFooter" = "Spökläget slår på alla reglage nedan och behåller deras egna värden.";
++"Ayu.HideSection" = "Vad som ska döljas";
++"Ayu.BehaviorSection" = "Beteende";
++"Ayu.OfflineAfterSending" = "Offline efter sändning";
++"Ayu.OfflineAfterSendingInfo" = "Rapportera offline direkt efter varje skickat meddelande";
++"Ayu.ReadOnSend" = "Läs chatten vid svar";
++"Ayu.ReadOnSendInfo" = "Ett skickat meddelande markerar chatten som läst";
++"Ayu.QuickToggle" = "Reglage i fliken Chattar";
++"Ayu.QuickToggleInfo" = "Håll in fliken Chattar för att snabbt slå på eller av spökläget.";
++"Ayu.ContentSection" = "Innehåll";
++"Ayu.IgnoreProtection" = "Ignorera innehållsskydd";
++"Ayu.IgnoreProtectionInfo" = "Spara, kopiera och vidarebefordra från skyddade chattar";
++"Ayu.AllowScreenshots" = "Tillåt skärmdumpar";
++"Ayu.AllowScreenshotsInfo" = "Skyddade och hemliga chattar syns på skärmdumpar och inspelningar";
++"Ayu.ContentFooter" = "Meddelanden från skyddade chattar vidarebefordras som kopia utan avsändare; media laddas upp igen. Inställningen för skärmdumpar gäller för skärmar som öppnas på nytt.";
++"Ayu.SaveDeletedInfo" = "Raderade och redigerade meddelanden i valda chattar";
++"Ayu.OpenHistory" = "Öppna historik";
++"Ayu.ClientSection" = "Klient";
++"Ayu.LocalPremiumInfo" = "Premium-emoji och statusar endast på den här enheten";
++"Ayu.GhostEnable" = "Slå på spökläget";
++"Ayu.GhostDisable" = "Slå av spökläget";
++"Ayu.GhostEnabledToast" = "Spökläget påslaget";
++"Ayu.GhostDisabledToast" = "Spökläget avslaget";
++"Ayu.ChatListBackground" = "Bakgrund för chattlistan";
++"Ayu.ConversationBackground" = "Chattbakgrund";
++"Ayu.ChooseVideo" = "Välj video";
++"Ayu.ShowBackground" = "Visa bakgrund";
++
+ "Settings.ContentSettings" = "Innehållsinställningar";
+ 
+ "Settings.Tabs.Header" = "Flikar";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+index 9c38e29568af5c8d5dd109f8a4c7c8fada7cc7b0..53643c6b68990f30050b81ccc8687dbc4be64783 100644
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Hayalet Modu açık";
++"Ayu.HeroGhostOff" = "Hayalet Modu kapalı";
++"Ayu.HeroHidden" = "Gizlenen: %@ / %@";
++"Ayu.GhostSubtitle" = "Çevrim içi, okuma, yazma, kayıt, yükleme ve hikâyeler";
++"Ayu.GhostFooter" = "Hayalet Modu aşağıdaki tüm anahtarları açar ve kendi değerlerini korur.";
++"Ayu.HideSection" = "Neler gizlensin";
++"Ayu.BehaviorSection" = "Davranış";
++"Ayu.OfflineAfterSending" = "Gönderdikten sonra çevrim dışı";
++"Ayu.OfflineAfterSendingInfo" = "Gönderilen her mesajdan hemen sonra çevrim dışı bildir";
++"Ayu.ReadOnSend" = "Yanıtlarken sohbeti oku";
++"Ayu.ReadOnSendInfo" = "Gönderilen mesaj sohbeti okundu olarak işaretler";
++"Ayu.QuickToggle" = "Sohbetler sekmesinde anahtar";
++"Ayu.QuickToggleInfo" = "Hayalet Modu’nu hızlıca açıp kapatmak için Sohbetler sekmesine basılı tutun.";
++"Ayu.ContentSection" = "İçerik";
++"Ayu.IgnoreProtection" = "İçerik korumasını yok say";
++"Ayu.IgnoreProtectionInfo" = "Korumalı sohbetlerden kaydet, kopyala ve ilet";
++"Ayu.AllowScreenshots" = "Ekran görüntüsüne izin ver";
++"Ayu.AllowScreenshotsInfo" = "Korumalı ve gizli sohbetler ekran görüntüsü ve kayıtlarda görünür";
++"Ayu.ContentFooter" = "Korumalı sohbetlerden mesajlar yazarsız kopya olarak iletilir; medya yeniden yüklenir. Ekran görüntüsü ayarı yeniden açılan ekranlara uygulanır.";
++"Ayu.SaveDeletedInfo" = "Seçili sohbetlerde silinen ve düzenlenen mesajlar";
++"Ayu.OpenHistory" = "Geçmişi aç";
++"Ayu.ClientSection" = "İstemci";
++"Ayu.LocalPremiumInfo" = "Premium emoji ve durumlar yalnızca bu cihazda";
++"Ayu.GhostEnable" = "Hayalet Modu’nu aç";
++"Ayu.GhostDisable" = "Hayalet Modu’nu kapat";
++"Ayu.GhostEnabledToast" = "Hayalet Modu açıldı";
++"Ayu.GhostDisabledToast" = "Hayalet Modu kapatıldı";
++"Ayu.ChatListBackground" = "Sohbet listesi arka planı";
++"Ayu.ConversationBackground" = "Sohbet arka planı";
++"Ayu.ChooseVideo" = "Video seç";
++"Ayu.ShowBackground" = "Arka planı göster";
++
+ "Settings.ContentSettings" = "İçerik Ayarları";
+ 
+ "Settings.Tabs.Header" = "SEKMELER";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+index be1308990619421c3cb6467c743b198134c4e3b0..ed152d04f4e7c89ea81d8727124fe43be28b3fa2 100644
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Режим привида увімкнено";
++"Ayu.HeroGhostOff" = "Режим привида вимкнено";
++"Ayu.HeroHidden" = "Приховано: %@ з %@";
++"Ayu.GhostSubtitle" = "Онлайн, прочитання, набір, запис, завантаження та історії";
++"Ayu.GhostFooter" = "Режим привида вмикає всі перемикачі нижче та зберігає їхні власні значення.";
++"Ayu.HideSection" = "Що приховувати";
++"Ayu.BehaviorSection" = "Поведінка";
++"Ayu.OfflineAfterSending" = "Офлайн після надсилання";
++"Ayu.OfflineAfterSendingInfo" = "Одразу повідомляти «не в мережі» після кожного повідомлення";
++"Ayu.ReadOnSend" = "Читати чат під час відповіді";
++"Ayu.ReadOnSendInfo" = "Надіслане повідомлення позначає чат прочитаним";
++"Ayu.QuickToggle" = "Перемикач у вкладці «Чати»";
++"Ayu.QuickToggleInfo" = "Утримуйте вкладку «Чати», щоб швидко увімкнути або вимкнути режим привида.";
++"Ayu.ContentSection" = "Вміст";
++"Ayu.IgnoreProtection" = "Обходити заборону копіювання";
++"Ayu.IgnoreProtectionInfo" = "Збереження, копіювання та пересилання із захищених чатів";
++"Ayu.AllowScreenshots" = "Дозволити знімки екрана";
++"Ayu.AllowScreenshotsInfo" = "Захищені й секретні чати видно на знімках і записі екрана";
++"Ayu.ContentFooter" = "Повідомлення із захищених чатів пересилаються копією без автора, медіа завантажується знову. Налаштування знімків діє для щойно відкритих екранів.";
++"Ayu.SaveDeletedInfo" = "Видалені та змінені повідомлення у вибраних чатах";
++"Ayu.OpenHistory" = "Відкрити історію";
++"Ayu.ClientSection" = "Клієнт";
++"Ayu.LocalPremiumInfo" = "Premium-емодзі та статуси лише на цьому пристрої";
++"Ayu.GhostEnable" = "Увімкнути режим привида";
++"Ayu.GhostDisable" = "Вимкнути режим привида";
++"Ayu.GhostEnabledToast" = "Режим привида увімкнено";
++"Ayu.GhostDisabledToast" = "Режим привида вимкнено";
++"Ayu.ChatListBackground" = "Фон списку чатів";
++"Ayu.ConversationBackground" = "Фон чатів";
++"Ayu.ChooseVideo" = "Вибрати відео";
++"Ayu.ShowBackground" = "Показувати фон";
++
+ "Settings.ContentSettings" = "Налаштування контенту";
+ 
+ "Settings.Tabs.Header" = "ВКЛАДКИ";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+index b8001e5714bd5546170162a58d46a9635ce937d2..26eb02030de763eef0cbd30fc464d0cd53f46832 100644
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Arvoh rejimi yoqilgan";
++"Ayu.HeroGhostOff" = "Arvoh rejimi o‘chirilgan";
++"Ayu.HeroHidden" = "Yashirilgan: %@ / %@";
++"Ayu.GhostSubtitle" = "Onlayn, o‘qish, yozish, yozib olish, yuklash va hikoyalar";
++"Ayu.GhostFooter" = "Arvoh rejimi quyidagi barcha kalitlarni yoqadi va ularning qiymatlarini saqlaydi.";
++"Ayu.HideSection" = "Nimani yashirish";
++"Ayu.BehaviorSection" = "Xatti-harakat";
++"Ayu.OfflineAfterSending" = "Yuborgandan keyin oflayn";
++"Ayu.OfflineAfterSendingInfo" = "Har bir xabardan so‘ng darhol oflayn deb xabar berish";
++"Ayu.ReadOnSend" = "Javob berganda chatni o‘qish";
++"Ayu.ReadOnSendInfo" = "Yuborilgan xabar chatni o‘qilgan deb belgilaydi";
++"Ayu.QuickToggle" = "Chatlar bo‘limidagi kalit";
++"Ayu.QuickToggleInfo" = "Arvoh rejimini tez yoqish yoki o‘chirish uchun Chatlar bo‘limini bosib turing.";
++"Ayu.ContentSection" = "Kontent";
++"Ayu.IgnoreProtection" = "Kontent himoyasini e’tiborsiz qoldirish";
++"Ayu.IgnoreProtectionInfo" = "Himoyalangan chatlardan saqlash, nusxalash va uzatish";
++"Ayu.AllowScreenshots" = "Skrinshotlarga ruxsat";
++"Ayu.AllowScreenshotsInfo" = "Himoyalangan va maxfiy chatlar skrinshot va yozuvlarda ko‘rinadi";
++"Ayu.ContentFooter" = "Himoyalangan chatlardagi xabarlar muallifsiz nusxa sifatida uzatiladi, media qayta yuklanadi. Skrinshot sozlamasi qayta ochilgan ekranlarga qo‘llanadi.";
++"Ayu.SaveDeletedInfo" = "Tanlangan chatlardagi o‘chirilgan va tahrirlangan xabarlar";
++"Ayu.OpenHistory" = "Tarixni ochish";
++"Ayu.ClientSection" = "Mijoz";
++"Ayu.LocalPremiumInfo" = "Premium emoji va holatlar faqat shu qurilmada";
++"Ayu.GhostEnable" = "Arvoh rejimini yoqish";
++"Ayu.GhostDisable" = "Arvoh rejimini o‘chirish";
++"Ayu.GhostEnabledToast" = "Arvoh rejimi yoqildi";
++"Ayu.GhostDisabledToast" = "Arvoh rejimi o‘chirildi";
++"Ayu.ChatListBackground" = "Chatlar ro‘yxati foni";
++"Ayu.ConversationBackground" = "Chat foni";
++"Ayu.ChooseVideo" = "Video tanlash";
++"Ayu.ShowBackground" = "Fonni ko‘rsatish";
++
+ "Settings.ContentSettings" = "Kontent sozlamalari";
+ 
+ "Settings.Tabs.Header" = "Oynalar";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+index 147c45b7bf71f774e80d06db1b950b82820b6fba..f2ba32f4b1d59ccff1e409a479d3a1d6f50854bc 100644
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "Chế độ bóng ma đang bật";
++"Ayu.HeroGhostOff" = "Chế độ bóng ma đang tắt";
++"Ayu.HeroHidden" = "Đã ẩn: %@ / %@";
++"Ayu.GhostSubtitle" = "Trực tuyến, đã đọc, đang nhập, ghi âm, tải lên và tin";
++"Ayu.GhostFooter" = "Chế độ bóng ma bật mọi công tắc bên dưới và giữ nguyên giá trị riêng của chúng.";
++"Ayu.HideSection" = "Ẩn những gì";
++"Ayu.BehaviorSection" = "Hành vi";
++"Ayu.OfflineAfterSending" = "Ngoại tuyến sau khi gửi";
++"Ayu.OfflineAfterSendingInfo" = "Báo ngoại tuyến ngay sau mỗi tin nhắn đã gửi";
++"Ayu.ReadOnSend" = "Đọc cuộc trò chuyện khi trả lời";
++"Ayu.ReadOnSendInfo" = "Tin nhắn đã gửi đánh dấu cuộc trò chuyện là đã đọc";
++"Ayu.QuickToggle" = "Công tắc ở tab Chat";
++"Ayu.QuickToggleInfo" = "Nhấn giữ tab Chat để bật hoặc tắt nhanh chế độ bóng ma.";
++"Ayu.ContentSection" = "Nội dung";
++"Ayu.IgnoreProtection" = "Bỏ qua bảo vệ nội dung";
++"Ayu.IgnoreProtectionInfo" = "Lưu, sao chép và chuyển tiếp từ cuộc trò chuyện được bảo vệ";
++"Ayu.AllowScreenshots" = "Cho phép chụp màn hình";
++"Ayu.AllowScreenshotsInfo" = "Cuộc trò chuyện được bảo vệ và bí mật hiện trong ảnh chụp và bản ghi màn hình";
++"Ayu.ContentFooter" = "Tin nhắn từ cuộc trò chuyện được bảo vệ được chuyển tiếp dưới dạng bản sao không tác giả; phương tiện được tải lên lại. Cài đặt chụp màn hình áp dụng cho màn hình mở lại.";
++"Ayu.SaveDeletedInfo" = "Tin nhắn đã xóa và đã sửa trong các cuộc trò chuyện đã chọn";
++"Ayu.OpenHistory" = "Mở lịch sử";
++"Ayu.ClientSection" = "Ứng dụng";
++"Ayu.LocalPremiumInfo" = "Emoji và trạng thái Premium chỉ trên thiết bị này";
++"Ayu.GhostEnable" = "Bật chế độ bóng ma";
++"Ayu.GhostDisable" = "Tắt chế độ bóng ma";
++"Ayu.GhostEnabledToast" = "Đã bật chế độ bóng ma";
++"Ayu.GhostDisabledToast" = "Đã tắt chế độ bóng ma";
++"Ayu.ChatListBackground" = "Nền danh sách chat";
++"Ayu.ConversationBackground" = "Nền chat";
++"Ayu.ChooseVideo" = "Chọn video";
++"Ayu.ShowBackground" = "Hiện nền";
++
+ "Settings.ContentSettings" = "Cài đặt nội dung";
+ 
+ "Settings.Tabs.Header" = "THẺ";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+index 856f8a728c384ae25392e1a24d2121bb359d3b92..dcc515fccd4f0254d201cd3671483238f418e23a 100644
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "幽灵模式已开启";
++"Ayu.HeroGhostOff" = "幽灵模式已关闭";
++"Ayu.HeroHidden" = "已隐藏：%@ / %@";
++"Ayu.GhostSubtitle" = "在线、已读、输入、录音、上传和动态";
++"Ayu.GhostFooter" = "幽灵模式会开启下方所有开关，并保留它们各自的设置。";
++"Ayu.HideSection" = "隐藏内容";
++"Ayu.BehaviorSection" = "行为";
++"Ayu.OfflineAfterSending" = "发送后离线";
++"Ayu.OfflineAfterSendingInfo" = "每次发送消息后立即报告离线";
++"Ayu.ReadOnSend" = "回复时标记已读";
++"Ayu.ReadOnSendInfo" = "发送的消息会将该聊天标记为已读";
++"Ayu.QuickToggle" = "聊天标签中的开关";
++"Ayu.QuickToggleInfo" = "长按“聊天”标签即可快速开启或关闭幽灵模式。";
++"Ayu.ContentSection" = "内容";
++"Ayu.IgnoreProtection" = "忽略内容保护";
++"Ayu.IgnoreProtectionInfo" = "从受保护的聊天中保存、复制和转发";
++"Ayu.AllowScreenshots" = "允许截屏";
++"Ayu.AllowScreenshotsInfo" = "受保护和私密聊天会出现在截屏和录屏中";
++"Ayu.ContentFooter" = "受保护聊天的消息将以不含作者的副本转发，媒体会重新上传。截屏设置对重新打开的界面生效。";
++"Ayu.SaveDeletedInfo" = "所选聊天中被删除和编辑的消息";
++"Ayu.OpenHistory" = "打开历史";
++"Ayu.ClientSection" = "客户端";
++"Ayu.LocalPremiumInfo" = "Premium 表情和状态仅在此设备上";
++"Ayu.GhostEnable" = "开启幽灵模式";
++"Ayu.GhostDisable" = "关闭幽灵模式";
++"Ayu.GhostEnabledToast" = "已开启幽灵模式";
++"Ayu.GhostDisabledToast" = "已关闭幽灵模式";
++"Ayu.ChatListBackground" = "聊天列表背景";
++"Ayu.ConversationBackground" = "聊天背景";
++"Ayu.ChooseVideo" = "选择视频";
++"Ayu.ShowBackground" = "显示背景";
++
+ "Settings.ContentSettings" = "敏感内容设置";
+ 
+ "Settings.Tabs.Header" = "标签";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+index 38ef13d2f7e584008041da12060c7fa9e3f1babc..fb6367366781e3a17e66c47b52ea220a5b81039f 100644
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -1,3 +1,36 @@
++// AyuGram
++"Ayu.HeroGhostOn" = "幽靈模式已開啟";
++"Ayu.HeroGhostOff" = "幽靈模式已關閉";
++"Ayu.HeroHidden" = "已隱藏：%@ / %@";
++"Ayu.GhostSubtitle" = "上線、已讀、輸入、錄音、上傳和限時動態";
++"Ayu.GhostFooter" = "幽靈模式會開啟下方所有開關，並保留它們各自的設定。";
++"Ayu.HideSection" = "隱藏內容";
++"Ayu.BehaviorSection" = "行為";
++"Ayu.OfflineAfterSending" = "傳送後離線";
++"Ayu.OfflineAfterSendingInfo" = "每次傳送訊息後立即回報離線";
++"Ayu.ReadOnSend" = "回覆時標示已讀";
++"Ayu.ReadOnSendInfo" = "傳送的訊息會將該聊天標示為已讀";
++"Ayu.QuickToggle" = "聊天分頁中的開關";
++"Ayu.QuickToggleInfo" = "長按「聊天」分頁即可快速開啟或關閉幽靈模式。";
++"Ayu.ContentSection" = "內容";
++"Ayu.IgnoreProtection" = "忽略內容保護";
++"Ayu.IgnoreProtectionInfo" = "從受保護的聊天中儲存、複製和轉傳";
++"Ayu.AllowScreenshots" = "允許截圖";
++"Ayu.AllowScreenshotsInfo" = "受保護和私密聊天會出現在截圖和螢幕錄影中";
++"Ayu.ContentFooter" = "受保護聊天的訊息會以不含作者的副本轉傳，媒體會重新上傳。截圖設定會套用到重新開啟的畫面。";
++"Ayu.SaveDeletedInfo" = "所選聊天中被刪除和編輯的訊息";
++"Ayu.OpenHistory" = "開啟紀錄";
++"Ayu.ClientSection" = "用戶端";
++"Ayu.LocalPremiumInfo" = "Premium 表情符號和狀態僅限此裝置";
++"Ayu.GhostEnable" = "開啟幽靈模式";
++"Ayu.GhostDisable" = "關閉幽靈模式";
++"Ayu.GhostEnabledToast" = "已開啟幽靈模式";
++"Ayu.GhostDisabledToast" = "已關閉幽靈模式";
++"Ayu.ChatListBackground" = "聊天列表背景";
++"Ayu.ConversationBackground" = "聊天背景";
++"Ayu.ChooseVideo" = "選擇影片";
++"Ayu.ShowBackground" = "顯示背景";
++
+ "Settings.ContentSettings" = "敏感內容設定";
+ 
+ "Settings.Tabs.Header" = "頁籤";
+diff --git a/submodules/ChatListUI/BUILD b/submodules/ChatListUI/BUILD
+index b8af55ca50c8db4ecb95fa5acf7957f87e282bb6..fc022a3ec95df2675c43b34c4c570e4a0449ccc5 100644
+--- a/submodules/ChatListUI/BUILD
++++ b/submodules/ChatListUI/BUILD
+@@ -2,6 +2,7 @@ load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+ 
+ sgdeps = [
+     "//Swiftgram/SGSimpleSettings:SGSimpleSettings",
++    "//Swiftgram/SGStrings:SGStrings",
+     "//Swiftgram/SGAPIWebSettings:SGAPIWebSettings",
+     "//Swiftgram/SGAPIToken:SGAPIToken"
+ ]
+diff --git a/submodules/ChatListUI/Sources/ChatListController.swift b/submodules/ChatListUI/Sources/ChatListController.swift
+index 2277b0f9b932687c28c92b25614425bf95145e1a..9f7b6bd9d464f4c490013fefd6d9513d2aa91778 100644
+--- a/submodules/ChatListUI/Sources/ChatListController.swift
++++ b/submodules/ChatListUI/Sources/ChatListController.swift
+@@ -1,5 +1,6 @@
+ // MARK: Swiftgram
+ import SGSimpleSettings
++import SGStrings
+ 
+ import Foundation
+ import UIKit
+@@ -6360,6 +6361,23 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController
+             let (_, filterItems) = filterItemsAndTotalCount
+             
+             var items: [ContextMenuItem] = []
++            if AyuGramSettings.shared.extra.ghostQuickToggle {
++                // AyuGram: one-tap Ghost Mode from the Chats tab.
++                let ghostEnabled = AyuGramSettings.shared.snapshot.ghostMode
++                let locale = strongSelf.presentationData.strings.baseLanguageCode
++                items.append(.action(ContextMenuActionItem(text: i18n(ghostEnabled ? "Ayu.GhostDisable" : "Ayu.GhostEnable", locale), icon: { theme in
++                    return generateTintedImage(image: UIImage(bundleImageName: ghostEnabled ? "Chat/Context Menu/Eye" : "Chat/Context Menu/EyeLocked"), color: theme.contextMenu.primaryColor)
++                }, action: { _, f in
++                    f(.dismissWithoutContent)
++                    AyuGramSettings.shared.setGhostMode(!ghostEnabled)
++                    guard let strongSelf = self else {
++                        return
++                    }
++                    let text = i18n(ghostEnabled ? "Ayu.GhostDisabledToast" : "Ayu.GhostEnabledToast", locale)
++                    strongSelf.present(UndoOverlayController(presentationData: strongSelf.presentationData, content: .info(title: nil, text: text, timeout: nil, customUndoText: nil), elevatedLayout: true, animateInAsReplacement: false, action: { _ in return false }), in: .window(.root))
++                })))
++                items.append(.separator)
++            }
+             items.append(.action(ContextMenuActionItem(text: presetList.isEmpty ? strongSelf.presentationData.strings.ChatList_AddFolder : strongSelf.presentationData.strings.ChatList_EditFolders, icon: { theme in
+                 return generateTintedImage(image: UIImage(bundleImageName: presetList.isEmpty ? "Chat/Context Menu/Add" : "Chat/Context Menu/ItemList"), color: theme.contextMenu.primaryColor)
+             }, action: { c, f in
+diff --git a/submodules/Display/Source/AyuGramAppBadge.swift b/submodules/Display/Source/AyuGramAppBadge.swift
+index 237c0b1024a7eb5a4b9186bd7becb3ede6d53918..bbf3158c024a2346b703524ce4aa4a0dc6c2ede9 100644
+--- a/submodules/Display/Source/AyuGramAppBadge.swift
++++ b/submodules/Display/Source/AyuGramAppBadge.swift
+@@ -65,6 +65,16 @@ public func ayuGramSettingsIcon() -> UIImage {
+     }
+ }
+ 
++/// Sharp, larger variant of the settings icon for headers.
++public func ayuGramLargeIcon(size: CGFloat) -> UIImage {
++    return UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { _ in
++        UIColor(red: 0.19, green: 0.15, blue: 0.28, alpha: 1).setFill()
++        UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: size, height: size), cornerRadius: size * 0.24).fill()
++        let inset = size * 5.0 / 29.0
++        ayuPlane(CGRect(x: inset, y: inset, width: size - inset * 2.0, height: size - inset * 2.0), foreground: .white, secondary: UIColor(red: 0.76, green: 0.65, blue: 1, alpha: 1))
++    }
++}
++
+ public func ayuGramMemberBadgeImage() -> UIImage {
+     return UIGraphicsImageRenderer(size: CGSize(width: 22, height: 22)).image { _ in
+         let outline = UIBezierPath(roundedRect: CGRect(x: 2, y: 2, width: 18, height: 18), cornerRadius: 6)
+diff --git a/submodules/GalleryUI/Sources/GalleryController.swift b/submodules/GalleryUI/Sources/GalleryController.swift
+index bbfa732710f1a45cc7b21cb207de7bb96cb73ab4..ec7d67cab2be5e5c335b0fdfc95a3f7ed41c8d4d 100644
+--- a/submodules/GalleryUI/Sources/GalleryController.swift
++++ b/submodules/GalleryUI/Sources/GalleryController.swift
+@@ -855,7 +855,7 @@ public class GalleryController: ViewController, StandalonePresentableController,
+                     if let peer = message.peers[message.id.peerId] as? TelegramGroup, let migrationPeerId = peer.migrationReference?.peerId, let migrationPeer = transaction.getPeer(migrationPeerId) {
+                         return (message, migrationPeer.isCopyProtectionEnabled)
+                     } else if let peer = message.peers[message.id.peerId] as? TelegramUser, let cachedUserData = transaction.getPeerCachedData(peerId: peer.id) as? CachedUserData {
+-                        return (message, cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled))
++                        return (message, !ayuGramIgnoresCopyProtection() && (cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled)))
+                     }
+                     return (message, false)
+                 }
+diff --git a/submodules/MediaPlayer/Sources/MediaPlayerNode.swift b/submodules/MediaPlayer/Sources/MediaPlayerNode.swift
+index c8b563b5b8c205cb9646a04d9dc0c9d982794304..563d367d44cfc8a7ce800f0c56acf2ba87ecf531 100644
+--- a/submodules/MediaPlayer/Sources/MediaPlayerNode.swift
++++ b/submodules/MediaPlayer/Sources/MediaPlayerNode.swift
+@@ -355,7 +355,7 @@ public final class MediaPlayerNode: ASDisplayNode {
+                 if let strongSelf = self {
+                     strongSelf.videoLayer = videoLayer
+                     if #available(iOS 13.0, *) {
+-                        videoLayer.preventsCapture = captureProtected
++                        videoLayer.preventsCapture = captureProtected && !(UserDefaults.standard.object(forKey: "AyuGramAllowScreenshots") as? Bool ?? true)
+                     }
+                     strongSelf.updateLayout()
+                     
+diff --git a/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift b/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift
+index b422dd59965fa1f359d573cc8f8e97c9ffec42ee..4a5873cdab91ec33b956ffb8f80a5310a7e92332 100644
+--- a/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift
++++ b/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift
+@@ -577,6 +577,7 @@ public func enqueueMessages(account: Account, peerId: PeerId, messages: [Enqueue
+         signal = .single(messages.map { (false, $0) })
+     }
+     return signal
++    |> mapToSignal { messages in ayuPrepareProtectedForwards(account: account, peerId: peerId, messages: messages) }
+     |> mapToSignal { messages in ayuPrepareEmojiLinks(account: account, peerId: peerId, messages: messages) }
+     |> mapToSignal { messages -> Signal<[MessageId?], NoError> in
+         return account.postbox.transaction { transaction -> ([MessageId?], [MessageId]) in
+diff --git a/submodules/TelegramCore/Sources/State/PendingMessageManager.swift b/submodules/TelegramCore/Sources/State/PendingMessageManager.swift
+index 782c1e07bb162145e7115ecd572b7f9dc16d1787..332790a6f2d9f9c3beb1b68ed5fc8ef8f89c77a0 100644
+--- a/submodules/TelegramCore/Sources/State/PendingMessageManager.swift
++++ b/submodules/TelegramCore/Sources/State/PendingMessageManager.swift
+@@ -2349,7 +2349,7 @@ public final class PendingMessageManager {
+         return applyUpdateMessage(postbox: postbox, stateManager: stateManager, message: message, cacheReferenceKey: content.cacheReferenceKey, result: result, accountPeerId: self.accountPeerId, pendingMessageEvent: { [weak self] pendingMessageDelivered in
+             queue.async {
+                 if let strongSelf = self {
+-                    let _ = _internal_ayuReportReadAfterSending(postbox: postbox, network: strongSelf.network, stateManager: stateManager, accountPeerId: strongSelf.accountPeerId, messageId: pendingMessageDelivered.id).startStandalone()
++                    let _ = _internal_ayuAfterSending(postbox: postbox, network: strongSelf.network, stateManager: stateManager, accountPeerId: strongSelf.accountPeerId, messageId: pendingMessageDelivered.id).startStandalone()
+                     if let context = strongSelf.peerSummaryContexts[message.id.peerId] {
+                         for subscriber in context.messageDeliveredSubscribers.copyItems() {
+                             subscriber([pendingMessageDelivered])
+@@ -2400,7 +2400,7 @@ public final class PendingMessageManager {
+             queue.async {
+                 if let strongSelf = self {
+                     if let delivered = pendingMessagesDelivered.filter({ $0.id.namespace == Namespaces.Message.Cloud }).max(by: { $0.id.id < $1.id.id }) {
+-                        let _ = _internal_ayuReportReadAfterSending(postbox: postbox, network: strongSelf.network, stateManager: stateManager, accountPeerId: strongSelf.accountPeerId, messageId: delivered.id).startStandalone()
++                        let _ = _internal_ayuAfterSending(postbox: postbox, network: strongSelf.network, stateManager: stateManager, accountPeerId: strongSelf.accountPeerId, messageId: delivered.id).startStandalone()
+                     }
+                     if let message = messages.first, let context = strongSelf.peerSummaryContexts[message.id.peerId], !pendingMessagesDelivered.isEmpty {
+                         for subscriber in context.messageDeliveredSubscribers.copyItems() {
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Data/PeersData.swift b/submodules/TelegramCore/Sources/TelegramEngine/Data/PeersData.swift
+index db193952715db5195092fc174be0d0a09854e4bf..c4d15296dfb1c061afa6b9a5ac83b62c744eb1b5 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Data/PeersData.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Data/PeersData.swift
+@@ -2356,6 +2356,9 @@ public extension TelegramEngine.EngineData.Item {
+                 guard let peer = peerViewMainPeer(view) else {
+                     return false
+                 }
++                if ayuGramIgnoresCopyProtection() {
++                    return false
++                }
+                 if let cachedPeerData = view.cachedData as? CachedUserData {
+                     return cachedPeerData.flags.contains(.copyProtectionEnabled)
+                 } else if let group = peer as? TelegramGroup {
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramContentProtection.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramContentProtection.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..ea03c3137598885d4e923452b84259698fb5db0f
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramContentProtection.swift
+@@ -0,0 +1,172 @@
++import Foundation
++import Postbox
++import SwiftSignalKit
++import SGSimpleSettings
++
++/// Local AyuGram option: treat "Restrict saving content" chats and messages
++/// like ordinary ones on this device (save, copy, share, forward).
++public func ayuGramIgnoresCopyProtection() -> Bool {
++    return AyuGramSettings.shared.extra.ignoreCopyProtection
++}
++
++/// Raw server-side protection of the source, independent of the local option.
++/// The server rejects messages.forwardMessages for these sources.
++private func ayuIsSourceCopyProtected(transaction: Transaction, message: Message) -> Bool {
++    if message.flags.contains(.CopyProtected) {
++        return true
++    }
++    if let group = transaction.getPeer(message.id.peerId) as? TelegramGroup, group.flags.contains(.copyProtectionEnabled) {
++        return true
++    }
++    if let channel = transaction.getPeer(message.id.peerId) as? TelegramChannel, channel.flags.contains(.copyProtectionEnabled) {
++        return true
++    }
++    if let cachedUserData = transaction.getPeerCachedData(peerId: message.id.peerId) as? CachedUserData, cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled) {
++        return true
++    }
++    return false
++}
++
++/// Forwards from protected sources are sent as new messages: text and entities
++/// are copied and photos/files are downloaded and uploaded again, because the
++/// server refuses both forwarding and reusing the protected media references.
++/// A source that cannot be copied keeps its original forward request.
++func ayuPrepareProtectedForwards(account: Account, peerId: PeerId, messages: [(Bool, EnqueueMessage)]) -> Signal<[(Bool, EnqueueMessage)], NoError> {
++    guard ayuGramIgnoresCopyProtection(), peerId.namespace != Namespaces.Peer.SecretChat else {
++        return .single(messages)
++    }
++    let hasForwards = messages.contains(where: { _, message in
++        if case .forward = message {
++            return true
++        } else {
++            return false
++        }
++    })
++    if !hasForwards {
++        return .single(messages)
++    }
++    return account.postbox.transaction { transaction -> [Int: Message] in
++        var result: [Int: Message] = [:]
++        for i in 0 ..< messages.count {
++            if case let .forward(sourceId, _, _, _, _) = messages[i].1, sourceId.namespace == Namespaces.Message.Cloud, let source = transaction.getMessage(sourceId), ayuIsSourceCopyProtected(transaction: transaction, message: source) {
++                result[i] = source
++            }
++        }
++        return result
++    }
++    |> mapToSignal { protectedSources -> Signal<[(Bool, EnqueueMessage)], NoError> in
++        if protectedSources.isEmpty {
++            return .single(messages)
++        }
++        var groupingKeys: [Int64: Int64] = [:]
++        var signals: [Signal<(Bool, EnqueueMessage), NoError>] = []
++        for i in 0 ..< messages.count {
++            let original = messages[i]
++            guard let source = protectedSources[i], case let .forward(_, threadId, grouping, attributes, correlationId) = original.1 else {
++                signals.append(.single(original))
++                continue
++            }
++            var localGroupingKey: Int64?
++            if case .auto = grouping, let sourceKey = source.groupingKey {
++                if let current = groupingKeys[sourceKey] {
++                    localGroupingKey = current
++                } else {
++                    let value = Int64.random(in: 1 ... Int64.max)
++                    groupingKeys[sourceKey] = value
++                    localGroupingKey = value
++                }
++            }
++            signals.append(ayuCopyProtectedMessage(account: account, peerId: peerId, source: source, threadId: threadId, attributes: attributes, correlationId: correlationId, localGroupingKey: localGroupingKey)
++            |> map { copy -> (Bool, EnqueueMessage) in
++                return copy ?? original
++            })
++        }
++        return combineLatest(signals)
++    }
++}
++
++private func ayuCopyProtectedMessage(account: Account, peerId: PeerId, source: Message, threadId: Int64?, attributes: [MessageAttribute], correlationId: Int64?, localGroupingKey: Int64?) -> Signal<(Bool, EnqueueMessage)?, NoError> {
++    var hideCaptions = false
++    var outgoingAttributes: [MessageAttribute] = []
++    for attribute in attributes {
++        if let options = attribute as? ForwardOptionsMessageAttribute {
++            hideCaptions = options.hideCaptions
++        } else {
++            outgoingAttributes.append(attribute)
++        }
++    }
++    let media = source.media.first(where: { !($0 is TelegramMediaWebpage) })
++    let hasCaptionMedia = media.flatMap { $0 is TelegramMediaImage || $0 is TelegramMediaFile } ?? false
++    let text = hideCaptions && hasCaptionMedia ? "" : source.text
++    if !text.isEmpty, let entities = source.textEntitiesAttribute?.entities, !entities.isEmpty {
++        outgoingAttributes.append(TextEntitiesMessageAttribute(entities: entities))
++    }
++    let messageAttributes = outgoingAttributes
++    let replyToMessageId = threadId.flatMap { EngineMessageReplySubject(messageId: MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: Int32(clamping: $0)), quote: nil, innerSubject: nil) }
++
++    func makeMessage(_ mediaReference: AnyMediaReference?) -> (Bool, EnqueueMessage) {
++        return (true, .message(text: text, attributes: messageAttributes, inlineStickers: [:], mediaReference: mediaReference, threadId: threadId, replyToMessageId: replyToMessageId, replyToStoryId: nil, localGroupingKey: localGroupingKey, correlationId: correlationId, bubbleUpEmojiOrStickersets: []))
++    }
++
++    guard let media else {
++        if text.isEmpty {
++            return .single(nil)
++        }
++        return .single(makeMessage(nil))
++    }
++    if let image = media as? TelegramMediaImage, let largest = largestImageRepresentation(image.representations) {
++        return ayuLocalResourceCopy(account: account, source: source, media: image, resource: largest.resource, size: nil)
++        |> map { resource -> (Bool, EnqueueMessage)? in
++            guard let resource else {
++                return nil
++            }
++            let copy = TelegramMediaImage(imageId: MediaId(namespace: Namespaces.Media.LocalImage, id: Int64.random(in: Int64.min ... Int64.max)), representations: [TelegramMediaImageRepresentation(dimensions: largest.dimensions, resource: resource, progressiveSizes: [], immediateThumbnailData: nil)], immediateThumbnailData: image.immediateThumbnailData, reference: nil, partialReference: nil, flags: [])
++            return makeMessage(.standalone(media: copy))
++        }
++    } else if let file = media as? TelegramMediaFile {
++        if file.isSticker || file.isAnimatedSticker || file.isVideoSticker || file.isCustomEmoji {
++            // Pack stickers are public documents and stay reusable.
++            return .single(makeMessage(.standalone(media: file)))
++        }
++        return ayuLocalResourceCopy(account: account, source: source, media: file, resource: file.resource, size: file.size)
++        |> map { resource -> (Bool, EnqueueMessage)? in
++            guard let resource else {
++                return nil
++            }
++            let copy = TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: Int64.random(in: Int64.min ... Int64.max)), partialReference: nil, resource: resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: file.immediateThumbnailData, mimeType: file.mimeType, size: file.size, attributes: file.attributes, alternativeRepresentations: [])
++            return makeMessage(.standalone(media: copy))
++        }
++    } else if media is TelegramMediaContact {
++        return .single(makeMessage(.standalone(media: media)))
++    } else if let map = media as? TelegramMediaMap, map.liveBroadcastingTimeout == nil {
++        return .single(makeMessage(.standalone(media: map)))
++    } else {
++        return .single(nil)
++    }
++}
++
++/// Downloads the source resource (if needed) and copies it into a new local
++/// resource, so the pending message manager uploads it as a new file.
++private func ayuLocalResourceCopy(account: Account, source: Message, media: Media, resource: MediaResource, size: Int64?) -> Signal<LocalFileMediaResource?, NoError> {
++    let mediaBox = account.postbox.mediaBox
++    let fetch = fetchedMediaResource(mediaBox: mediaBox, userLocation: .peer(source.id.peerId), userContentType: .other, reference: .media(media: .message(message: MessageReference(source), media: media), resource: resource))
++    let data = mediaBox.resourceData(resource)
++    |> filter { $0.complete }
++    |> take(1)
++    return Signal { subscriber in
++        let fetchDisposable = fetch.start(error: { _ in
++            subscriber.putNext(nil)
++            subscriber.putCompletion()
++        })
++        let dataDisposable = data.start(next: { _ in
++            let localResource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max), size: size)
++            mediaBox.copyResourceData(from: resource.id, to: localResource.id, synchronous: true)
++            subscriber.putNext(localResource)
++            subscriber.putCompletion()
++        })
++        return ActionDisposable {
++            fetchDisposable.dispose()
++            dataDisposable.dispose()
++        }
++    }
++}
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift
+index a4e992290918f79ab1ee0161e37696b488523a72..66e42cc30b31d4721bf32c404cb04eb9ec2ee21b 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramManualReceipts.swift
+@@ -31,6 +31,24 @@ func _internal_ayuReportReadAfterSending(postbox: Postbox, network: Network, sta
+     return ayuReportRead(postbox: postbox, network: network, stateManager: stateManager, messageId: messageId, requestedThreadId: nil, allowOutgoing: true)
+ }
+ 
++/// Ghost Mode follow-ups for a delivered outgoing message: the server marks
++/// the sender online on activity, so report offline again while online status
++/// is hidden; optionally acknowledge the chat that was replied to.
++func _internal_ayuAfterSending(postbox: Postbox, network: Network, stateManager: AccountStateManager, accountPeerId: PeerId, messageId: MessageId) -> Signal<Bool, NoError> {
++    let privacy = AyuGramSettings.shared.snapshot
++    let extra = AyuGramSettings.shared.extra
++    if privacy.suppressOnline && extra.offlineAfterSending {
++        let _ = (network.request(Api.functions.account.updateStatus(offline: .boolTrue))
++        |> `catch` { _ -> Signal<Api.Bool, NoError> in
++            return .single(.boolFalse)
++        }).startStandalone()
++    }
++    guard extra.readOnSend else {
++        return .single(false)
++    }
++    return _internal_ayuReportReadAfterSending(postbox: postbox, network: network, stateManager: stateManager, accountPeerId: accountPeerId, messageId: messageId)
++}
++
+ // Kept independent of the transport so routing can be exercised in CI.
+ func ayuReceiptThreadId(requested: Int64?, message: Int64?, isForum: Bool, afterSending: Bool) -> Int64? {
+     let value = requested ?? (isForum && afterSending ? message : nil)
+diff --git a/submodules/TelegramCore/Sources/Utils/MessageUtils.swift b/submodules/TelegramCore/Sources/Utils/MessageUtils.swift
+index e80c750ef575a3f3ebd961a312ebf03e68b6bed0..25d6c327540418c22d65082aafaf7fda158ef484 100644
+--- a/submodules/TelegramCore/Sources/Utils/MessageUtils.swift
++++ b/submodules/TelegramCore/Sources/Utils/MessageUtils.swift
+@@ -391,7 +391,9 @@ public extension Message {
+     }
+     
+     func isCopyProtected() -> Bool {
+-        if self.flags.contains(.CopyProtected) {
++        if ayuGramIgnoresCopyProtection() {
++            return false
++        } else if self.flags.contains(.CopyProtected) {
+             return true
+         } else if let group = self.peers[self.id.peerId] as? TelegramGroup, group.flags.contains(.copyProtectionEnabled) {
+             return true
+diff --git a/submodules/TelegramCore/Sources/Utils/PeerUtils.swift b/submodules/TelegramCore/Sources/Utils/PeerUtils.swift
+index 36b817d765246417db75fdeca70165bb4823c881..1d44dfcf26ebaabf5dc0d842237453e736e67a65 100644
+--- a/submodules/TelegramCore/Sources/Utils/PeerUtils.swift
++++ b/submodules/TelegramCore/Sources/Utils/PeerUtils.swift
+@@ -260,6 +260,9 @@ public extension Peer {
+     }
+     
+     var isCopyProtectionEnabled: Bool {
++        if ayuGramIgnoresCopyProtection() {
++            return false
++        }
+         switch self {
+         case let group as TelegramGroup:
+             return group.flags.contains(.copyProtectionEnabled)
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoData.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoData.swift
+index 3b1abff1dead701757a9667ec4853525bc2b5936..ab95bac6d9b719a499cc2f574fd567d95beaa901 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoData.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoData.swift
+@@ -2418,7 +2418,7 @@ func peerInfoScreenData(
+ 
+ func peerInfoIsCopyProtected(data: PeerInfoScreenData) -> Bool {
+     var isCopyProtected = false
+-    if let cachedUserData = data.cachedData as? CachedUserData, cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled) {
++    if let cachedUserData = data.cachedData as? CachedUserData, !ayuGramIgnoresCopyProtection() && (cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled)) {
+         isCopyProtected = true
+     } else if let peer = data.peer, peer.isCopyProtectionEnabled {
+         isCopyProtected = true
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
+index 5740c4c2bd3ad9aebf90e4c2d8ef76a1fa0d3621..bd492b3f8f5f739623db3e385a20a7ba8e4c36e8 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
+@@ -775,7 +775,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
+                 }
+                 
+                 var isCopyProtected = false
+-                if let cachedUserData = strongSelf.data?.cachedData as? CachedUserData, cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled) {
++                if let cachedUserData = strongSelf.data?.cachedData as? CachedUserData, !ayuGramIgnoresCopyProtection() && (cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled)) {
+                     isCopyProtected = true
+                 }
+                 
+@@ -937,7 +937,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
+                 }
+                 if let previewData = previewData {
+                     var isCopyProtected = false
+-                    if let cachedUserData = strongSelf.data?.cachedData as? CachedUserData, cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled) {
++                    if let cachedUserData = strongSelf.data?.cachedData as? CachedUserData, !ayuGramIgnoresCopyProtection() && (cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled)) {
+                         isCopyProtected = true
+                     }
+                     
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+index 5e22c1cbc5e6fc34b3c9383d8fbe9c58675c2736..7e225233bdbc8dcfd4f464e93b5d6a6c83fe877c 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+@@ -47,7 +47,7 @@ extension PeerInfoScreenNode {
+         }
+         switch section {
+         case .ayuGramPrivacy:
+-            self.controller?.push(ayuGramSettingsController(context: self.context))
++            self.controller?.push(ayuGramSettingsScreen(context: self.context))
+         case .swiftgram:
+             self.controller?.push(sgSettingsController(context: self.context))
+         case .swiftgramPro:
+diff --git a/submodules/TelegramUI/Sources/ChatControllerContentData.swift b/submodules/TelegramUI/Sources/ChatControllerContentData.swift
+index 39e93e16666e8b1f33f8033ad4ae96d07354c854..3cd2ab3594127ff0aba420512125572c78bea58c 100644
+--- a/submodules/TelegramUI/Sources/ChatControllerContentData.swift
++++ b/submodules/TelegramUI/Sources/ChatControllerContentData.swift
+@@ -963,7 +963,7 @@ extension ChatControllerImpl {
+                             }
+                         }
+                         if let cachedUserData = peerView.cachedData as? CachedUserData {
+-                            copyProtectionEnabled = cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled)
++                            copyProtectionEnabled = !ayuGramIgnoresCopyProtection() && (cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled))
+                             myCopyProtectionEnabled = cachedUserData.flags.contains(.myCopyProtectionEnabled)
+                         } else {
+                             copyProtectionEnabled = peer.isCopyProtectionEnabled
+diff --git a/submodules/TelegramUI/Sources/ChatHistoryListNode.swift b/submodules/TelegramUI/Sources/ChatHistoryListNode.swift
+index e86b729125fe68cebf9fb49cca0e2d323b93880e..32f03dacb3e8e490431122d9f3c95d7b83febeed 100644
+--- a/submodules/TelegramUI/Sources/ChatHistoryListNode.swift
++++ b/submodules/TelegramUI/Sources/ChatHistoryListNode.swift
+@@ -2166,7 +2166,7 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
+                         }
+                     } else if case let .cachedPeerData(_, cachedData) = entry, let cachedUserData = cachedData as? CachedUserData {
+                         if !isCopyProtectionEnabled {
+-                            isCopyProtectionEnabled = cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled)
++                            isCopyProtectionEnabled = !ayuGramIgnoresCopyProtection() && (cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled))
+                         }
+                     }
+                 }
+diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+index 9fa2635b2fc734b1ad4c0d10dda6cbab13393a72..4fa56a22d774164016e6c5c04535f0991e75c812 100644
+--- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
++++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+@@ -2822,7 +2822,9 @@ func chatAvailableMessageActionsImpl(engine: TelegramEngine, accountPeerId: Engi
+         func isPeerCopyProtected(_ peerId: EnginePeer.Id) -> Bool? {
+             let copyProtection = copyProtectionMap[peerId]
+             let myCopyProtection = myCopyProtectionMap[peerId]
+-            if copyProtection == true || myCopyProtection == true {
++            if ayuGramIgnoresCopyProtection() {
++                return nil
++            } else if copyProtection == true || myCopyProtection == true {
+                 return true
+             } else {
+                 return nil
+diff --git a/submodules/TelegramUI/Sources/OverlayAudioPlayerControllerNode.swift b/submodules/TelegramUI/Sources/OverlayAudioPlayerControllerNode.swift
+index 6ca193c38b417a4c2fc9b26d4a68f781b4c03226..4265699b1b0d72e9708154cd5220bc0822bd99db 100644
+--- a/submodules/TelegramUI/Sources/OverlayAudioPlayerControllerNode.swift
++++ b/submodules/TelegramUI/Sources/OverlayAudioPlayerControllerNode.swift
+@@ -794,7 +794,7 @@ final class OverlayAudioPlayerControllerNode: ViewControllerTracingNode, ASGestu
+     }
+     
+     private var isSaved: Bool? {
+-        if self .copyProtectionEnabled {
++        if self.copyProtectionEnabled && !ayuGramIgnoresCopyProtection() {
+             return nil
+         }
+         if case let .peer(peerId) = self.chatLocation, peerId.namespace == Namespaces.Peer.SecretChat {
+diff --git a/submodules/TelegramUI/Sources/StoreDownloadedMedia.swift b/submodules/TelegramUI/Sources/StoreDownloadedMedia.swift
+index b1220948a099e626130db934b885b638c156bbec..ca0d20bc154b3e33c5d06e34ab8c10fdf1c81b1a 100644
+--- a/submodules/TelegramUI/Sources/StoreDownloadedMedia.swift
++++ b/submodules/TelegramUI/Sources/StoreDownloadedMedia.swift
+@@ -85,7 +85,7 @@ private final class DownloadedMediaStoreContext {
+                     let peerTypeValue: MediaAutoSaveSettings.PeerType
+                     switch peer {
+                     case .user:
+-                        if let cachedUserData = cachedData as? CachedUserData, cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled) {
++                        if let cachedUserData = cachedData as? CachedUserData, !ayuGramIgnoresCopyProtection() && (cachedUserData.flags.contains(.copyProtectionEnabled) || cachedUserData.flags.contains(.myCopyProtectionEnabled)) {
+                             return false
+                         }
+                         peerTypeValue = .users
+@@ -94,7 +94,7 @@ private final class DownloadedMediaStoreContext {
+                     case .legacyGroup:
+                         peerTypeValue = .groups
+                     case let .channel(channel):
+-                        if channel.flags.contains(.copyProtectionEnabled) {
++                        if channel.flags.contains(.copyProtectionEnabled) && !ayuGramIgnoresCopyProtection() {
+                             return false
+                         }
+                         
+diff --git a/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m b/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m
+index 3191bf1b3f0d2b32360de16cf2f7864d5c6f2af9..494e9b7100ceba89f799085c6cec1d71e392300c 100644
+--- a/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m
++++ b/submodules/UIKitRuntimeUtils/Source/UIKitRuntimeUtils/UIKitUtils.m
+@@ -297,6 +297,11 @@ NSObject * _Nullable makeColorMatrixFilter() {
+ static const void *layerDisableScreenshotsKey = &layerDisableScreenshotsKey;
+ 
+ void setLayerDisableScreenshots(CALayer * _Nonnull layer, bool disableScreenshots) {
++    // AyuGram: screenshots stay allowed unless the user disabled the option.
++    id allowScreenshots = [[NSUserDefaults standardUserDefaults] objectForKey:@"AyuGramAllowScreenshots"];
++    if (allowScreenshots == nil || ([allowScreenshots isKindOfClass:[NSNumber class]] && [(NSNumber *)allowScreenshots boolValue])) {
++        disableScreenshots = false;
++    }
+     static UITextField *textField = nil;
+     static UIView *secureView = nil;
+     static dispatch_once_t onceToken;

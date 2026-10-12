@@ -77,6 +77,25 @@ struct AyuGramSettingsTests {
         assert(store.client.pinnedChatLimit == 17 && store.snapshot.antiRead)
         print("Local emoji status: account isolation, persistence, expiration and disabling passed")
         #endif
+        #if AYUGRAM_EXTRA_SETTINGS
+        assert(store.extra == AyuGramExtraSettings(), "New options start with their defaults")
+        assert(store.extra.ignoreCopyProtection && store.extra.allowScreenshots && store.extra.readOnSend && store.extra.offlineAfterSending)
+        defaults.set(Data(#"{"allowScreenshots":false}"#.utf8), forKey: "swiftgram.ayuGram.extra.v1")
+        let partial = AyuGramSettings(defaults: defaults).extra
+        assert(!partial.allowScreenshots && partial.ignoreCopyProtection && partial.offlineAfterSending && partial.ghostQuickToggle, "Missing keys keep their defaults")
+        let privacyBeforeExtra = store.snapshot
+        let clientBeforeExtra = store.client
+        store.updateExtra { $0.readOnSend = false; $0.allowScreenshots = false }
+        assert(!store.extra.readOnSend && !store.extra.allowScreenshots && store.extra.ignoreCopyProtection)
+        assert(store.snapshot == privacyBeforeExtra && store.client == clientBeforeExtra, "Extra options preserve other settings")
+        assert(AyuGramSettings(defaults: defaults).extra == store.extra)
+        assert(defaults.object(forKey: AyuGramSettings.allowScreenshotsDefaultsKey) as? Bool == false, "Screenshot option is mirrored for Objective-C")
+        store.setGhostMode(true)
+        assert(store.snapshot.ghostMode && store.snapshot.suppressStoryViews && store.snapshot.suppressOnline)
+        store.setGhostMode(false)
+        assert(!store.snapshot.ghostMode && store.snapshot.antiRead, "Quick toggle keeps individual switches")
+        print("AyuGram extra options: defaults, partial decoding, persistence and quick toggle passed")
+        #endif
         print("AyuGram client preferences: persistence, bounds and privacy preservation passed")
         #endif
         print("AyuGram settings: persistence, Ghost Mode, concurrency and observer tests passed")

@@ -1,0 +1,320 @@
+diff --git a/submodules/Display/Source/AyuGramBackdropView.swift b/submodules/Display/Source/AyuGramBackdropView.swift
+index 359de62e448e728ba2036f822b8d9d9a576553ef..d2c764ae40b177db55c4b90c565b043e088bb456 100644
+--- a/submodules/Display/Source/AyuGramBackdropView.swift
++++ b/submodules/Display/Source/AyuGramBackdropView.swift
+@@ -8,12 +8,11 @@ public final class AyuGramBackdropView: UIView {
+     public typealias Scope = AyuGramAppearanceScope
+     private let scope: Scope
+     private let imageView = UIImageView()
+-    private let videoLayer = AVPlayerLayer()
+     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
+     private let dimView = UIView()
+-    private var player: AVQueuePlayer?
+-    private var looper: AVPlayerLooper?
+-    private var readiness: NSKeyValueObservation?
++    private var renderer: AyuGramSilentVideoRenderer?
++    private var videoTransform = CGAffineTransform.identity
++    private var videoReady = false
+     private var imageGenerator: AVAssetImageGenerator?
+     private var url: URL?
+     private var generation = 0
+@@ -28,8 +27,6 @@ public final class AyuGramBackdropView: UIView {
+         isUserInteractionEnabled = false
+         clipsToBounds = true
+         imageView.contentMode = .scaleAspectFill
+-        layer.addSublayer(videoLayer)
+-        videoLayer.videoGravity = .resizeAspectFill
+         addSubview(imageView)
+         addSubview(blurView)
+         addSubview(dimView)
+@@ -41,10 +38,8 @@ public final class AyuGramBackdropView: UIView {
+     required init?(coder: NSCoder) { fatalError() }
+     deinit {
+         for observer in observers { NotificationCenter.default.removeObserver(observer) }
+-        readiness?.invalidate()
+         imageGenerator?.cancelAllCGImageGeneration()
+-        player?.pause()
+-        looper?.disableLooping()
++        renderer?.stop()
+     }
+     public func reload() {
+         let settings = AyuGramAppearance.shared.effectiveSettings(for: scope)
+@@ -54,15 +49,13 @@ public final class AyuGramBackdropView: UIView {
+         if url != nextURL {
+             generation += 1
+             url = nextURL
+-            readiness?.invalidate()
+-            readiness = nil
+             imageGenerator?.cancelAllCGImageGeneration()
+             imageGenerator = nil
+-            player?.pause()
+-            looper?.disableLooping()
+-            looper = nil
+-            player = nil
+-            videoLayer.player = nil
++            renderer?.stop()
++            renderer?.layer.removeFromSuperlayer()
++            renderer = nil
++            videoReady = false
++            videoTransform = .identity
+             imageView.image = nil
+             if let nextURL {
+                 loadImage(nextURL, video: settings.isVideo)
+@@ -70,21 +63,21 @@ public final class AyuGramBackdropView: UIView {
+                     let generation = self.generation
+                     let asset = AVURLAsset(url: nextURL)
+                     asset.loadValuesAsynchronously(forKeys: ["tracks"]) { [weak self] in
+-                        guard let composition = try? AyuGramSilentVideo.composition(from: asset) else { return }
++                        guard let track = asset.tracks(withMediaType: .video).first else { return }
++                        let transform = track.preferredTransform
+                         DispatchQueue.main.async { [weak self] in
+                             guard let self, self.url == nextURL, self.generation == generation else { return }
+-                            let player = AVQueuePlayer()
+-                            player.isMuted = true
+-                            player.volume = 0.0
+-                            player.allowsExternalPlayback = false
+-                            player.preventsDisplaySleepDuringVideoPlayback = false
+-                            player.actionAtItemEnd = .none
+-                            self.player = player
+-                            self.looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(asset: composition))
+-                            self.videoLayer.player = player
+-                            self.readiness = self.videoLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in
+-                                DispatchQueue.main.async { self?.updatePlayback() }
++                            let renderer = AyuGramSilentVideoRenderer(url: nextURL)
++                            renderer.layer.isHidden = true
++                            renderer.firstFrameDisplayed = { [weak self, weak renderer] in
++                                guard let self, let renderer, self.renderer === renderer else { return }
++                                self.videoReady = true
++                                self.updatePlayback()
+                             }
++                            self.videoTransform = transform
++                            self.layer.insertSublayer(renderer.layer, at: 0)
++                            self.renderer = renderer
++                            self.setNeedsLayout()
+                             self.updatePlayback()
+                         }
+                     }
+@@ -135,11 +128,12 @@ public final class AyuGramBackdropView: UIView {
+     private func updatePlayback() {
+         let settings = AyuGramAppearance.shared.effectiveSettings(for: scope)
+         let playing = window != nil && !isHidden && UIApplication.shared.applicationState == .active && settings.animateVideo && !ProcessInfo.processInfo.isLowPowerModeEnabled && !UIAccessibility.isReduceMotionEnabled
+-        if playing {
+-            if player?.rate == 0.0 { player?.play() }
+-        } else { player?.pause() }
+-        videoLayer.isHidden = !settings.isVideo || !playing
+-        imageView.isHidden = settings.isVideo && playing && videoLayer.isReadyForDisplay
++        if playing { renderer?.start() } else { renderer?.stop() }
++        CATransaction.begin()
++        CATransaction.setDisableActions(true)
++        renderer?.layer.isHidden = !settings.isVideo || !playing || !videoReady
++        CATransaction.commit()
++        imageView.isHidden = settings.isVideo && playing && videoReady
+     }
+     public override func didMoveToWindow() { super.didMoveToWindow(); updatePlayback() }
+     public override func layoutSubviews() {
+@@ -149,7 +143,16 @@ public final class AyuGramBackdropView: UIView {
+         dimView.frame = bounds
+         CATransaction.begin()
+         CATransaction.setDisableActions(true)
+-        videoLayer.frame = bounds
++        if let videoLayer = renderer?.layer {
++            // Sample buffer layers ignore the track orientation; apply its quarter turns.
++            let angle = atan2(videoTransform.b, videoTransform.a)
++            let quarterTurns = Int((angle / (.pi / 2.0)).rounded()) & 3
++            let size = quarterTurns % 2 == 1 ? CGSize(width: bounds.height, height: bounds.width) : bounds.size
++            videoLayer.setAffineTransform(.identity)
++            videoLayer.bounds = CGRect(origin: .zero, size: size)
++            videoLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
++            videoLayer.setAffineTransform(CGAffineTransform(rotationAngle: CGFloat(quarterTurns) * .pi / 2.0))
++        }
+         CATransaction.commit()
+     }
+ }
+diff --git a/submodules/Display/Source/AyuGramSilentVideo.swift b/submodules/Display/Source/AyuGramSilentVideo.swift
+index f97c279fe72fe68579567a45da9c95f639cd36d2..0fac0db346d3fcf2f21996d9e21d76c74a6da427 100644
+--- a/submodules/Display/Source/AyuGramSilentVideo.swift
++++ b/submodules/Display/Source/AyuGramSilentVideo.swift
+@@ -1,5 +1,8 @@
+ import Foundation
+ import AVFoundation
++import CoreMedia
++import CoreVideo
++import QuartzCore
+ 
+ enum AyuGramSilentVideo {
+     enum Failure: Error { case noVideo }
+@@ -19,3 +22,147 @@ enum AyuGramSilentVideo {
+         return output
+     }
+ }
++
++/// Loops a video track without AVPlayer. AVPlayer activates the shared audio
++/// session on playback even when muted or when the item has no audio track,
++/// which stops music and other apps' audio. AVAssetReader decodes only the
++/// video track and AVSampleBufferDisplayLayer never touches AVAudioSession.
++final class AyuGramSilentVideoRenderer {
++    let layer = AVSampleBufferDisplayLayer()
++    /// Called on the main queue after the first decoded frame was enqueued.
++    var firstFrameDisplayed: (() -> Void)?
++
++    private let asset: AVURLAsset
++    private let queue = DispatchQueue(label: "org.ayugram.silent-video", qos: .utility)
++    private var timer: DispatchSourceTimer?
++    private var reader: AVAssetReader?
++    private var output: AVAssetReaderTrackOutput?
++    private var pending: CMSampleBuffer?
++    private var loopStartTime: CFTimeInterval = 0.0
++    private var loopStartTimestamp: CMTime?
++    private var loopHasFrames = false
++    private var notifiedFirstFrame = false
++
++    init(url: URL) {
++        self.asset = AVURLAsset(url: url)
++        self.layer.videoGravity = .resizeAspectFill
++    }
++
++    deinit {
++        self.timer?.cancel()
++        self.reader?.cancelReading()
++    }
++
++    func start() {
++        self.queue.async { [weak self] in
++            guard let self, self.timer == nil else { return }
++            if self.layer.status == .failed {
++                self.layer.flush()
++            }
++            guard self.restartLoop() else { return }
++            let timer = DispatchSource.makeTimerSource(queue: self.queue)
++            timer.schedule(deadline: .now(), repeating: 1.0 / 30.0, leeway: .milliseconds(4))
++            timer.setEventHandler { [weak self] in
++                self?.tick()
++            }
++            self.timer = timer
++            timer.resume()
++        }
++    }
++
++    func stop() {
++        self.queue.async { [weak self] in
++            guard let self else { return }
++            self.timer?.cancel()
++            self.timer = nil
++            self.reader?.cancelReading()
++            self.reader = nil
++            self.output = nil
++            self.pending = nil
++        }
++    }
++
++    private func restartLoop() -> Bool {
++        self.reader?.cancelReading()
++        self.reader = nil
++        self.output = nil
++        self.pending = nil
++        self.loopStartTimestamp = nil
++        self.loopHasFrames = false
++        guard let track = self.asset.tracks(withMediaType: .video).first, let reader = try? AVAssetReader(asset: self.asset) else {
++            return false
++        }
++        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
++            kCVPixelBufferPixelFormatTypeKey as String: NSNumber(value: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)
++        ])
++        output.alwaysCopiesSampleData = false
++        guard reader.canAdd(output) else { return false }
++        reader.add(output)
++        guard reader.startReading() else { return false }
++        self.reader = reader
++        self.output = output
++        self.loopStartTime = CACurrentMediaTime()
++        return true
++    }
++
++    private func tick() {
++        guard let output = self.output else { return }
++        let elapsed = CACurrentMediaTime() - self.loopStartTime
++        var frame: CMSampleBuffer?
++        var reachedEnd = false
++        while true {
++            let sample: CMSampleBuffer
++            if let pending = self.pending {
++                self.pending = nil
++                sample = pending
++            } else if let next = output.copyNextSampleBuffer() {
++                sample = next
++            } else {
++                reachedEnd = true
++                break
++            }
++            if CMSampleBufferGetNumSamples(sample) == 0 {
++                continue
++            }
++            let timestamp = CMSampleBufferGetPresentationTimeStamp(sample)
++            guard timestamp.isValid else { continue }
++            let start = self.loopStartTimestamp ?? timestamp
++            self.loopStartTimestamp = start
++            if CMTimeGetSeconds(CMTimeSubtract(timestamp, start)) > elapsed {
++                self.pending = sample
++                break
++            }
++            frame = sample
++        }
++        if let frame {
++            self.loopHasFrames = true
++            self.display(frame)
++        }
++        if reachedEnd {
++            // A loop without a single frame would otherwise restart forever.
++            if !self.loopHasFrames || !self.restartLoop() {
++                self.timer?.cancel()
++                self.timer = nil
++            }
++        }
++    }
++
++    private func display(_ sample: CMSampleBuffer) {
++        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true) {
++            if let dictionary = (attachments as NSArray).firstObject as? NSMutableDictionary {
++                dictionary[kCMSampleAttachmentKey_DisplayImmediately as NSString] = true as NSNumber
++            }
++        }
++        if self.layer.status == .failed {
++            self.layer.flush()
++        }
++        guard self.layer.isReadyForMoreMediaData else { return }
++        self.layer.enqueue(sample)
++        if !self.notifiedFirstFrame {
++            self.notifiedFirstFrame = true
++            DispatchQueue.main.async { [weak self] in
++                self?.firstFrameDisplayed?()
++            }
++        }
++    }
++}
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift
+index c66703920eeed354bf444d36b0c84034730a6824..aef5f48a85b519b28d95ce9e7cb5f294f1be9c99 100644
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceController.swift
+@@ -72,10 +72,10 @@ public func ayuGramAppearanceController(context: AccountContext, scope: AyuGramA
+         let settings = AyuGramAppearance.shared.effectiveSettings(for: scope)
+         let locale = data.strings.baseLanguageCode
+         var settingsEntries: [AyuAppearanceSettingEntry] = [
+-            .header(id: 0, section: .media, text: scope == .chatList ? data.strings.DialogList_Title : data.strings.Wallpaper_Title, badge: nil),
++            .header(id: 0, section: .media, text: i18n(scope == .chatList ? "Ayu.ChatListBackground" : "Ayu.ConversationBackground", locale), badge: nil),
+             .action(id: 1, section: .media, actionType: .photo, text: data.strings.Common_ChoosePhoto, kind: .generic),
+-            .action(id: 2, section: .media, actionType: .video, text: data.strings.Message_Video, kind: .generic),
+-            .toggle(id: 3, section: .visibility, settingName: .enabled, value: scope == .chatList ? settings.chatList : settings.conversations, text: scope == .chatList ? data.strings.DialogList_Title : data.strings.Wallpaper_Title, enabled: true),
++            .action(id: 2, section: .media, actionType: .video, text: i18n("Ayu.ChooseVideo", locale), kind: .generic),
++            .toggle(id: 3, section: .visibility, settingName: .enabled, value: scope == .chatList ? settings.chatList : settings.conversations, text: i18n("Ayu.ShowBackground", locale), enabled: true),
+             .toggle(id: 4, section: .visibility, settingName: .motion, value: settings.animateVideo, text: data.strings.WallpaperPreview_Motion, enabled: settings.isVideo),
+             .header(id: 5, section: .dim, text: i18n("Ayu.BackgroundDimming", locale), badge: nil),
+             .rangedPercentageSlider(id: 6, section: .dim, settingName: .dim, value: Int32((settings.dim * 100).rounded()), minimum: 20, maximum: 90),
+@@ -86,7 +86,7 @@ public func ayuGramAppearanceController(context: AccountContext, scope: AyuGramA
+             settingsEntries += [
+                 .header(id: 9, section: .rows, text: i18n("Ayu.RowOpacity", locale), badge: nil),
+                 .rangedPercentageSlider(id: 10, section: .rows, settingName: .rows, value: Int32((settings.rowOpacity * 100).rounded()), minimum: 35, maximum: 100),
+-                .disclosure(id: 11, section: .reset, link: .wallpaper, text: data.strings.Wallpaper_Title)
++                .disclosure(id: 11, section: .reset, link: .wallpaper, text: i18n("Ayu.ConversationBackground", locale))
+             ]
+         }
+         settingsEntries.append(.action(id: 12, section: .reset, actionType: .reset, text: data.strings.AutoDownloadSettings_Reset, kind: .destructive))
