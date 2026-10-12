@@ -285,7 +285,7 @@ index 0000000000000000000000000000000000000000..52ecb8de678b5df861c90f9b6ff07015
 +        case let .toggle(_, _, key, symbol, tint, title, subtitle, value, enabled):
 +            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, icon: ayuGramRowIcon(symbol, color: tint.color), title: title, text: subtitle, value: value, enabled: enabled, maximumNumberOfLines: 0, sectionId: self.section, style: .blocks, updated: { value in
 +                arguments.toggle(key, value)
-+            }, switchTintColor: presentationData.theme.list.itemAccentColor)
++            })
 +        case let .link(_, _, link, symbol, tint, title):
 +            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: ayuGramRowIcon(symbol, color: tint.color), title: title, label: "", sectionId: self.section, style: .blocks, action: {
 +                arguments.open(link)

@@ -45,6 +45,9 @@ def check_sources(source: Path, variant: str):
     assert 'i18n("Ayu.AddAccountHelp"' in accounts and 'Settings_AddAnotherAccount_PremiumHelp' not in accounts
     limit = (source / 'submodules/AccountUtils/Sources/AccountUtils.swift').read_text()
     assert 'maximumSwiftgramNumberOfAccounts = 500' in limit, 'Account limit text matches the actual limit'
+    screen = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramSettingsScreen.swift').read_text()
+    # switchTintColor exists only after the Custom-only patch 09; the screen is shared.
+    assert 'switchTintColor' not in screen, 'Shared settings screen uses only APIs present in both variants'
     entry = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift').read_text()
     assert ('= true' in entry) == (variant == 'custom'), 'Appearance link matches the variant'
     if variant == 'custom':
