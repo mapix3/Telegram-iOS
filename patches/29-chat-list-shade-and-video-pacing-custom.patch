@@ -1,0 +1,139 @@
+diff --git a/submodules/ChatListUI/Sources/ChatListControllerNode.swift b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+index 7c7c7d44bc3e7cb619105a485893c8149c9128b3..8a59c6ebda63a99d46df19b8e9d366446518a037 100644
+--- a/submodules/ChatListUI/Sources/ChatListControllerNode.swift
++++ b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+@@ -1340,6 +1340,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
+         backdrop.frame = self.bounds
+         backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+         backdrop.overlayColor = self.presentationData.theme.chatList.backgroundColor
++        backdrop.rowTint = self.presentationData.theme.chatList.itemBackgroundColor
+         self.ayuBackdrop = backdrop
+         backdrop.visibilityChanged = { [weak self] enabled in
+             guard let self else { return }
+@@ -1430,6 +1431,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
+     func updatePresentationData(_ presentationData: PresentationData) {
+         self.presentationData = presentationData
+         self.ayuBackdrop?.overlayColor = presentationData.theme.chatList.backgroundColor
++        self.ayuBackdrop?.rowTint = presentationData.theme.chatList.itemBackgroundColor
+         
+         self.backgroundColor = AyuGramAppearance.shared.showsChatList ? .clear : self.presentationData.theme.chatList.backgroundColor
+         
+diff --git a/submodules/ChatListUI/Sources/Node/ChatListItem.swift b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+index a7266e69a7dbd4157ed82b3ab11f21e964b3997e..751d283b527ed06ba6762f7a2066d6ae80985713 100644
+--- a/submodules/ChatListUI/Sources/Node/ChatListItem.swift
++++ b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+@@ -1383,7 +1383,8 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
+         if case let .peer(peerData) = item.content, peerData.customMessageListData != nil {
+             backgroundNode.backgroundColor = item.selected ? theme.itemSelectedBackgroundColor : .clear
+         } else if AyuGramAppearance.shared.showsChatList {
+-            backgroundNode.backgroundColor = (item.selected ? theme.itemSelectedBackgroundColor : theme.itemBackgroundColor).withAlphaComponent(CGFloat(AyuGramAppearance.shared.settings.rowOpacity))
++            // The backdrop applies the row shade to the whole screen; rows stay transparent.
++            backgroundNode.backgroundColor = item.selected ? theme.itemSelectedBackgroundColor.withAlphaComponent(CGFloat(AyuGramAppearance.shared.settings.rowOpacity)) : .clear
+         } else if item.selected {
+             backgroundNode.backgroundColor = theme.itemSelectedBackgroundColor
+         } else if item.isPinned {
+@@ -5514,7 +5515,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
+                         if !item.selected { backgroundColor = .clear }
+                     }
+                     if usesCustomBackdrop {
+-                        backgroundColor = (item.selected ? theme.itemSelectedBackgroundColor : theme.itemBackgroundColor).withAlphaComponent(CGFloat(AyuGramAppearance.shared.settings.rowOpacity))
++                        backgroundColor = item.selected ? theme.itemSelectedBackgroundColor.withAlphaComponent(CGFloat(AyuGramAppearance.shared.settings.rowOpacity)) : .clear
+                     }
+                     if animated {
+                         transition.updateBackgroundColor(node: strongSelf.backgroundNode, color: backgroundColor)
+diff --git a/submodules/Display/Source/AyuGramBackdropView.swift b/submodules/Display/Source/AyuGramBackdropView.swift
+index d2c764ae40b177db55c4b90c565b043e088bb456..916dcc3c370eefbab31f39b87eb30a7333c7adc2 100644
+--- a/submodules/Display/Source/AyuGramBackdropView.swift
++++ b/submodules/Display/Source/AyuGramBackdropView.swift
+@@ -10,6 +10,7 @@ public final class AyuGramBackdropView: UIView {
+     private let imageView = UIImageView()
+     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
+     private let dimView = UIView()
++    private let rowTintView = UIView()
+     private var renderer: AyuGramSilentVideoRenderer?
+     private var videoTransform = CGAffineTransform.identity
+     private var videoReady = false
+@@ -18,6 +19,12 @@ public final class AyuGramBackdropView: UIView {
+     private var generation = 0
+     private var observers: [NSObjectProtocol] = []
+     public var visibilityChanged: ((Bool) -> Void)?
++    /// Chat list rows are drawn transparent over the custom media; this tint
++    /// (row colour at the chosen row opacity) covers the whole screen so the
++    /// header area and the rows share one shade.
++    public var rowTint: UIColor? {
++        didSet { applyRowTint(AyuGramAppearance.shared.effectiveSettings(for: scope)) }
++    }
+     public var overlayColor: UIColor = .systemBackground {
+         didSet { dimView.backgroundColor = overlayColor.withAlphaComponent(CGFloat(AyuGramAppearance.shared.effectiveSettings(for: scope).dim)) }
+     }
+@@ -30,6 +37,7 @@ public final class AyuGramBackdropView: UIView {
+         addSubview(imageView)
+         addSubview(blurView)
+         addSubview(dimView)
++        addSubview(rowTintView)
+         for name in [AyuGramAppearance.didChange, UIApplication.didBecomeActiveNotification, UIApplication.didEnterBackgroundNotification, Notification.Name.NSProcessInfoPowerStateDidChange, UIAccessibility.reduceMotionStatusDidChangeNotification] {
+             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.reload() })
+         }
+@@ -86,9 +94,14 @@ public final class AyuGramBackdropView: UIView {
+         }
+         blurView.alpha = CGFloat(settings.blur)
+         dimView.backgroundColor = overlayColor.withAlphaComponent(CGFloat(settings.dim))
++        applyRowTint(settings)
+         updatePlayback()
+         visibilityChanged?(nextURL != nil)
+     }
++    private func applyRowTint(_ settings: AyuGramAppearanceSettings) {
++        rowTintView.backgroundColor = rowTint?.withAlphaComponent(CGFloat(settings.rowOpacity))
++        rowTintView.isHidden = rowTint == nil
++    }
+     private func loadImage(_ url: URL, video: Bool) {
+         let generation = self.generation
+         if video {
+@@ -141,6 +154,7 @@ public final class AyuGramBackdropView: UIView {
+         imageView.frame = bounds
+         blurView.frame = bounds
+         dimView.frame = bounds
++        rowTintView.frame = bounds
+         CATransaction.begin()
+         CATransaction.setDisableActions(true)
+         if let videoLayer = renderer?.layer {
+diff --git a/submodules/Display/Source/AyuGramSilentVideo.swift b/submodules/Display/Source/AyuGramSilentVideo.swift
+index 0fac0db346d3fcf2f21996d9e21d76c74a6da427..cb8ac44b7f542d767da2339934c8d3b30e30d032 100644
+--- a/submodules/Display/Source/AyuGramSilentVideo.swift
++++ b/submodules/Display/Source/AyuGramSilentVideo.swift
+@@ -109,8 +109,15 @@ final class AyuGramSilentVideoRenderer {
+         guard let output = self.output else { return }
+         let elapsed = CACurrentMediaTime() - self.loopStartTime
+         var frame: CMSampleBuffer?
++        var frameOffset: Double = 0.0
+         var reachedEnd = false
++        var decodedFrames = 0
+         while true {
++            // Never catch up by decoding a burst: a slow device or a large
++            // video would otherwise keep this queue and the decoder busy.
++            if decodedFrames >= 3 {
++                break
++            }
+             let sample: CMSampleBuffer
+             if let pending = self.pending {
+                 self.pending = nil
+@@ -128,11 +135,18 @@ final class AyuGramSilentVideoRenderer {
+             guard timestamp.isValid else { continue }
+             let start = self.loopStartTimestamp ?? timestamp
+             self.loopStartTimestamp = start
+-            if CMTimeGetSeconds(CMTimeSubtract(timestamp, start)) > elapsed {
++            let offset = CMTimeGetSeconds(CMTimeSubtract(timestamp, start))
++            if offset > elapsed {
+                 self.pending = sample
+                 break
+             }
+             frame = sample
++            frameOffset = offset
++            decodedFrames += 1
++        }
++        if frame != nil, elapsed - frameOffset > 0.2 {
++            // Running behind: continue from the shown frame instead of skipping ahead.
++            self.loopStartTime += elapsed - frameOffset
+         }
+         if let frame {
+             self.loopHasFrames = true

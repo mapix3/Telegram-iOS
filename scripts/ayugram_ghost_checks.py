@@ -48,12 +48,19 @@ def check_sources(source: Path, variant: str):
     screen = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramSettingsScreen.swift').read_text()
     # switchTintColor exists only after the Custom-only patch 09; the screen is shared.
     assert 'switchTintColor' not in screen, 'Shared settings screen uses only APIs present in both variants'
+    retained = (source / 'submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift').read_text()
+    assert 'areMediaArraysEqual' not in retained, 'Reactions and refreshed file references are not edits'
+    bubble = (source / 'submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift').read_text()
+    assert 'history.originalText != item.message.text' in bubble, 'Identical original text is never shown as an edit'
     entry = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift').read_text()
     assert ('= true' in entry) == (variant == 'custom'), 'Appearance link matches the variant'
     if variant == 'custom':
         backdrop = (source / 'submodules/Display/Source/AyuGramBackdropView.swift').read_text()
         assert 'AVPlayer' not in backdrop and 'AVQueuePlayer' not in backdrop, 'Wallpaper video must not use AVPlayer'
         assert 'AyuGramSilentVideoRenderer' in backdrop
+        assert 'rowTint' in backdrop and 'backdrop.rowTint' in (source / 'submodules/ChatListUI/Sources/ChatListControllerNode.swift').read_text(), 'Header and rows share one shade'
+        video = (source / 'submodules/Display/Source/AyuGramSilentVideo.swift').read_text()
+        assert 'decodedFrames >= 3' in video, 'Wallpaper decoding is paced per tick'
 
 
 def check_ghost_and_content(source: Path, variant: str):

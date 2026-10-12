@@ -1,0 +1,39 @@
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
+index f586c6fc2023a073f077748e247f0b02041c568c..b80be0c54c2d36ff69e702dbdb36a6fd4217c582 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
+@@ -23,7 +23,9 @@ func ayuGramDeleteRemoteMessages(transaction: Transaction, mediaBox: MediaBox, i
+ 
+ func ayuGramRecordEdit(transaction: Transaction, mediaBox: MediaBox, id: MessageId, updated: StoreMessage) -> AyuHistoryMessageAttribute? {
+     guard let previous = transaction.getMessage(id), previous.ayuHistory?.deletedAt == nil else { return nil }
+-    let changed = previous.text != updated.text || !areMediaArraysEqual(previous.media, updated.media)
++    // Reactions, view counters and refreshed file references also arrive as
++    // edit updates; only a changed text or a replaced photo/file is an edit.
++    let changed = previous.text != updated.text || ayuGramEditableMediaIds(previous.media) != ayuGramEditableMediaIds(updated.media)
+     guard changed else { return previous.ayuHistory }
+     let saved = ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: [id], event: "edited")
+     guard saved.contains(id) else { return previous.ayuHistory }
+@@ -31,6 +33,10 @@ func ayuGramRecordEdit(transaction: Transaction, mediaBox: MediaBox, id: Message
+     return AyuHistoryMessageAttribute(originalText: previous.ayuHistory?.originalText ?? previous.text, editedAt: Int32(Date().timeIntervalSince1970), deletedAt: nil)
+ }
+ 
++private func ayuGramEditableMediaIds(_ media: [Media]) -> [MediaId] {
++    return media.filter { !($0 is TelegramMediaWebpage) }.compactMap { $0.id }
++}
++
+ func ayuGramClearLocalEditMarker(transaction: Transaction, ids: Set<MessageId>) {
+     for id in ids {
+         guard let message = transaction.getMessage(id), let marker = message.ayuHistory, marker.deletedAt == nil else { continue }
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift
+index fd32d0f19622409ea86f0ef6c6aef3417f7704c5..305f99e829279a6ad689241ac6906b46731dd108 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift
+@@ -632,7 +632,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
+                     attributedText = updatedString
+                 }
+                                 
+-                if item.associatedData.subject == nil, let history = item.message.ayuHistory, history.editedAt != nil, !history.originalText.isEmpty {
++                if item.associatedData.subject == nil, let history = item.message.ayuHistory, history.editedAt != nil, !history.originalText.isEmpty, history.originalText != item.message.text {
+                     let combined = NSMutableAttributedString(attributedString: attributedText)
+                     combined.append(NSAttributedString(string: "\n", font: textFont, textColor: messageTheme.primaryTextColor))
+                     let label = item.presentationData.strings.Channel_AdminLog_MessagePreviousMessage
