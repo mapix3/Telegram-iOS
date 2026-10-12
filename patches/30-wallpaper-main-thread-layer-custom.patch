@@ -1,0 +1,89 @@
+diff --git a/submodules/Display/Source/AyuGramBackdropView.swift b/submodules/Display/Source/AyuGramBackdropView.swift
+index 916dcc3c370eefbab31f39b87eb30a7333c7adc2..d935315ab2ebd483b127a35b582d10e6ca77559d 100644
+--- a/submodules/Display/Source/AyuGramBackdropView.swift
++++ b/submodules/Display/Source/AyuGramBackdropView.swift
+@@ -142,10 +142,12 @@ public final class AyuGramBackdropView: UIView {
+         let settings = AyuGramAppearance.shared.effectiveSettings(for: scope)
+         let playing = window != nil && !isHidden && UIApplication.shared.applicationState == .active && settings.animateVideo && !ProcessInfo.processInfo.isLowPowerModeEnabled && !UIAccessibility.isReduceMotionEnabled
+         if playing { renderer?.start() } else { renderer?.stop() }
+-        CATransaction.begin()
+-        CATransaction.setDisableActions(true)
+-        renderer?.layer.isHidden = !settings.isVideo || !playing || !videoReady
+-        CATransaction.commit()
++        if let videoLayer = renderer?.layer {
++            CATransaction.begin()
++            CATransaction.setDisableActions(true)
++            videoLayer.isHidden = !settings.isVideo || !playing || !videoReady
++            CATransaction.commit()
++        }
+         imageView.isHidden = settings.isVideo && playing && videoReady
+     }
+     public override func didMoveToWindow() { super.didMoveToWindow(); updatePlayback() }
+diff --git a/submodules/Display/Source/AyuGramSilentVideo.swift b/submodules/Display/Source/AyuGramSilentVideo.swift
+index cb8ac44b7f542d767da2339934c8d3b30e30d032..8871b9dc53c427d8f9a94dc435e3ab2024ccc9ca 100644
+--- a/submodules/Display/Source/AyuGramSilentVideo.swift
++++ b/submodules/Display/Source/AyuGramSilentVideo.swift
+@@ -41,6 +41,7 @@ final class AyuGramSilentVideoRenderer {
+     private var loopStartTime: CFTimeInterval = 0.0
+     private var loopStartTimestamp: CMTime?
+     private var loopHasFrames = false
++    // Main queue only.
+     private var notifiedFirstFrame = false
+ 
+     init(url: URL) {
+@@ -53,12 +54,13 @@ final class AyuGramSilentVideoRenderer {
+         self.reader?.cancelReading()
+     }
+ 
++    /// Call on the main queue.
+     func start() {
++        if self.layer.status == .failed {
++            self.layer.flush()
++        }
+         self.queue.async { [weak self] in
+             guard let self, self.timer == nil else { return }
+-            if self.layer.status == .failed {
+-                self.layer.flush()
+-            }
+             guard self.restartLoop() else { return }
+             let timer = DispatchSource.makeTimerSource(queue: self.queue)
+             timer.schedule(deadline: .now(), repeating: 1.0 / 30.0, leeway: .milliseconds(4))
+@@ -93,7 +95,8 @@ final class AyuGramSilentVideoRenderer {
+             return false
+         }
+         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+-            kCVPixelBufferPixelFormatTypeKey as String: NSNumber(value: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)
++            kCVPixelBufferPixelFormatTypeKey as String: NSNumber(value: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
++            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
+         ])
+         output.alwaysCopiesSampleData = false
+         guard reader.canAdd(output) else { return false }
+@@ -167,15 +170,19 @@ final class AyuGramSilentVideoRenderer {
+                 dictionary[kCMSampleAttachmentKey_DisplayImmediately as NSString] = true as NSNumber
+             }
+         }
+-        if self.layer.status == .failed {
+-            self.layer.flush()
+-        }
+-        guard self.layer.isReadyForMoreMediaData else { return }
+-        self.layer.enqueue(sample)
+-        if !self.notifiedFirstFrame {
+-            self.notifiedFirstFrame = true
+-            DispatchQueue.main.async { [weak self] in
+-                self?.firstFrameDisplayed?()
++        // Decoding stays on the background queue, but the layer is only
++        // touched on the main thread: layer changes from a thread without a
++        // run loop sit in an uncommitted transaction and can stall the UI.
++        DispatchQueue.main.async { [weak self] in
++            guard let self else { return }
++            if self.layer.status == .failed {
++                self.layer.flush()
++            }
++            guard self.layer.isReadyForMoreMediaData else { return }
++            self.layer.enqueue(sample)
++            if !self.notifiedFirstFrame {
++                self.notifiedFirstFrame = true
++                self.firstFrameDisplayed?()
+             }
+         }
+     }

@@ -4,7 +4,7 @@
   "docs/AYUGRAM-CLIENT-EXTRAS.md": "8cddef7ec3653265fe8976f158351c2088df0ffed40f673c163392d4882565f3",
   "docs/AYUGRAM-FOLLOWUP.md": "b5bc1c071c5bc4c877280674d988a41d09380e6f8e25c4346d1f355ac07cad80",
   "docs/AYUGRAM-VALIDATION.md": "9cd67a51a8abc8a1e2f01bfaa99906bb5704824e4fa990974765cc701448859c",
-  "docs/REFINEMENTS.md": "b88348e279442d6a89d68edfb6d079adb483ba9a97fbe8755c552bd9ad4be23d",
+  "docs/REFINEMENTS.md": "b619951556537f10e3100e1ad45061c35d750a30e319cc5c6286a22c4fe77e8c",
   "docs/SHARED-PROFILES.md": "5056a8be983c2ff583d18616025071fb2c88ceae1c1dc69efa1a19973c696c99",
   "patches/01-privacy.patch": "40052ab7abc609ae5f6b4e6e6477baf703b25562ad2b071d5ac35e1a74df8723",
   "patches/02-history.patch": "f4b1c0ee9dad85b8f6a8129a5c20916b0be3266e46012221ccc2e9dc534f6687",
@@ -39,7 +39,7 @@
   "scripts/ayugram-tests/test_ci.py": "260c3041a68be10030b15f65618d0b7e1092d3bfb1c6826b17e87b7caaa70005",
   "scripts/ayugram-tests/test_history_checks.py": "673352610d1ae5dfec24ae232d1e4344dca64d6d8864d2568564d9ebec69ab5f",
   "scripts/ayugram_branding.py": "1df06b46cb79d28436a3792949da286266a059797afd0e0ba8736cd99dab55f1",
-  "scripts/ayugram_ci.py": "dd59c516b5d4deb678560969980441e7e29d371f0d4c4ab4acf6c2bf8bd11c0e",
+  "scripts/ayugram_ci.py": "52dec73d1ca68491e21b63de7ad1f5388774aa19828fc4b48d2527b5707439c7",
   "scripts/ayugram_compatibility.py": "f1c313a408e18482edb80983ba1fcc9f25d3c862ba78a8e4d2039b685046a8fa",
   "scripts/ayugram_emoji_checks.py": "ab5e45e8af81512ba00cd6d74b0f9b9ec8f62817fabc20c95a59c02c352d222b",
   "scripts/ayugram_history_checks.py": "62c877aa8cdb6896ef2d24474fc781d44038a5e37a7302f480f74f35373dd623",
@@ -55,12 +55,13 @@
   "server/test/worker.test.mjs": "4b0fb4b0918b7984fa1082351ecaf388a27d7f6749cc519a34c9103cc33433f9",
   "server/wrangler.jsonc": "b6e30d49e82383b5448d0927cd51f65c19386cfdcf031bbb1e1ff3ef628e92b7",
   "START-HERE.md": "63e6b50a154fec811fe45b09591d9f16041b3e4558eb2921251ceb70628898f0",
-  "scripts/ayugram_ghost_checks.py": "4a20b331575a2bfdbe377430839d78296e8b1ba0f83464beea8dd48bc9e75364",
+  "scripts/ayugram_ghost_checks.py": "78fba12397d59e604b494b9351653b25c361296a4ad305d4c47f16a872907aaa",
   "patches/24-ghost-content-and-settings.patch": "b9c0a4f835560641794c51728ebf164955216ee130622163186f2acad220dae2",
   "patches/25-settings-appearance-link-custom.patch": "25bb7d52e1c5b85ab94d8963f2c0d3ff45f8394c7169f12ecb0fe1f0998eb4fb",
   "patches/25-settings-appearance-link-standard.patch": "51931c0469a76da6391114f57053b75f879251a65611ff5cb7f7f1da5b02a701",
   "patches/26-silent-video-and-appearance-custom.patch": "ce3c1513174ee30e53355971c50d11cb5ddaf69f871a27440f653ac27837b9c4",
   "patches/27-account-limit-text.patch": "e1de5ab5924b86db9062d03cdbf75632e9f1289e127e63f3d47a386712f8c0b7",
   "patches/28-edit-history-reactions.patch": "a8b1b2df7d38da280dd0d98301df1b53b3cefa2bea67732af1c4c5c779270593",
-  "patches/29-chat-list-shade-and-video-pacing-custom.patch": "30386f2f759cfb20de239d8f12b5478a8afe71504417b9543565749241bab6e4"
+  "patches/29-chat-list-shade-and-video-pacing-custom.patch": "30386f2f759cfb20de239d8f12b5478a8afe71504417b9543565749241bab6e4",
+  "patches/30-wallpaper-main-thread-layer-custom.patch": "b462c04b6d2364b8e9592cb262a4d0bca4d2066f2a68b2cdc68b63ec438193ea"
 }
