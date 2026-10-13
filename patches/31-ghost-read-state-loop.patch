@@ -1,0 +1,40 @@
+diff --git a/submodules/TelegramCore/Sources/State/ManagedSynchronizePeerReadStates.swift b/submodules/TelegramCore/Sources/State/ManagedSynchronizePeerReadStates.swift
+index 700bbf2500a38feef0677808862a9c4f7b67a807..844a06008b0c8e318b5072500bcc02863df7e484 100644
+--- a/submodules/TelegramCore/Sources/State/ManagedSynchronizePeerReadStates.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedSynchronizePeerReadStates.swift
+@@ -101,8 +101,14 @@ private final class SynchronizePeerReadStatesContextImpl {
+                         if let activeOperation = activeOperation {
+                             if let current = strongSelf.activeOperations[peerId], current === activeOperation {
+                                 Logger.shared.log("SynchronizePeerReadStates", "\(peerId): operation retry \(operation)")
+-                                strongSelf.activeOperations.removeValue(forKey: peerId)
+-                                strongSelf.update()
++                                // AyuGram: back off instead of restarting in a tight loop.
++                                strongSelf.queue.after(1.0, { [weak strongSelf] in
++                                    guard let strongSelf, let current = strongSelf.activeOperations[peerId], current === activeOperation else {
++                                        return
++                                    }
++                                    strongSelf.activeOperations.removeValue(forKey: peerId)
++                                    strongSelf.update()
++                                })
+                             }
+                         }
+                     }, completed: { [weak self, weak activeOperation] in
+diff --git a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
+index 8a5ff21183e548137085c175842cb6728400ad80..e6822c6b449ae90058aa6ec29235511481b351b6 100644
+--- a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
++++ b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
+@@ -187,7 +187,13 @@ private func validatePeerReadState(network: Network, postbox: Postbox, stateMana
+                             if case let .idBased(updatedMaxIncomingReadId, _, _, updatedCount, updatedMarkedUnread) = readState {
+                                 if updatedCount != 0 || updatedMarkedUnread {
+                                     if localMaxIncomingReadId > updatedMaxIncomingReadId {
+-                                        return .retry
++                                        // AyuGram: reads made while receipts are hidden stay local, so
++                                        // the server stays behind on purpose. Retrying here restarted
++                                        // validation immediately and forever, flooding the network and
++                                        // the state manager until nothing else loaded. Keep the local
++                                        // read state and stop validating instead.
++                                        transaction.confirmSynchronizedIncomingReadState(peerId)
++                                        return nil
+                                     }
+                                 }
+                             }

@@ -52,6 +52,11 @@ def check_sources(source: Path, variant: str):
     assert 'areMediaArraysEqual' not in retained, 'Reactions and refreshed file references are not edits'
     bubble = (source / 'submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift').read_text()
     assert 'history.originalText != item.message.text' in bubble, 'Identical original text is never shown as an edit'
+    validation = (source / 'submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift').read_text()
+    validate = validation.split('private func validatePeerReadState(', 1)[1].split('private func pushPeerReadState(', 1)[0]
+    assert 'return .retry' not in validate, 'Local reads ahead of the server never restart validation forever'
+    manager = (source / 'submodules/TelegramCore/Sources/State/ManagedSynchronizePeerReadStates.swift').read_text()
+    assert 'strongSelf.queue.after(1.0' in manager, 'Read state retries back off'
     entry = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift').read_text()
     assert ('= true' in entry) == (variant == 'custom'), 'Appearance link matches the variant'
     if variant == 'custom':
