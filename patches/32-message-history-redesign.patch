@@ -1,0 +1,1571 @@
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
+index 19521026..494be14f 100644
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
+@@ -1,6 +1,7 @@
+ import Foundation
+ import UIKit
+ import ImageIO
++import AVFoundation
+ import AsyncDisplayKit
+ import Display
+ import SwiftSignalKit
+@@ -22,28 +23,51 @@ func ayuGramArchivedImage(_ url: URL, maximumPixels: Int) -> UIImage? {
+     return UIImage(cgImage: image)
+ }
+ 
+-final class AyuGramHistoryCardItem: ListViewItem, ItemListItem {
+-    let context: AccountContext
+-    let data: ItemListPresentationData
+-    let record: AyuGramHistoryEntry
++// Decoded previews are cached so list updates never decode the same archive file twice.
++private let ayuGramPreviewCache: NSCache<NSString, UIImage> = {
++    let cache = NSCache<NSString, UIImage>()
++    cache.countLimit = 60
++    return cache
++}()
++
++private let ayuGramAvatarColors: [(UInt32, UInt32)] = [
++    (0xFF516A, 0xFF885E), (0xFFA85C, 0xFFCD6A), (0x665FFF, 0x82B1FF), (0x54CB68, 0xA0DE7E),
++    (0x4ACCCD, 0x00FCFD), (0x2A9EF1, 0x72D5FD), (0xD669ED, 0xE0A2F3)
++]
++
++private func ayuGramInitials(_ title: String) -> String {
++    let words = title.split(whereSeparator: { $0 == " " || $0 == "\n" }).prefix(2)
++    let letters = words.compactMap { $0.first }.map { String($0).uppercased() }
++    return letters.isEmpty ? "?" : letters.joined()
++}
++
++private func ayuGramTextHeight(_ text: String, font: UIFont, width: CGFloat) -> CGFloat {
++    guard !text.isEmpty else { return 0 }
++    return ceil((text as NSString).boundingRect(with: CGSize(width: max(1, width), height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font], context: nil).height)
++}
++
++private func ayuGramSymbol(_ name: String, size: CGFloat, weight: UIImage.SymbolWeight = .semibold) -> UIImage? {
++    return UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: size, weight: weight))?.withRenderingMode(.alwaysTemplate)
++}
++
++private func ayuGramEditedColor(_ theme: PresentationTheme) -> UIColor {
++    return theme.overallDarkAppearance ? UIColor(rgb: 0xFF9F0A) : UIColor(rgb: 0xF09000)
++}
++
++/// One list item backed by a single main-thread layout pass; subclasses only lay out content.
++class AyuGramHistoryBaseItem: ListViewItem, ItemListItem {
+     let sectionId: ItemListSectionId
+-    let openAuthor: () -> Void
+-    let openChat: () -> Void
+-    let openMedia: () -> Void
+     var isAlwaysPlain: Bool { true }
+-    init(context: AccountContext, data: ItemListPresentationData, record: AyuGramHistoryEntry, sectionId: ItemListSectionId, openAuthor: @escaping () -> Void, openChat: @escaping () -> Void, openMedia: @escaping () -> Void) {
+-        self.context = context
+-        self.data = data
+-        self.record = record
++    init(sectionId: ItemListSectionId) {
+         self.sectionId = sectionId
+-        self.openAuthor = openAuthor
+-        self.openChat = openChat
+-        self.openMedia = openMedia
++    }
++    func makeNode() -> AyuGramHistoryBaseNode {
++        preconditionFailure()
+     }
+     func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
+         Queue.mainQueue().async {
+-            let node = AyuGramHistoryCardNode()
+-            let layout = node.update(self, width: params.width, leftInset: params.leftInset, rightInset: params.rightInset)
++            let node = self.makeNode()
++            let layout = node.layoutHistory(self, params: params)
+             node.contentSize = layout.contentSize
+             node.insets = layout.insets
+             completion(node, { (nil, { _ in }) })
+@@ -51,130 +75,522 @@ final class AyuGramHistoryCardItem: ListViewItem, ItemListItem {
+     }
+     func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, previousItem: ListViewItem?, nextItem: ListViewItem?, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
+         Queue.mainQueue().async {
+-            guard let node = node() as? AyuGramHistoryCardNode else { return }
+-            let layout = node.update(self, width: params.width, leftInset: params.leftInset, rightInset: params.rightInset)
++            guard let node = node() as? AyuGramHistoryBaseNode else { return }
++            let layout = node.layoutHistory(self, params: params)
+             completion(layout, { _ in })
+         }
+     }
+ }
+ 
+-private final class AyuGramHistoryCardNode: ListViewItemNode {
+-    private let bubble = UIView()
+-    private let chat = UIButton(type: .system)
+-    private let author = UIButton(type: .system)
+-    private let event = UILabel()
+-    private let current = UILabel()
+-    private let body = UILabel()
+-    private let quoteLine = UIView()
+-    private let time = UILabel()
+-    private let thumbnail = UIImageView()
+-    private let media = UIButton(type: .system)
+-    private var item: AyuGramHistoryCardItem?
++class AyuGramHistoryBaseNode: ListViewItemNode {
+     init() {
+         super.init(layerBacked: false)
+-        view.addSubview(chat)
+-        view.addSubview(bubble)
+-        for child in [author, event, current, body, quoteLine, time, thumbnail, media] { bubble.addSubview(child) }
+-        bubble.layer.cornerRadius = 18
+-        chat.contentHorizontalAlignment = .leading
+-        author.contentHorizontalAlignment = .leading
+-        author.titleLabel?.lineBreakMode = .byTruncatingTail
+-        chat.titleLabel?.lineBreakMode = .byTruncatingTail
+-        body.numberOfLines = 0
+-        current.numberOfLines = 0
+-        thumbnail.contentMode = .scaleAspectFill
+-        thumbnail.clipsToBounds = true
+-        thumbnail.layer.cornerRadius = 10
+-        chat.addTarget(self, action: #selector(openChat), for: .touchUpInside)
+-        author.addTarget(self, action: #selector(openAuthor), for: .touchUpInside)
+-        media.addTarget(self, action: #selector(openMedia), for: .touchUpInside)
+     }
++    func layoutHistory(_ item: AyuGramHistoryBaseItem, params: ListViewItemLayoutParams) -> ListViewItemNodeLayout {
++        preconditionFailure()
++    }
++}
++
++// MARK: - Summary header
++
++struct AyuGramHistorySummary: Equatable {
++    var total: Int
++    var deleted: Int
++    var edited: Int
++    var filter: Int
++}
++
++final class AyuGramHistoryHeroItem: AyuGramHistoryBaseItem {
++    let data: ItemListPresentationData
++    let summary: AyuGramHistorySummary
++    let select: (Int) -> Void
++    init(data: ItemListPresentationData, summary: AyuGramHistorySummary, sectionId: ItemListSectionId, select: @escaping (Int) -> Void) {
++        self.data = data
++        self.summary = summary
++        self.select = select
++        super.init(sectionId: sectionId)
++    }
++    override func makeNode() -> AyuGramHistoryBaseNode { AyuGramHistoryHeroNode() }
++}
++
++private final class AyuGramHistoryHeroNode: AyuGramHistoryBaseNode {
++    private let card = UIView()
++    private let iconBackground = CAGradientLayer()
++    private let icon = UIImageView()
++    private let title = UILabel()
++    private let subtitle = UILabel()
++    private var tiles: [(button: UIButton, count: UILabel, label: UILabel)] = []
++    private var select: ((Int) -> Void)?
++
++    override init() {
++        super.init()
++        view.addSubview(card)
++        card.layer.cornerRadius = 22
++        card.layer.cornerCurve = .continuous
++        card.layer.addSublayer(iconBackground)
++        iconBackground.startPoint = CGPoint(x: 0, y: 0)
++        iconBackground.endPoint = CGPoint(x: 1, y: 1)
++        iconBackground.cornerRadius = 30
++        icon.contentMode = .center
++        icon.tintColor = .white
++        icon.image = ayuGramSymbol("clock.arrow.circlepath", size: 26)
++        title.font = UIFont.systemFont(ofSize: 21, weight: .bold)
++        title.textAlignment = .center
++        subtitle.font = UIFont.systemFont(ofSize: 14)
++        subtitle.textAlignment = .center
++        subtitle.numberOfLines = 0
++        for view in [icon, title, subtitle] { card.addSubview(view) }
++        for index in 0 ..< 3 {
++            let button = UIButton(type: .custom)
++            button.layer.cornerRadius = 14
++            button.layer.cornerCurve = .continuous
++            button.tag = index
++            button.addTarget(self, action: #selector(tileTapped(_:)), for: .touchUpInside)
++            let count = UILabel()
++            count.font = UIFont.systemFont(ofSize: 22, weight: .bold)
++            count.textAlignment = .center
++            let label = UILabel()
++            label.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
++            label.textAlignment = .center
++            label.adjustsFontSizeToFitWidth = true
++            label.minimumScaleFactor = 0.7
++            for child in [count, label] {
++                child.isUserInteractionEnabled = false
++                button.addSubview(child)
++            }
++            card.addSubview(button)
++            tiles.append((button, count, label))
++        }
++    }
++
++    @objc private func tileTapped(_ sender: UIButton) {
++        UISelectionFeedbackGenerator().selectionChanged()
++        select?(sender.tag)
++    }
++
++    override func layoutHistory(_ item: AyuGramHistoryBaseItem, params: ListViewItemLayoutParams) -> ListViewItemNodeLayout {
++        guard let item = item as? AyuGramHistoryHeroItem else { preconditionFailure() }
++        select = item.select
++        let theme = item.data.theme
++        let locale = item.data.strings.baseLanguageCode
++        let summary = item.summary
++        let width = max(120, params.width - params.leftInset - params.rightInset - 32)
++        let inner = width - 32
++        card.backgroundColor = theme.list.itemBlocksBackgroundColor
++        let accent = theme.list.itemAccentColor
++        iconBackground.colors = [accent.withMultipliedAlpha(0.75).cgColor, accent.cgColor]
++        iconBackground.frame = CGRect(x: floor((width - 60) / 2), y: 20, width: 60, height: 60)
++        icon.frame = iconBackground.frame
++        title.text = i18n("Ayu.History", locale)
++        title.textColor = theme.list.itemPrimaryTextColor
++        title.frame = CGRect(x: 16, y: 92, width: inner, height: 26)
++        subtitle.text = i18n("Ayu.HistorySubtitle", locale)
++        subtitle.textColor = theme.list.itemSecondaryTextColor
++        let subtitleHeight = ayuGramTextHeight(subtitle.text ?? "", font: subtitle.font, width: inner)
++        subtitle.frame = CGRect(x: 16, y: 122, width: inner, height: subtitleHeight)
++        let values = [
++            (summary.total, i18n("Ayu.HistoryAll", locale), accent),
++            (summary.deleted, i18n("Ayu.Deleted", locale), theme.list.itemDestructiveColor),
++            (summary.edited, i18n("Ayu.HistoryEdited", locale), ayuGramEditedColor(theme))
++        ]
++        let spacing: CGFloat = 8
++        let tileWidth = floor((inner - spacing * 2) / 3)
++        let tileY = subtitle.frame.maxY + 18
++        for (index, tile) in tiles.enumerated() {
++            let (value, text, color) = values[index]
++            let selected = summary.filter == index
++            tile.button.frame = CGRect(x: 16 + CGFloat(index) * (tileWidth + spacing), y: tileY, width: tileWidth, height: 64)
++            tile.button.backgroundColor = selected ? color : color.withMultipliedAlpha(theme.overallDarkAppearance ? 0.18 : 0.1)
++            tile.count.text = "\(value)"
++            tile.count.textColor = selected ? .white : color
++            tile.count.frame = CGRect(x: 4, y: 10, width: tileWidth - 8, height: 26)
++            tile.label.text = text
++            tile.label.textColor = selected ? UIColor.white.withAlphaComponent(0.9) : theme.list.itemSecondaryTextColor
++            tile.label.frame = CGRect(x: 4, y: 38, width: tileWidth - 8, height: 16)
++            tile.button.accessibilityLabel = "\(text), \(value)"
++            tile.button.accessibilityTraits = selected ? [.button, .selected] : .button
++        }
++        let height = tileY + 64 + 16
++        card.frame = CGRect(x: params.leftInset + 16, y: 12, width: width, height: height)
++        return ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: height + 12), insets: .zero)
++    }
++}
++
++// MARK: - Empty state
++
++final class AyuGramHistoryEmptyItem: AyuGramHistoryBaseItem {
++    let data: ItemListPresentationData
++    let text: String
++    let buttonTitle: String?
++    let action: () -> Void
++    init(data: ItemListPresentationData, text: String, buttonTitle: String?, sectionId: ItemListSectionId, action: @escaping () -> Void) {
++        self.data = data
++        self.text = text
++        self.buttonTitle = buttonTitle
++        self.action = action
++        super.init(sectionId: sectionId)
++    }
++    override func makeNode() -> AyuGramHistoryBaseNode { AyuGramHistoryEmptyNode() }
++}
++
++private final class AyuGramHistoryEmptyNode: AyuGramHistoryBaseNode {
++    private let icon = UIImageView()
++    private let title = UILabel()
++    private let text = UILabel()
++    private let button = UIButton(type: .system)
++    private var action: (() -> Void)?
++
++    override init() {
++        super.init()
++        icon.contentMode = .center
++        icon.image = ayuGramSymbol("tray", size: 40, weight: .regular)
++        title.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
++        title.textAlignment = .center
++        text.font = UIFont.systemFont(ofSize: 14)
++        text.textAlignment = .center
++        text.numberOfLines = 0
++        button.layer.cornerRadius = 12
++        button.layer.cornerCurve = .continuous
++        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
++        button.addTarget(self, action: #selector(tapped), for: .touchUpInside)
++        for child in [icon, title, text, button] { view.addSubview(child) }
++    }
++
++    @objc private func tapped() { action?() }
++
++    override func layoutHistory(_ item: AyuGramHistoryBaseItem, params: ListViewItemLayoutParams) -> ListViewItemNodeLayout {
++        guard let item = item as? AyuGramHistoryEmptyItem else { preconditionFailure() }
++        action = item.action
++        let theme = item.data.theme
++        let x = params.leftInset + 32
++        let width = max(80, params.width - params.leftInset - params.rightInset - 64)
++        icon.tintColor = theme.list.itemSecondaryTextColor.withMultipliedAlpha(0.7)
++        icon.frame = CGRect(x: x, y: 24, width: width, height: 48)
++        title.text = i18n("Ayu.EmptyHistory", item.data.strings.baseLanguageCode)
++        title.textColor = theme.list.itemPrimaryTextColor
++        title.frame = CGRect(x: x, y: 82, width: width, height: 22)
++        text.text = item.text
++        text.textColor = theme.list.itemSecondaryTextColor
++        let textHeight = ayuGramTextHeight(item.text, font: text.font, width: width)
++        text.frame = CGRect(x: x, y: 110, width: width, height: textHeight)
++        var bottom = text.frame.maxY + 20
++        if let buttonTitle = item.buttonTitle {
++            button.isHidden = false
++            button.setTitle(buttonTitle, for: .normal)
++            button.setTitleColor(theme.list.itemCheckColors.foregroundColor, for: .normal)
++            button.backgroundColor = theme.list.itemCheckColors.fillColor
++            let buttonWidth = min(width, 260)
++            button.frame = CGRect(x: x + floor((width - buttonWidth) / 2), y: bottom, width: buttonWidth, height: 46)
++            bottom = button.frame.maxY + 20
++        } else {
++            button.isHidden = true
++        }
++        return ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: bottom), insets: .zero)
++    }
++}
++
++// MARK: - Record card
++
++final class AyuGramHistoryCardItem: AyuGramHistoryBaseItem {
++    let context: AccountContext
++    let data: ItemListPresentationData
++    let record: AyuGramHistoryEntry
++    let openAuthor: () -> Void
++    let openChat: () -> Void
++    let openMedia: () -> Void
++    init(context: AccountContext, data: ItemListPresentationData, record: AyuGramHistoryEntry, sectionId: ItemListSectionId, openAuthor: @escaping () -> Void, openChat: @escaping () -> Void, openMedia: @escaping () -> Void) {
++        self.context = context
++        self.data = data
++        self.record = record
++        self.openAuthor = openAuthor
++        self.openChat = openChat
++        self.openMedia = openMedia
++        super.init(sectionId: sectionId)
++    }
++    override func makeNode() -> AyuGramHistoryBaseNode { AyuGramHistoryCardNode() }
++}
++
++/// A tinted quote block with a coloured leading bar, an optional caption and the message text.
++private final class AyuGramQuoteView: UIView {
++    private let bar = UIView()
++    private let caption = UILabel()
++    private let text = UILabel()
++    static let textFont = UIFont.systemFont(ofSize: 15)
++    static let captionFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
++
++    override init(frame: CGRect) {
++        super.init(frame: frame)
++        layer.cornerRadius = 10
++        layer.cornerCurve = .continuous
++        clipsToBounds = true
++        caption.font = AyuGramQuoteView.captionFont
++        text.font = AyuGramQuoteView.textFont
++        text.numberOfLines = 0
++        for child in [bar, caption, text] { addSubview(child) }
++    }
++    required init?(coder: NSCoder) { fatalError() }
++
++    static func height(caption: String?, text: String, width: CGFloat) -> CGFloat {
++        let captionHeight: CGFloat = caption == nil ? 0 : 18
++        return 8 + captionHeight + ayuGramTextHeight(text, font: textFont, width: width - 24) + 8
++    }
++
++    func update(caption captionText: String?, text value: String, color: UIColor, textColor: UIColor, dark: Bool, width: CGFloat) -> CGFloat {
++        backgroundColor = color.withMultipliedAlpha(dark ? 0.16 : 0.09)
++        bar.backgroundColor = color
++        caption.text = captionText
++        caption.textColor = color
++        caption.isHidden = captionText == nil
++        text.text = value
++        text.textColor = textColor
++        let height = AyuGramQuoteView.height(caption: captionText, text: value, width: width)
++        bar.frame = CGRect(x: 0, y: 0, width: 3, height: height)
++        caption.frame = CGRect(x: 14, y: 8, width: width - 24, height: 16)
++        let textY: CGFloat = captionText == nil ? 8 : 26
++        text.frame = CGRect(x: 14, y: textY, width: width - 24, height: height - textY - 8)
++        return height
++    }
++}
++
++private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
++    private let card = UIView()
++    private let avatar = CAGradientLayer()
++    private let initials = UILabel()
++    private let authorButton = UIButton(type: .custom)
++    private let author = UILabel()
++    private let chatTitle = UILabel()
++    private let pill = UIView()
++    private let pillIcon = UIImageView()
++    private let pillText = UILabel()
++    private let time = UILabel()
++    private let before = AyuGramQuoteView()
++    private let after = AyuGramQuoteView()
++    private let preview = UIImageView()
++    private let playBadge = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
++    private let playIcon = UIImageView()
++    private let fileIcon = UIImageView()
++    private let fileTitle = UILabel()
++    private let mediaButton = UIButton(type: .custom)
++    private let separator = UIView()
++    private let openButton = UIButton(type: .custom)
++    private let openIcon = UIImageView()
++    private let openTitle = UILabel()
++    private var item: AyuGramHistoryCardItem?
++
++    override init() {
++        super.init()
++        view.addSubview(card)
++        card.layer.cornerRadius = 18
++        card.layer.cornerCurve = .continuous
++        card.layer.addSublayer(avatar)
++        avatar.startPoint = CGPoint(x: 0.5, y: 0)
++        avatar.endPoint = CGPoint(x: 0.5, y: 1)
++        avatar.cornerRadius = 20
++        initials.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
++        initials.textColor = .white
++        initials.textAlignment = .center
++        author.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
++        author.lineBreakMode = .byTruncatingTail
++        chatTitle.font = UIFont.systemFont(ofSize: 13)
++        chatTitle.lineBreakMode = .byTruncatingTail
++        pill.layer.cornerRadius = 11
++        pillIcon.contentMode = .center
++        pillText.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
++        pill.addSubview(pillIcon)
++        pill.addSubview(pillText)
++        time.font = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
++        time.textAlignment = .right
++        preview.contentMode = .scaleAspectFill
++        preview.clipsToBounds = true
++        preview.layer.cornerRadius = 12
++        preview.layer.cornerCurve = .continuous
++        playBadge.clipsToBounds = true
++        playBadge.layer.cornerRadius = 24
++        playIcon.contentMode = .center
++        playIcon.tintColor = .white
++        playIcon.image = ayuGramSymbol("play.fill", size: 20)
++        playBadge.contentView.addSubview(playIcon)
++        preview.addSubview(playBadge)
++        fileIcon.contentMode = .center
++        fileIcon.layer.cornerRadius = 10
++        fileIcon.layer.cornerCurve = .continuous
++        fileIcon.image = ayuGramSymbol("doc.fill", size: 18)
++        fileTitle.font = UIFont.systemFont(ofSize: 15, weight: .medium)
++        fileTitle.lineBreakMode = .byTruncatingMiddle
++        openIcon.contentMode = .center
++        openIcon.image = ayuGramSymbol("arrow.turn.up.right", size: 14)
++        openTitle.font = UIFont.systemFont(ofSize: 15, weight: .medium)
++        openButton.addSubview(openIcon)
++        openButton.addSubview(openTitle)
++        for child in [initials, author, chatTitle, authorButton, pill, time, before, after, preview, fileIcon, fileTitle, mediaButton, separator, openButton] {
++            card.addSubview(child)
++        }
++        for child in [initials, author, chatTitle, pill, fileIcon, fileTitle, openIcon, openTitle] {
++            child.isUserInteractionEnabled = false
++        }
++        authorButton.addTarget(self, action: #selector(openAuthor), for: .touchUpInside)
++        mediaButton.addTarget(self, action: #selector(openMedia), for: .touchUpInside)
++        openButton.addTarget(self, action: #selector(openChat), for: .touchUpInside)
++    }
++
+     @objc private func openChat() { item?.openChat() }
+     @objc private func openAuthor() { item?.openAuthor() }
+     @objc private func openMedia() { item?.openMedia() }
+-    func update(_ item: AyuGramHistoryCardItem, width: CGFloat, leftInset: CGFloat, rightInset: CGFloat) -> ListViewItemNodeLayout {
++
++    override func layoutHistory(_ baseItem: AyuGramHistoryBaseItem, params: ListViewItemLayoutParams) -> ListViewItemNodeLayout {
++        guard let item = baseItem as? AyuGramHistoryCardItem else { preconditionFailure() }
+         self.item = item
+         let record = item.record
+         let theme = item.data.theme
++        let dark = theme.overallDarkAppearance
+         let locale = item.data.strings.baseLanguageCode
+-        let accent = theme.list.itemAccentColor
+-        let textColor = theme.list.itemPrimaryTextColor
++        let primary = theme.list.itemPrimaryTextColor
+         let secondary = theme.list.itemSecondaryTextColor
+-        let available = max(80, width - leftInset - rightInset - 48)
+-        let contentWidth = available - 28
+-        bubble.backgroundColor = theme.list.itemBlocksBackgroundColor
+-        chat.setTitle(record.peerTitle, for: .normal)
+-        chat.setTitleColor(secondary, for: .normal)
+-        chat.titleLabel?.font = UIFont.systemFont(ofSize: 12)
+-        chat.accessibilityHint = item.data.strings.VoiceOver_Chat_GoToOriginalMessage
+-        author.setTitle(record.author.isEmpty ? record.peerTitle : record.author, for: .normal)
+-        author.setTitleColor(accent, for: .normal)
+-        author.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+-        author.isEnabled = record.authorId != nil
+-        event.font = UIFont.systemFont(ofSize: 12, weight: .medium)
+-        event.textColor = accent
+-        event.text = i18n(record.event == "edited" ? "Ayu.BeforeEdit" : "Ayu.Deleted", locale)
+-        body.font = UIFont.systemFont(ofSize: 16)
+-        body.textColor = textColor
+-        body.text = record.text
+-        current.font = body.font
+-        current.textColor = textColor
+-        current.text = record.updatedText
+-        current.isHidden = record.event != "edited" || record.updatedText == nil
+-        body.accessibilityLabel = record.text
+-        quoteLine.backgroundColor = accent
+-        quoteLine.layer.cornerRadius = 1.5
+-        quoteLine.isHidden = record.event != "edited"
+-        let textX: CGFloat = record.event == "edited" ? 23 : 14
+-        let textWidth = contentWidth - (textX - 14)
+-        let bodyHeight = ceil((record.text as NSString).boundingRect(with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: body.font!], context: nil).height)
+-        author.frame = CGRect(x: 14, y: 8, width: contentWidth, height: 28)
+-        let currentHeight = current.isHidden ? 0 : ceil(((record.updatedText ?? "") as NSString).boundingRect(with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: current.font!], context: nil).height)
+-        current.frame = CGRect(x: 14, y: 38, width: contentWidth, height: currentHeight)
+-        let quoteTop: CGFloat = current.isHidden ? 38 : current.frame.maxY + 10
+-        event.frame = CGRect(x: textX, y: quoteTop, width: textWidth, height: 18)
+-        body.frame = CGRect(x: textX, y: quoteTop + 22, width: textWidth, height: max(0, bodyHeight))
+-        quoteLine.frame = CGRect(x: 14, y: quoteTop + 2, width: 3, height: 20 + bodyHeight)
+-        var bottom = body.frame.maxY + 10
+-        thumbnail.image = nil
+-        thumbnail.isHidden = true
+-        media.isHidden = true
++        let accent = theme.list.itemAccentColor
++        let edited = record.event == "edited"
++        let eventColor = edited ? ayuGramEditedColor(theme) : theme.list.itemDestructiveColor
++        let width = max(120, params.width - params.leftInset - params.rightInset - 32)
++        let inner = width - 28
++        card.backgroundColor = theme.list.itemBlocksBackgroundColor
++
++        // Header: avatar, author, chat, event pill and time.
++        let name = record.author.isEmpty ? record.peerTitle : record.author
++        let colors = ayuGramAvatarColors[Int(UInt64(bitPattern: record.authorId ?? record.peerId) % UInt64(ayuGramAvatarColors.count))]
++        avatar.colors = [UIColor(rgb: colors.1).cgColor, UIColor(rgb: colors.0).cgColor]
++        avatar.frame = CGRect(x: 14, y: 14, width: 40, height: 40)
++        initials.text = ayuGramInitials(name)
++        initials.frame = avatar.frame
++
++        pillText.text = i18n(edited ? "Ayu.HistoryEdited" : "Ayu.Deleted", locale)
++        pillText.textColor = eventColor
++        pillIcon.image = ayuGramSymbol(edited ? "pencil" : "trash.fill", size: 10)
++        pillIcon.tintColor = eventColor
++        pill.backgroundColor = eventColor.withMultipliedAlpha(dark ? 0.2 : 0.12)
++        let pillTextWidth = min(120, ceil(pillText.sizeThatFits(CGSize(width: 200, height: 22)).width))
++        let pillWidth = 8 + 12 + 4 + pillTextWidth + 10
++        pill.frame = CGRect(x: 14 + inner - pillWidth, y: 14, width: pillWidth, height: 22)
++        pillIcon.frame = CGRect(x: 8, y: 0, width: 12, height: 22)
++        pillText.frame = CGRect(x: 24, y: 0, width: pillTextWidth, height: 22)
++
++        let timeFormatter = DateFormatter()
++        timeFormatter.locale = Locale(identifier: locale)
++        timeFormatter.dateStyle = .none
++        timeFormatter.timeStyle = .short
++        time.text = timeFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(record.timestamp)))
++        time.textColor = secondary
++        time.frame = CGRect(x: 14 + inner - 90, y: 39, width: 90, height: 16)
++
++        let textX: CGFloat = 66
++        let nameWidth = max(40, 14 + inner - pillWidth - 8 - textX)
++        let showChat = !record.author.isEmpty && record.author != record.peerTitle
++        author.text = name
++        author.textColor = UIColor(rgb: colors.0).mixedWith(primary, alpha: dark ? 0.15 : 0.35)
++        chatTitle.text = record.peerTitle
++        chatTitle.textColor = secondary
++        chatTitle.isHidden = !showChat
++        if showChat {
++            author.frame = CGRect(x: textX, y: 14, width: nameWidth, height: 21)
++            chatTitle.frame = CGRect(x: textX, y: 36, width: max(40, 14 + inner - 98 - textX), height: 17)
++        } else {
++            author.frame = CGRect(x: textX, y: 23, width: nameWidth, height: 21)
++        }
++        authorButton.frame = CGRect(x: 8, y: 8, width: textX + nameWidth - 8, height: 52)
++        authorButton.isEnabled = record.authorId != nil
++        authorButton.accessibilityLabel = name
++
++        // Body: the archived text, and for edits the current text below it.
++        var bottom: CGFloat = 68
++        before.isHidden = record.text.isEmpty
++        if !record.text.isEmpty {
++            let height = before.update(caption: edited ? i18n("Ayu.BeforeEdit", locale) : nil, text: record.text, color: eventColor, textColor: primary, dark: dark, width: inner)
++            before.frame = CGRect(x: 14, y: bottom, width: inner, height: height)
++            bottom = before.frame.maxY + 8
++        }
++        let current = edited ? record.updatedText : nil
++        after.isHidden = current == nil
++        if let current {
++            let height = after.update(caption: i18n("Ayu.HistoryNow", locale), text: current.isEmpty ? "—" : current, color: accent, textColor: primary, dark: dark, width: inner)
++            after.frame = CGRect(x: 14, y: bottom, width: inner, height: height)
++            bottom = after.frame.maxY + 8
++        }
++
++        // Media: inline photo or video preview, or a file row.
++        preview.isHidden = true
++        fileIcon.isHidden = true
++        fileTitle.isHidden = true
++        mediaButton.isHidden = true
+         if let name = record.photoFileName, let url = item.context.engine.ayuGramArchivedPhotoURL(name), FileManager.default.fileExists(atPath: url.path) {
+             let kind = record.mediaKind ?? "photo"
+-            if kind == "photo", let image = ayuGramArchivedImage(url, maximumPixels: min(1024, Int(contentWidth * UIScreen.main.scale))) {
+-                thumbnail.image = image
+-                thumbnail.isHidden = false
+-                let ratio = image.size.width > 0 ? image.size.height / image.size.width : 1
+-                let height = min(230, max(100, contentWidth * ratio))
+-                thumbnail.frame = CGRect(x: 14, y: bottom, width: contentWidth, height: height)
+-                media.frame = thumbnail.frame
+-                media.setTitle(nil, for: .normal)
+-                media.setImage(nil, for: .normal)
+-                media.accessibilityLabel = item.data.strings.Settings_ViewPhoto
+-                bottom += height + 10
++            let scale = UIScreen.main.scale
++            if kind == "photo" || kind == "video" {
++                let key = name as NSString
++                var image = ayuGramPreviewCache.object(forKey: key)
++                if image == nil && kind == "photo" {
++                    image = ayuGramArchivedImage(url, maximumPixels: min(1280, Int(inner * scale)))
++                    if let image { ayuGramPreviewCache.setObject(image, forKey: key) }
++                }
++                let height: CGFloat
++                if kind == "photo", let image, image.size.width > 0 {
++                    height = min(260, max(120, inner * image.size.height / image.size.width))
++                } else {
++                    height = min(220, floor(inner * 9 / 16))
++                }
++                preview.image = image
++                preview.backgroundColor = eventColor.withMultipliedAlpha(0.12)
++                preview.isHidden = false
++                preview.frame = CGRect(x: 14, y: bottom, width: inner, height: height)
++                playBadge.isHidden = kind != "video"
++                playBadge.frame = CGRect(x: floor((inner - 48) / 2), y: floor((height - 48) / 2), width: 48, height: 48)
++                playIcon.frame = CGRect(x: 2, y: 0, width: 48, height: 48)
++                if kind == "video" && image == nil {
++                    let maximum = CGSize(width: inner * scale, height: height * scale)
++                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
++                        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
++                        generator.appliesPreferredTrackTransform = true
++                        generator.maximumSize = maximum
++                        guard let frame = try? generator.copyCGImage(at: CMTime(seconds: 0.1, preferredTimescale: 600), actualTime: nil) else { return }
++                        let thumbnail = UIImage(cgImage: frame)
++                        ayuGramPreviewCache.setObject(thumbnail, forKey: key)
++                        DispatchQueue.main.async {
++                            guard let self, self.item?.record.photoFileName == name else { return }
++                            self.preview.image = thumbnail
++                        }
++                    }
++                }
++                mediaButton.frame = preview.frame
++                mediaButton.accessibilityLabel = kind == "video" ? item.data.strings.Message_Video : item.data.strings.Settings_ViewPhoto
++                bottom = preview.frame.maxY + 8
+             } else {
+-                media.setImage(UIImage(systemName: kind == "video" ? "play.circle.fill" : "doc.fill"), for: .normal)
+-                media.setTitle("  " + (record.mediaTitle ?? (kind == "video" ? item.data.strings.Message_Video : item.data.strings.Message_File)), for: .normal)
+-                media.titleLabel?.lineBreakMode = .byTruncatingMiddle
+-                media.frame = CGRect(x: 14, y: bottom, width: contentWidth, height: 52)
+-                media.accessibilityLabel = media.title(for: .normal)
+-                bottom += 62
++                fileIcon.isHidden = false
++                fileTitle.isHidden = false
++                fileIcon.backgroundColor = accent.withMultipliedAlpha(dark ? 0.2 : 0.12)
++                fileIcon.tintColor = accent
++                fileIcon.frame = CGRect(x: 14, y: bottom, width: 44, height: 44)
++                fileTitle.text = record.mediaTitle ?? item.data.strings.Message_File
++                fileTitle.textColor = primary
++                fileTitle.frame = CGRect(x: 68, y: bottom, width: inner - 54, height: 44)
++                mediaButton.frame = CGRect(x: 14, y: bottom, width: inner, height: 44)
++                mediaButton.accessibilityLabel = fileTitle.text
++                bottom += 52
+             }
+-            media.tintColor = accent
+-            media.isHidden = false
++            mediaButton.isHidden = false
+         }
+-        let formatter = DateFormatter()
+-        formatter.locale = Locale(identifier: locale)
+-        formatter.dateStyle = .short
+-        formatter.timeStyle = .short
+-        time.text = (record.event == "deleted" ? "🗑︎ " : "↺ ") + formatter.string(from: Date(timeIntervalSince1970: TimeInterval(record.timestamp)))
+-        time.font = UIFont.systemFont(ofSize: 11)
+-        time.textColor = secondary
+-        time.textAlignment = .right
+-        time.frame = CGRect(x: 14, y: bottom, width: contentWidth, height: 18)
+-        bottom += 26
+-        chat.frame = CGRect(x: leftInset + 24, y: 4, width: available, height: 25)
+-        bubble.frame = CGRect(x: leftInset + 24, y: 33, width: available, height: bottom)
+-        return ListViewItemNodeLayout(contentSize: CGSize(width: width, height: bottom + 45), insets: .zero)
++
++        // Footer: jump to the message in its chat.
++        bottom += 2
++        separator.backgroundColor = theme.list.itemBlocksSeparatorColor
++        separator.frame = CGRect(x: 14, y: bottom, width: inner, height: UIScreenPixel)
++        openTitle.text = i18n("Ayu.HistoryShowMessage", locale)
++        openTitle.textColor = accent
++        openIcon.tintColor = accent
++        openButton.frame = CGRect(x: 14, y: bottom, width: inner, height: 44)
++        openIcon.frame = CGRect(x: 0, y: 0, width: 18, height: 44)
++        openTitle.frame = CGRect(x: 26, y: 0, width: inner - 26, height: 44)
++        openButton.accessibilityLabel = openTitle.text
++        openButton.accessibilityHint = item.data.strings.VoiceOver_Chat_GoToOriginalMessage
++        bottom += 44
++
++        card.frame = CGRect(x: params.leftInset + 16, y: 5, width: width, height: bottom)
++        return ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: bottom + 10), insets: .zero)
+     }
+ }
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+index f5e9bb5f..a7382c86 100644
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+@@ -13,60 +13,126 @@ import ItemListUI
+ import SGItemListUI
+ import SGStrings
+ 
+-private enum HistorySection: Int32, SGItemListSection { case options, chats, actions, entries }
+-private enum HistoryAction: Hashable { case clear, selectChats, removeChat(Int64), media(String, String), author(Int64), chat(Int64, Int32) }
++private enum HistorySection: Int32, SGItemListSection { case summary, entries, options, chats, actions }
++private enum HistoryAction: Hashable { case clear, selectChats, chatOptions(Int64), media(String, String), author(Int64), chat(Int64, Int32), filter(Int) }
+ private typealias HistorySettingsEntry = SGItemListUIEntry<HistorySection, Int, Int, Int, Int, HistoryAction>
++private typealias HistoryArguments = SGItemListArguments<Int, Int, Int, Int, HistoryAction>
+ 
+ private enum HistoryEntry: ItemListNodeEntry {
+     case setting(HistorySettingsEntry)
++    case summary(AyuGramHistorySummary)
++    case empty(Int, String, Bool)
++    case day(Int, String, Int)
+     case record(Int, AyuGramHistoryEntry)
+-    var section: ItemListSectionId { switch self { case let .setting(value): return value.section; case .record: return HistorySection.entries.rawValue } }
+-    var stableId: Int { switch self { case let .setting(value): return value.stableId; case let .record(id, _): return id } }
++    case chat(Int, EnginePeer, Int)
++    var section: ItemListSectionId {
++        switch self {
++        case let .setting(value): return value.section
++        case .summary: return HistorySection.summary.rawValue
++        case .empty, .day, .record: return HistorySection.entries.rawValue
++        case .chat: return HistorySection.chats.rawValue
++        }
++    }
++    var stableId: Int {
++        switch self {
++        case let .setting(value): return value.stableId
++        case .summary: return 0
++        case let .empty(id, _, _), let .day(id, _, _), let .record(id, _), let .chat(id, _, _): return id
++        }
++    }
+     static func < (lhs: HistoryEntry, rhs: HistoryEntry) -> Bool { lhs.stableId < rhs.stableId }
+     func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
++        let args = arguments as! HistoryArguments
+         switch self {
+         case let .setting(value): return value.item(presentationData: presentationData, arguments: arguments)
++        case let .summary(summary):
++            return AyuGramHistoryHeroItem(data: presentationData, summary: summary, sectionId: section, select: { args.action(.filter($0)) })
++        case let .empty(_, text, canAddChats):
++            return AyuGramHistoryEmptyItem(data: presentationData, text: text, buttonTitle: canAddChats ? presentationData.strings.ChatListFolder_AddChats : nil, sectionId: section, action: { args.action(.selectChats) })
++        case let .day(_, text, count):
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, accessoryText: ItemListSectionHeaderAccessoryText(value: "\(count)", color: .generic), sectionId: section)
+         case let .record(_, record):
+-            let args = arguments as! SGItemListArguments<Int, Int, Int, Int, HistoryAction>
+             return AyuGramHistoryCardItem(context: args.context, data: presentationData, record: record, sectionId: section, openAuthor: { if let id = record.authorId { args.action(.author(id)) } }, openChat: { args.action(.chat(record.peerId, record.messageId)) }, openMedia: { if let name = record.photoFileName { args.action(.media(name, record.mediaKind ?? "photo")) } })
++        case let .chat(_, peer, count):
++            return ItemListDisclosureItem(presentationData: presentationData, context: args.context, iconPeer: peer, title: peer.debugDisplayTitle, label: count > 0 ? "\(count)" : "", sectionId: section, style: .blocks, action: { args.action(.chatOptions(peer.id.toInt64())) })
+         }
+     }
+ }
+ 
++private func historyDayTitle(_ timestamp: Int32, locale: String) -> String {
++    let formatter = DateFormatter()
++    formatter.locale = Locale(identifier: locale)
++    formatter.dateStyle = .long
++    formatter.timeStyle = .none
++    formatter.doesRelativeDateFormatting = true
++    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(timestamp)))
++}
++
+ public func ayuGramHistoryController(context: AccountContext, messageId: MessageId? = nil) -> ViewController {
+     let records = Promise<[AyuGramHistoryEntry]>()
+     let policy = Promise<(AyuGramHistoryPolicy, [EnginePeer])>()
++    let filter = ValuePromise<Int>(0, ignoreRepeated: true)
+     records.set(context.engine.ayuGramMessageHistory())
+     policy.set(context.engine.ayuGramHistoryPolicy())
+     var actionImpl: ((HistoryAction) -> Void)?
+-    let arguments = SGItemListArguments<Int, Int, Int, Int, HistoryAction>(context: context, setBoolValue: { _, enabled in
++    let arguments = HistoryArguments(context: context, setBoolValue: { _, enabled in
+         let _ = (context.engine.ayuGramHistoryPolicy() |> take(1)).startStandalone(next: { current, _ in
+             var updated = current
+             updated.savePhotos = enabled
+             policy.set(context.engine.ayuGramSetHistoryPolicy(updated) |> mapToSignal { context.engine.ayuGramHistoryPolicy() })
+         })
+     }, action: { actionImpl?($0) })
+-    let signal = combineLatest(context.sharedContext.presentationData, records.get(), policy.get())
++    let signal = combineLatest(context.sharedContext.presentationData, records.get(), policy.get(), filter.get())
+     |> deliverOnMainQueue
+-    |> map { presentationData, records, policyData -> (ItemListControllerState, (ItemListNodeState, SGItemListArguments<Int, Int, Int, Int, HistoryAction>)) in
++    |> map { presentationData, records, policyData, filterValue -> (ItemListControllerState, (ItemListNodeState, HistoryArguments)) in
+         let locale = presentationData.strings.baseLanguageCode
+         let records = records.filter { messageId == nil || ($0.peerId == messageId?.peerId.toInt64() && $0.messageId == messageId?.id) }
+-        let current = policyData.0
+-        var options: [HistorySettingsEntry] = [
+-            .header(id: 0, section: .options, text: i18n("Ayu.History", locale), badge: nil),
+-            .toggle(id: 1, section: .options, settingName: 0, value: current.savePhotos, text: i18n("Ayu.SaveMedia", locale), enabled: true),
+-            .notice(id: 2, section: .options, text: i18n("Ayu.HistoryInfo", locale)),
+-            .header(id: 3, section: .chats, text: presentationData.strings.ChatListFolder_IncludeChatsTitle, badge: nil),
+-            .action(id: 4, section: .chats, actionType: .selectChats, text: presentationData.strings.ChatListFolder_AddChats, kind: .generic)
+-        ]
+-        for (index, peer) in policyData.1.enumerated() {
+-            options.append(.action(id: 10 + index, section: .chats, actionType: .removeChat(peer.id.toInt64()), text: "− " + peer.debugDisplayTitle, kind: .generic))
++        let (current, peers) = policyData
++        var entries: [HistoryEntry] = []
++        let visible: [AyuGramHistoryEntry]
++        if messageId == nil {
++            let deleted = records.filter { $0.event != "edited" }.count
++            entries.append(.summary(AyuGramHistorySummary(total: records.count, deleted: deleted, edited: records.count - deleted, filter: filterValue)))
++            visible = records.filter { filterValue == 0 || (filterValue == 1) == ($0.event != "edited") }
++        } else {
++            visible = records
++        }
++        if visible.isEmpty {
++            let noChats = messageId == nil && current.selectedChats.isEmpty
++            entries.append(.empty(1, i18n(noChats ? "Ayu.HistoryNoChats" : "Ayu.HistoryEmptyInfo", locale), noChats))
++        }
++        // Records arrive newest first; group them under one header per calendar day.
++        let calendar = Calendar.current
++        var index = 0
++        while index < visible.count {
++            let day = calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(visible[index].timestamp)))
++            var next = index
++            while next < visible.count && calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(visible[next].timestamp))) == day { next += 1 }
++            entries.append(.day(10 + index * 2, historyDayTitle(visible[index].timestamp, locale: locale), next - index))
++            for position in index ..< next {
++                entries.append(.record(10 + position * 2 + 1, visible[position]))
++            }
++            index = next
+         }
+-        options.append(.action(id: 10000, section: .actions, actionType: .clear, text: i18n("Ayu.ClearHistory", locale), kind: .destructive))
+-        var entries: [HistoryEntry] = messageId == nil ? options.map(HistoryEntry.setting) : []
+-        if records.isEmpty { entries.append(.setting(.notice(id: 10001, section: .entries, text: i18n("Ayu.EmptyHistory", locale)))) }
+-        for (index, record) in records.enumerated() {
+-            entries.append(.record(10002 + index, record))
++        if messageId == nil {
++            let counts = Dictionary(grouping: records, by: { $0.peerId }).mapValues { $0.count }
++            let settings: [HistorySettingsEntry] = [
++                .header(id: 100000, section: .options, text: presentationData.strings.Settings_Title, badge: nil),
++                .toggle(id: 100001, section: .options, settingName: 0, value: current.savePhotos, text: i18n("Ayu.SaveMedia", locale), enabled: true),
++                .notice(id: 100002, section: .options, text: i18n("Ayu.HistoryInfo", locale)),
++                .header(id: 100003, section: .chats, text: presentationData.strings.ChatListFolder_IncludeChatsTitle, badge: nil),
++                .action(id: 100004, section: .chats, actionType: .selectChats, text: presentationData.strings.ChatListFolder_AddChats, kind: .generic)
++            ]
++            entries.append(contentsOf: settings.map(HistoryEntry.setting))
++            for (position, peer) in peers.enumerated() {
++                entries.append(.chat(100010 + position, peer, counts[peer.id.toInt64()] ?? 0))
++            }
++            if peers.isEmpty {
++                entries.append(.setting(.notice(id: 199999, section: .chats, text: i18n("Ayu.HistoryNoChats", locale))))
++            }
++            if !records.isEmpty {
++                entries.append(.setting(.action(id: 200000, section: .actions, actionType: .clear, text: i18n("Ayu.ClearHistory", locale), kind: .destructive)))
++            }
+         }
+         let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(i18n("Ayu.History", locale)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+         return (state, (ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks), arguments))
+@@ -89,12 +155,28 @@ public func ayuGramHistoryController(context: AccountContext, messageId: Message
+                 })
+                 (controller.navigationController as? NavigationController)?.pushViewController(selection)
+             })
+-        case let .removeChat(id):
+-            let _ = (context.engine.ayuGramHistoryPolicy() |> take(1)).startStandalone(next: { current, _ in
+-                var updated = current
+-                updated.selectedChats.removeAll { $0 == id }
+-                policy.set(context.engine.ayuGramSetHistoryPolicy(updated) |> mapToSignal { context.engine.ayuGramHistoryPolicy() })
+-            })
++        case let .chatOptions(id):
++            let sheet = ActionSheetController(presentationData: data)
++            sheet.setItemGroups([
++                ActionSheetItemGroup(items: [
++                    ActionSheetButtonItem(title: i18n("Ayu.HistoryOpenChat", data.strings.baseLanguageCode), color: .accent, action: { [weak sheet] in
++                        sheet?.dismissAnimated()
++                        context.sharedContext.navigateToChat(accountId: context.account.id, peerId: PeerId(id), messageId: nil)
++                    }),
++                    ActionSheetButtonItem(title: i18n("Ayu.HistoryStopSaving", data.strings.baseLanguageCode), color: .destructive, action: { [weak sheet] in
++                        sheet?.dismissAnimated()
++                        let _ = (context.engine.ayuGramHistoryPolicy() |> take(1)).startStandalone(next: { current, _ in
++                            var updated = current
++                            updated.selectedChats.removeAll { $0 == id }
++                            policy.set(context.engine.ayuGramSetHistoryPolicy(updated) |> mapToSignal { context.engine.ayuGramHistoryPolicy() })
++                        })
++                    })
++                ]),
++                ActionSheetItemGroup(items: [ActionSheetButtonItem(title: data.strings.Common_Cancel, color: .accent, action: { [weak sheet] in sheet?.dismissAnimated() })])
++            ])
++            controller.present(sheet, in: .window(.root))
++        case let .filter(value):
++            filter.set(value)
+         case let .author(id):
+             let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: PeerId(id))) |> deliverOnMainQueue).startStandalone(next: { peer in
+                 if let peer, let profile = context.sharedContext.makePeerInfoController(context: context, updatedPresentationData: nil, peer: peer, mode: .generic, avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
+@@ -120,7 +202,7 @@ public func ayuGramHistoryController(context: AccountContext, messageId: Message
+         case .clear:
+             let sheet = ActionSheetController(presentationData: data)
+             sheet.setItemGroups([
+-                ActionSheetItemGroup(items: [ActionSheetButtonItem(title: data.strings.Common_Delete, color: .destructive, action: { [weak sheet] in
++                ActionSheetItemGroup(items: [ActionSheetButtonItem(title: i18n("Ayu.ClearHistory", data.strings.baseLanguageCode), color: .destructive, action: { [weak sheet] in
+                     sheet?.dismissAnimated()
+                     records.set(context.engine.ayuGramClearMessageHistory() |> mapToSignal { context.engine.ayuGramMessageHistory() })
+                 })]),
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+index 40d120cd..31e2b5a6 100644
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Geskrapte en geredigeerde boodskappe uit gekose kletse, slegs op hierdie toestel gestoor.";
++"Ayu.HistoryAll" = "Alles";
++"Ayu.HistoryEdited" = "Geredigeer";
++"Ayu.HistoryNow" = "Nou";
++"Ayu.HistoryShowMessage" = "Wys in klets";
++"Ayu.HistoryOpenChat" = "Maak klets oop";
++"Ayu.HistoryStopSaving" = "Hou op om hierdie klets te stoor";
++"Ayu.HistoryNoChats" = "Kies kletse vir die geskiedenis. Niks word gestoor totdat jy ten minste een byvoeg nie.";
++"Ayu.HistoryEmptyInfo" = "Geskrapte en geredigeerde boodskappe sal hier verskyn.";
+ "Ayu.AddAccountHelp" = "Jy kan tot 500 rekeninge met verskillende foonnommers byvoeg.";
+ "Ayu.HeroGhostOn" = "Spookmodus is aan";
+ "Ayu.HeroGhostOff" = "Spookmodus is af";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+index 23c3275c..764ea04c 100644
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "الرسائل المحذوفة والمعدلة من المحادثات المختارة، محفوظة على هذا الجهاز فقط.";
++"Ayu.HistoryAll" = "الكل";
++"Ayu.HistoryEdited" = "معدلة";
++"Ayu.HistoryNow" = "الآن";
++"Ayu.HistoryShowMessage" = "عرض في المحادثة";
++"Ayu.HistoryOpenChat" = "فتح المحادثة";
++"Ayu.HistoryStopSaving" = "إيقاف حفظ هذه المحادثة";
++"Ayu.HistoryNoChats" = "اختر المحادثات لحفظ السجل. لن يُحفظ شيء حتى تضيف محادثة واحدة على الأقل.";
++"Ayu.HistoryEmptyInfo" = "ستظهر هنا الرسائل المحذوفة والمعدلة.";
+ "Ayu.AddAccountHelp" = "يمكنك إضافة ما يصل إلى 500 حساب بأرقام هواتف مختلفة.";
+ "Ayu.HeroGhostOn" = "وضع الشبح مفعّل";
+ "Ayu.HeroGhostOff" = "وضع الشبح متوقف";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+index 7b618e75..f6c2de60 100644
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Missatges eliminats i editats dels xats triats, desats només en aquest dispositiu.";
++"Ayu.HistoryAll" = "Tots";
++"Ayu.HistoryEdited" = "Editat";
++"Ayu.HistoryNow" = "Ara";
++"Ayu.HistoryShowMessage" = "Mostra al xat";
++"Ayu.HistoryOpenChat" = "Obre el xat";
++"Ayu.HistoryStopSaving" = "Deixa de desar aquest xat";
++"Ayu.HistoryNoChats" = "Tria els xats per a l’historial. No es desa res fins que n’afegeixis almenys un.";
++"Ayu.HistoryEmptyInfo" = "Aquí apareixeran els missatges eliminats i editats.";
+ "Ayu.AddAccountHelp" = "Pots afegir fins a 500 comptes amb números de telèfon diferents.";
+ "Ayu.HeroGhostOn" = "Mode fantasma activat";
+ "Ayu.HeroGhostOff" = "Mode fantasma desactivat";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+index f8925469..08af353d 100644
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Smazané a upravené zprávy z vybraných chatů, uložené jen v tomto zařízení.";
++"Ayu.HistoryAll" = "Vše";
++"Ayu.HistoryEdited" = "Upraveno";
++"Ayu.HistoryNow" = "Nyní";
++"Ayu.HistoryShowMessage" = "Zobrazit v chatu";
++"Ayu.HistoryOpenChat" = "Otevřít chat";
++"Ayu.HistoryStopSaving" = "Přestat ukládat tento chat";
++"Ayu.HistoryNoChats" = "Vyberte chaty pro historii. Dokud nepřidáte alespoň jeden, nic se neukládá.";
++"Ayu.HistoryEmptyInfo" = "Zde se zobrazí smazané a upravené zprávy.";
+ "Ayu.AddAccountHelp" = "Můžete přidat až 500 účtů s různými telefonními čísly.";
+ "Ayu.HeroGhostOn" = "Režim ducha je zapnutý";
+ "Ayu.HeroGhostOff" = "Režim ducha je vypnutý";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+index 80141387..465d00e5 100644
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Slettede og redigerede beskeder fra valgte chats, kun gemt på denne enhed.";
++"Ayu.HistoryAll" = "Alle";
++"Ayu.HistoryEdited" = "Redigeret";
++"Ayu.HistoryNow" = "Nu";
++"Ayu.HistoryShowMessage" = "Vis i chat";
++"Ayu.HistoryOpenChat" = "Åbn chat";
++"Ayu.HistoryStopSaving" = "Stop med at gemme denne chat";
++"Ayu.HistoryNoChats" = "Vælg chats til historikken. Intet gemmes, før du tilføjer mindst én.";
++"Ayu.HistoryEmptyInfo" = "Slettede og redigerede beskeder vises her.";
+ "Ayu.AddAccountHelp" = "Du kan tilføje op til 500 konti med forskellige telefonnumre.";
+ "Ayu.HeroGhostOn" = "Spøgelsestilstand er slået til";
+ "Ayu.HeroGhostOff" = "Spøgelsestilstand er slået fra";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+index 6a30dd6a..ca33d80e 100644
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Gelöschte und bearbeitete Nachrichten aus ausgewählten Chats, nur auf diesem Gerät gespeichert.";
++"Ayu.HistoryAll" = "Alle";
++"Ayu.HistoryEdited" = "Bearbeitet";
++"Ayu.HistoryNow" = "Jetzt";
++"Ayu.HistoryShowMessage" = "Im Chat zeigen";
++"Ayu.HistoryOpenChat" = "Chat öffnen";
++"Ayu.HistoryStopSaving" = "Diesen Chat nicht mehr speichern";
++"Ayu.HistoryNoChats" = "Wähle Chats für den Verlauf. Gespeichert wird erst, wenn mindestens einer hinzugefügt ist.";
++"Ayu.HistoryEmptyInfo" = "Gelöschte und bearbeitete Nachrichten erscheinen hier.";
+ "Ayu.AddAccountHelp" = "Du kannst bis zu 500 Konten mit verschiedenen Telefonnummern hinzufügen.";
+ "Ayu.HeroGhostOn" = "Geistmodus ist an";
+ "Ayu.HeroGhostOff" = "Geistmodus ist aus";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+index 900faeda..de7a76b3 100644
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Διαγραμμένα και επεξεργασμένα μηνύματα από τις επιλεγμένες συνομιλίες, μόνο σε αυτή τη συσκευή.";
++"Ayu.HistoryAll" = "Όλα";
++"Ayu.HistoryEdited" = "Επεξεργάστηκε";
++"Ayu.HistoryNow" = "Τώρα";
++"Ayu.HistoryShowMessage" = "Εμφάνιση στη συνομιλία";
++"Ayu.HistoryOpenChat" = "Άνοιγμα συνομιλίας";
++"Ayu.HistoryStopSaving" = "Διακοπή αποθήκευσης αυτής της συνομιλίας";
++"Ayu.HistoryNoChats" = "Επιλέξτε συνομιλίες για το ιστορικό. Δεν αποθηκεύεται τίποτα μέχρι να προσθέσετε τουλάχιστον μία.";
++"Ayu.HistoryEmptyInfo" = "Τα διαγραμμένα και επεξεργασμένα μηνύματα θα εμφανίζονται εδώ.";
+ "Ayu.AddAccountHelp" = "Μπορείτε να προσθέσετε έως 500 λογαριασμούς με διαφορετικούς αριθμούς τηλεφώνου.";
+ "Ayu.HeroGhostOn" = "Η λειτουργία φάντασμα είναι ενεργή";
+ "Ayu.HeroGhostOff" = "Η λειτουργία φάντασμα είναι ανενεργή";
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+index 699131f8..f57e4569 100644
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Deleted and edited messages from your chosen chats, kept only on this device.";
++"Ayu.HistoryAll" = "All";
++"Ayu.HistoryEdited" = "Edited";
++"Ayu.HistoryNow" = "Now";
++"Ayu.HistoryShowMessage" = "Show in chat";
++"Ayu.HistoryOpenChat" = "Open chat";
++"Ayu.HistoryStopSaving" = "Stop saving this chat";
++"Ayu.HistoryNoChats" = "Choose chats to keep history for. Nothing is saved until you add at least one.";
++"Ayu.HistoryEmptyInfo" = "Deleted and edited messages will appear here.";
+ "Ayu.AddAccountHelp" = "You can add up to 500 accounts with different phone numbers.";
+ "Ayu.HeroGhostOn" = "Ghost Mode is on";
+ "Ayu.HeroGhostOff" = "Ghost Mode is off";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+index 4b1db67b..6d727dec 100644
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Mensajes eliminados y editados de los chats elegidos, guardados solo en este dispositivo.";
++"Ayu.HistoryAll" = "Todos";
++"Ayu.HistoryEdited" = "Editado";
++"Ayu.HistoryNow" = "Ahora";
++"Ayu.HistoryShowMessage" = "Ver en el chat";
++"Ayu.HistoryOpenChat" = "Abrir chat";
++"Ayu.HistoryStopSaving" = "Dejar de guardar este chat";
++"Ayu.HistoryNoChats" = "Elige los chats para el historial. No se guarda nada hasta que añadas al menos uno.";
++"Ayu.HistoryEmptyInfo" = "Aquí aparecerán los mensajes eliminados y editados.";
+ "Ayu.AddAccountHelp" = "Puedes añadir hasta 500 cuentas con distintos números de teléfono.";
+ "Ayu.HeroGhostOn" = "Modo fantasma activado";
+ "Ayu.HeroGhostOff" = "Modo fantasma desactivado";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+index c6c39343..c268e8ed 100644
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "پیام‌های حذف‌شده و ویرایش‌شده از گفتگوهای انتخابی، فقط روی همین دستگاه نگهداری می‌شوند.";
++"Ayu.HistoryAll" = "همه";
++"Ayu.HistoryEdited" = "ویرایش‌شده";
++"Ayu.HistoryNow" = "اکنون";
++"Ayu.HistoryShowMessage" = "نمایش در گفتگو";
++"Ayu.HistoryOpenChat" = "باز کردن گفتگو";
++"Ayu.HistoryStopSaving" = "توقف ذخیره این گفتگو";
++"Ayu.HistoryNoChats" = "گفتگوها را برای تاریخچه انتخاب کنید. تا وقتی حداقل یکی اضافه نشود چیزی ذخیره نمی‌شود.";
++"Ayu.HistoryEmptyInfo" = "پیام‌های حذف‌شده و ویرایش‌شده اینجا نمایش داده می‌شوند.";
+ "Ayu.AddAccountHelp" = "می‌توانید تا ۵۰۰ حساب با شماره‌های تلفن مختلف اضافه کنید.";
+ "Ayu.HeroGhostOn" = "حالت روح روشن است";
+ "Ayu.HeroGhostOff" = "حالت روح خاموش است";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+index 32a4985d..f6c4091b 100644
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Poistetut ja muokatut viestit valituista keskusteluista, tallennettu vain tälle laitteelle.";
++"Ayu.HistoryAll" = "Kaikki";
++"Ayu.HistoryEdited" = "Muokattu";
++"Ayu.HistoryNow" = "Nyt";
++"Ayu.HistoryShowMessage" = "Näytä keskustelussa";
++"Ayu.HistoryOpenChat" = "Avaa keskustelu";
++"Ayu.HistoryStopSaving" = "Lopeta tämän keskustelun tallennus";
++"Ayu.HistoryNoChats" = "Valitse keskustelut historiaa varten. Mitään ei tallenneta ennen kuin lisäät vähintään yhden.";
++"Ayu.HistoryEmptyInfo" = "Poistetut ja muokatut viestit näkyvät täällä.";
+ "Ayu.AddAccountHelp" = "Voit lisätä enintään 500 tiliä eri puhelinnumeroilla.";
+ "Ayu.HeroGhostOn" = "Haamutila on päällä";
+ "Ayu.HeroGhostOff" = "Haamutila on pois";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+index 1c0f8d53..a78180cb 100644
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Messages supprimés et modifiés des discussions choisies, conservés uniquement sur cet appareil.";
++"Ayu.HistoryAll" = "Tous";
++"Ayu.HistoryEdited" = "Modifié";
++"Ayu.HistoryNow" = "Maintenant";
++"Ayu.HistoryShowMessage" = "Voir dans la discussion";
++"Ayu.HistoryOpenChat" = "Ouvrir la discussion";
++"Ayu.HistoryStopSaving" = "Ne plus enregistrer cette discussion";
++"Ayu.HistoryNoChats" = "Choisissez les discussions à suivre. Rien n’est enregistré tant qu’aucune n’est ajoutée.";
++"Ayu.HistoryEmptyInfo" = "Les messages supprimés et modifiés apparaîtront ici.";
+ "Ayu.AddAccountHelp" = "Vous pouvez ajouter jusqu’à 500 comptes avec des numéros différents.";
+ "Ayu.HeroGhostOn" = "Mode fantôme activé";
+ "Ayu.HeroGhostOff" = "Mode fantôme désactivé";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+index 52bd5314..e8b099b5 100644
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "הודעות שנמחקו ונערכו מהצ׳אטים שנבחרו, נשמרות רק במכשיר הזה.";
++"Ayu.HistoryAll" = "הכול";
++"Ayu.HistoryEdited" = "נערכה";
++"Ayu.HistoryNow" = "עכשיו";
++"Ayu.HistoryShowMessage" = "הצג בצ׳אט";
++"Ayu.HistoryOpenChat" = "פתח צ׳אט";
++"Ayu.HistoryStopSaving" = "הפסק לשמור צ׳אט זה";
++"Ayu.HistoryNoChats" = "בחר צ׳אטים להיסטוריה. דבר לא נשמר עד שתוסיף לפחות אחד.";
++"Ayu.HistoryEmptyInfo" = "הודעות שנמחקו ונערכו יופיעו כאן.";
+ "Ayu.AddAccountHelp" = "אפשר להוסיף עד 500 חשבונות עם מספרי טלפון שונים.";
+ "Ayu.HeroGhostOn" = "מצב רוח פעיל";
+ "Ayu.HeroGhostOff" = "מצב רוח כבוי";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+index 720079e1..6f95e285 100644
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "चुनी गई चैट से हटाए और संपादित किए गए संदेश, केवल इसी डिवाइस पर रखे जाते हैं।";
++"Ayu.HistoryAll" = "सभी";
++"Ayu.HistoryEdited" = "संपादित";
++"Ayu.HistoryNow" = "अभी";
++"Ayu.HistoryShowMessage" = "चैट में दिखाएँ";
++"Ayu.HistoryOpenChat" = "चैट खोलें";
++"Ayu.HistoryStopSaving" = "इस चैट को सहेजना बंद करें";
++"Ayu.HistoryNoChats" = "इतिहास के लिए चैट चुनें। कम से कम एक जोड़ने तक कुछ भी सहेजा नहीं जाता।";
++"Ayu.HistoryEmptyInfo" = "हटाए और संपादित किए गए संदेश यहाँ दिखेंगे।";
+ "Ayu.AddAccountHelp" = "आप अलग-अलग फ़ोन नंबरों वाले 500 तक खाते जोड़ सकते हैं।";
+ "Ayu.HeroGhostOn" = "घोस्ट मोड चालू है";
+ "Ayu.HeroGhostOff" = "घोस्ट मोड बंद है";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+index a256df8d..3961a42a 100644
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Törölt és szerkesztett üzenetek a kiválasztott csevegésekből, csak ezen az eszközön tárolva.";
++"Ayu.HistoryAll" = "Összes";
++"Ayu.HistoryEdited" = "Szerkesztve";
++"Ayu.HistoryNow" = "Most";
++"Ayu.HistoryShowMessage" = "Megjelenítés a csevegésben";
++"Ayu.HistoryOpenChat" = "Csevegés megnyitása";
++"Ayu.HistoryStopSaving" = "Ne mentse tovább ezt a csevegést";
++"Ayu.HistoryNoChats" = "Válaszd ki az előzményekhez a csevegéseket. Amíg legalább egyet nem adsz hozzá, semmi sem mentődik.";
++"Ayu.HistoryEmptyInfo" = "Itt jelennek meg a törölt és szerkesztett üzenetek.";
+ "Ayu.AddAccountHelp" = "Legfeljebb 500 fiókot adhatsz hozzá különböző telefonszámokkal.";
+ "Ayu.HeroGhostOn" = "Szellemmód bekapcsolva";
+ "Ayu.HeroGhostOff" = "Szellemmód kikapcsolva";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+index fd9173d8..c14de15f 100644
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Pesan yang dihapus dan diedit dari obrolan pilihan, hanya disimpan di perangkat ini.";
++"Ayu.HistoryAll" = "Semua";
++"Ayu.HistoryEdited" = "Diedit";
++"Ayu.HistoryNow" = "Sekarang";
++"Ayu.HistoryShowMessage" = "Tampilkan di obrolan";
++"Ayu.HistoryOpenChat" = "Buka obrolan";
++"Ayu.HistoryStopSaving" = "Berhenti menyimpan obrolan ini";
++"Ayu.HistoryNoChats" = "Pilih obrolan untuk riwayat. Tidak ada yang disimpan sampai Anda menambahkan setidaknya satu.";
++"Ayu.HistoryEmptyInfo" = "Pesan yang dihapus dan diedit akan muncul di sini.";
+ "Ayu.AddAccountHelp" = "Anda dapat menambahkan hingga 500 akun dengan nomor telepon berbeda.";
+ "Ayu.HeroGhostOn" = "Mode Hantu aktif";
+ "Ayu.HeroGhostOff" = "Mode Hantu nonaktif";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+index ca46f855..899bf62a 100644
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Messaggi eliminati e modificati dalle chat scelte, salvati solo su questo dispositivo.";
++"Ayu.HistoryAll" = "Tutti";
++"Ayu.HistoryEdited" = "Modificato";
++"Ayu.HistoryNow" = "Ora";
++"Ayu.HistoryShowMessage" = "Mostra nella chat";
++"Ayu.HistoryOpenChat" = "Apri chat";
++"Ayu.HistoryStopSaving" = "Non salvare più questa chat";
++"Ayu.HistoryNoChats" = "Scegli le chat per la cronologia. Non viene salvato nulla finché non ne aggiungi almeno una.";
++"Ayu.HistoryEmptyInfo" = "Qui appariranno i messaggi eliminati e modificati.";
+ "Ayu.AddAccountHelp" = "Puoi aggiungere fino a 500 account con numeri di telefono diversi.";
+ "Ayu.HeroGhostOn" = "Modalità fantasma attiva";
+ "Ayu.HeroGhostOff" = "Modalità fantasma disattivata";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+index b8efe3e4..9320c650 100644
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "選択したチャットの削除・編集されたメッセージ。この端末にのみ保存されます。";
++"Ayu.HistoryAll" = "すべて";
++"Ayu.HistoryEdited" = "編集済み";
++"Ayu.HistoryNow" = "現在";
++"Ayu.HistoryShowMessage" = "チャットで表示";
++"Ayu.HistoryOpenChat" = "チャットを開く";
++"Ayu.HistoryStopSaving" = "このチャットの保存をやめる";
++"Ayu.HistoryNoChats" = "履歴を保存するチャットを選んでください。1つ以上追加するまで何も保存されません。";
++"Ayu.HistoryEmptyInfo" = "削除・編集されたメッセージがここに表示されます。";
+ "Ayu.AddAccountHelp" = "異なる電話番号のアカウントを最大500件まで追加できます。";
+ "Ayu.HeroGhostOn" = "ゴーストモード：オン";
+ "Ayu.HeroGhostOff" = "ゴーストモード：オフ";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+index ec97345e..fbb8a75b 100644
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "សារដែលបានលុប និងកែប្រែពីការជជែកដែលបានជ្រើស រក្សាទុកតែលើឧបករណ៍នេះ។";
++"Ayu.HistoryAll" = "ទាំងអស់";
++"Ayu.HistoryEdited" = "បានកែប្រែ";
++"Ayu.HistoryNow" = "ឥឡូវ";
++"Ayu.HistoryShowMessage" = "បង្ហាញក្នុងការជជែក";
++"Ayu.HistoryOpenChat" = "បើកការជជែក";
++"Ayu.HistoryStopSaving" = "ឈប់រក្សាទុកការជជែកនេះ";
++"Ayu.HistoryNoChats" = "ជ្រើសការជជែកសម្រាប់ប្រវត្តិ។ គ្មានអ្វីត្រូវបានរក្សាទុកទេ រហូតដល់អ្នកបន្ថែមយ៉ាងហោចណាស់មួយ។";
++"Ayu.HistoryEmptyInfo" = "សារដែលបានលុប និងកែប្រែនឹងបង្ហាញនៅទីនេះ។";
+ "Ayu.AddAccountHelp" = "អ្នកអាចបន្ថែមគណនីរហូតដល់ 500 ដែលមានលេខទូរសព្ទខុសៗគ្នា។";
+ "Ayu.HeroGhostOn" = "មុខងារលាក់ខ្លួនបានបើក";
+ "Ayu.HeroGhostOff" = "មុខងារលាក់ខ្លួនបានបិទ";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+index f2660462..c7129700 100644
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "선택한 채팅에서 삭제되거나 수정된 메시지로, 이 기기에만 저장됩니다.";
++"Ayu.HistoryAll" = "전체";
++"Ayu.HistoryEdited" = "수정됨";
++"Ayu.HistoryNow" = "현재";
++"Ayu.HistoryShowMessage" = "채팅에서 보기";
++"Ayu.HistoryOpenChat" = "채팅 열기";
++"Ayu.HistoryStopSaving" = "이 채팅 저장 중지";
++"Ayu.HistoryNoChats" = "기록을 남길 채팅을 선택하세요. 하나 이상 추가하기 전에는 아무것도 저장되지 않습니다.";
++"Ayu.HistoryEmptyInfo" = "삭제되거나 수정된 메시지가 여기에 표시됩니다.";
+ "Ayu.AddAccountHelp" = "서로 다른 전화번호로 최대 500개의 계정을 추가할 수 있습니다.";
+ "Ayu.HeroGhostOn" = "고스트 모드 켜짐";
+ "Ayu.HeroGhostOff" = "고스트 모드 꺼짐";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+index d0c39a2b..ac92a0a2 100644
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Peyamên jêbirî û guherandî ji sohbetên hilbijartî, tenê li ser vê cîhazê têne parastin.";
++"Ayu.HistoryAll" = "Hemû";
++"Ayu.HistoryEdited" = "Guherandî";
++"Ayu.HistoryNow" = "Niha";
++"Ayu.HistoryShowMessage" = "Di sohbetê de nîşan bide";
++"Ayu.HistoryOpenChat" = "Sohbetê veke";
++"Ayu.HistoryStopSaving" = "Parastina vê sohbetê rawestîne";
++"Ayu.HistoryNoChats" = "Ji bo dîrokê sohbetan hilbijêre. Heta ku tu herî kêm yekê zêde nekî, tiştek nayê parastin.";
++"Ayu.HistoryEmptyInfo" = "Peyamên jêbirî û guherandî dê li vir xuya bibin.";
+ "Ayu.AddAccountHelp" = "Tu dikarî heta 500 hesaban bi hejmarên telefonê yên cuda zêde bikî.";
+ "Ayu.HeroGhostOn" = "Moda ruhê vekirî ye";
+ "Ayu.HeroGhostOff" = "Moda ruhê girtî ye";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+index f6a82a7e..77407cc0 100644
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Verwijderde en bewerkte berichten uit gekozen chats, alleen op dit apparaat bewaard.";
++"Ayu.HistoryAll" = "Alle";
++"Ayu.HistoryEdited" = "Bewerkt";
++"Ayu.HistoryNow" = "Nu";
++"Ayu.HistoryShowMessage" = "Toon in chat";
++"Ayu.HistoryOpenChat" = "Chat openen";
++"Ayu.HistoryStopSaving" = "Deze chat niet meer bewaren";
++"Ayu.HistoryNoChats" = "Kies chats voor de geschiedenis. Er wordt niets bewaard tot je er minstens één toevoegt.";
++"Ayu.HistoryEmptyInfo" = "Verwijderde en bewerkte berichten verschijnen hier.";
+ "Ayu.AddAccountHelp" = "Je kunt tot 500 accounts met verschillende telefoonnummers toevoegen.";
+ "Ayu.HeroGhostOn" = "Spookmodus staat aan";
+ "Ayu.HeroGhostOff" = "Spookmodus staat uit";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+index 731ff9ac..df504dae 100644
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Slettede og redigerte meldinger fra valgte chatter, lagret bare på denne enheten.";
++"Ayu.HistoryAll" = "Alle";
++"Ayu.HistoryEdited" = "Redigert";
++"Ayu.HistoryNow" = "Nå";
++"Ayu.HistoryShowMessage" = "Vis i chat";
++"Ayu.HistoryOpenChat" = "Åpne chat";
++"Ayu.HistoryStopSaving" = "Slutt å lagre denne chatten";
++"Ayu.HistoryNoChats" = "Velg chatter for historikken. Ingenting lagres før du legger til minst én.";
++"Ayu.HistoryEmptyInfo" = "Slettede og redigerte meldinger vises her.";
+ "Ayu.AddAccountHelp" = "Du kan legge til opptil 500 kontoer med forskjellige telefonnumre.";
+ "Ayu.HeroGhostOn" = "Spøkelsesmodus er på";
+ "Ayu.HeroGhostOff" = "Spøkelsesmodus er av";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+index 21da9765..4ffec065 100644
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Usunięte i edytowane wiadomości z wybranych czatów, przechowywane tylko na tym urządzeniu.";
++"Ayu.HistoryAll" = "Wszystkie";
++"Ayu.HistoryEdited" = "Edytowano";
++"Ayu.HistoryNow" = "Teraz";
++"Ayu.HistoryShowMessage" = "Pokaż w czacie";
++"Ayu.HistoryOpenChat" = "Otwórz czat";
++"Ayu.HistoryStopSaving" = "Przestań zapisywać ten czat";
++"Ayu.HistoryNoChats" = "Wybierz czaty do historii. Nic nie jest zapisywane, dopóki nie dodasz co najmniej jednego.";
++"Ayu.HistoryEmptyInfo" = "Tutaj pojawią się usunięte i edytowane wiadomości.";
+ "Ayu.AddAccountHelp" = "Możesz dodać do 500 kont z różnymi numerami telefonów.";
+ "Ayu.HeroGhostOn" = "Tryb ducha włączony";
+ "Ayu.HeroGhostOff" = "Tryb ducha wyłączony";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+index 9e89f5ea..3cefba13 100644
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Mensagens apagadas e editadas dos chats escolhidos, guardadas apenas neste dispositivo.";
++"Ayu.HistoryAll" = "Todas";
++"Ayu.HistoryEdited" = "Editada";
++"Ayu.HistoryNow" = "Agora";
++"Ayu.HistoryShowMessage" = "Mostrar no chat";
++"Ayu.HistoryOpenChat" = "Abrir chat";
++"Ayu.HistoryStopSaving" = "Parar de salvar este chat";
++"Ayu.HistoryNoChats" = "Escolha os chats para o histórico. Nada é salvo até adicionar pelo menos um.";
++"Ayu.HistoryEmptyInfo" = "Mensagens apagadas e editadas aparecerão aqui.";
+ "Ayu.AddAccountHelp" = "Você pode adicionar até 500 contas com números de telefone diferentes.";
+ "Ayu.HeroGhostOn" = "Modo fantasma ativado";
+ "Ayu.HeroGhostOff" = "Modo fantasma desativado";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+index c652f9e9..53296c06 100644
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Mesaje șterse și editate din chaturile alese, păstrate doar pe acest dispozitiv.";
++"Ayu.HistoryAll" = "Toate";
++"Ayu.HistoryEdited" = "Editat";
++"Ayu.HistoryNow" = "Acum";
++"Ayu.HistoryShowMessage" = "Arată în chat";
++"Ayu.HistoryOpenChat" = "Deschide chatul";
++"Ayu.HistoryStopSaving" = "Nu mai salva acest chat";
++"Ayu.HistoryNoChats" = "Alege chaturile pentru istoric. Nu se salvează nimic până nu adaugi cel puțin unul.";
++"Ayu.HistoryEmptyInfo" = "Aici vor apărea mesajele șterse și editate.";
+ "Ayu.AddAccountHelp" = "Poți adăuga până la 500 de conturi cu numere de telefon diferite.";
+ "Ayu.HeroGhostOn" = "Modul fantomă este activ";
+ "Ayu.HeroGhostOff" = "Modul fantomă este dezactivat";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+index 1dcdb2a9..379604c5 100644
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Удалённые и изменённые сообщения из выбранных чатов. Хранятся только на этом устройстве.";
++"Ayu.HistoryAll" = "Все";
++"Ayu.HistoryEdited" = "Изменено";
++"Ayu.HistoryNow" = "Сейчас";
++"Ayu.HistoryShowMessage" = "Показать в чате";
++"Ayu.HistoryOpenChat" = "Открыть чат";
++"Ayu.HistoryStopSaving" = "Перестать сохранять этот чат";
++"Ayu.HistoryNoChats" = "Выберите чаты для истории. Пока не добавлен хотя бы один, ничего не сохраняется.";
++"Ayu.HistoryEmptyInfo" = "Здесь появятся удалённые и изменённые сообщения.";
+ "Ayu.AddAccountHelp" = "Можно добавить до 500 аккаунтов с разными номерами телефонов.";
+ "Ayu.HeroGhostOn" = "Режим призрака включён";
+ "Ayu.HeroGhostOff" = "Режим призрака выключен";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+index b7b61bd0..00362975 100644
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "තෝරාගත් කතාබස් වලින් මකා දැමූ සහ සංස්කරණය කළ පණිවිඩ, මෙම උපාංගයේ පමණක් තබා ගනී.";
++"Ayu.HistoryAll" = "සියල්ල";
++"Ayu.HistoryEdited" = "සංස්කරණය කළ";
++"Ayu.HistoryNow" = "දැන්";
++"Ayu.HistoryShowMessage" = "කතාබහේ පෙන්වන්න";
++"Ayu.HistoryOpenChat" = "කතාබහ විවෘත කරන්න";
++"Ayu.HistoryStopSaving" = "මෙම කතාබහ සුරැකීම නවත්වන්න";
++"Ayu.HistoryNoChats" = "ඉතිහාසය සඳහා කතාබස් තෝරන්න. අවම වශයෙන් එකක් එක් කරන තුරු කිසිවක් සුරැකෙන්නේ නැත.";
++"Ayu.HistoryEmptyInfo" = "මකා දැමූ සහ සංස්කරණය කළ පණිවිඩ මෙහි පෙන්වනු ඇත.";
+ "Ayu.AddAccountHelp" = "විවිධ දුරකථන අංක සහිත ගිණුම් 500 ක් දක්වා එක් කළ හැක.";
+ "Ayu.HeroGhostOn" = "සැඟවුණු මාදිලිය සක්‍රියයි";
+ "Ayu.HeroGhostOff" = "සැඟවුණු මාදිලිය අක්‍රියයි";
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+index 8bfaaa6e..ab932f46 100644
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Vymazané a upravené správy z vybraných četov, uložené len v tomto zariadení.";
++"Ayu.HistoryAll" = "Všetko";
++"Ayu.HistoryEdited" = "Upravené";
++"Ayu.HistoryNow" = "Teraz";
++"Ayu.HistoryShowMessage" = "Zobraziť v čete";
++"Ayu.HistoryOpenChat" = "Otvoriť čet";
++"Ayu.HistoryStopSaving" = "Prestať ukladať tento čet";
++"Ayu.HistoryNoChats" = "Vyberte čety pre históriu. Kým nepridáte aspoň jeden, nič sa neukladá.";
++"Ayu.HistoryEmptyInfo" = "Tu sa zobrazia vymazané a upravené správy.";
+ "Ayu.AddAccountHelp" = "Môžete pridať až 500 účtov s rôznymi telefónnymi číslami.";
+ "Ayu.HeroGhostOn" = "Režim ducha je zapnutý";
+ "Ayu.HeroGhostOff" = "Režim ducha je vypnutý";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+index b8310822..7fec6046 100644
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Обрисане и измењене поруке из изабраних ћаскања, чуване само на овом уређају.";
++"Ayu.HistoryAll" = "Све";
++"Ayu.HistoryEdited" = "Измењено";
++"Ayu.HistoryNow" = "Сада";
++"Ayu.HistoryShowMessage" = "Прикажи у ћаскању";
++"Ayu.HistoryOpenChat" = "Отвори ћаскање";
++"Ayu.HistoryStopSaving" = "Престани да чуваш ово ћаскање";
++"Ayu.HistoryNoChats" = "Изаберите ћаскања за историју. Ништа се не чува док не додате бар једно.";
++"Ayu.HistoryEmptyInfo" = "Овде ће се појавити обрисане и измењене поруке.";
+ "Ayu.AddAccountHelp" = "Можете додати до 500 налога са различитим бројевима телефона.";
+ "Ayu.HeroGhostOn" = "Режим духа је укључен";
+ "Ayu.HeroGhostOff" = "Режим духа је искључен";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+index 5cf2b932..3984307d 100644
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Raderade och redigerade meddelanden från valda chattar, sparade bara på den här enheten.";
++"Ayu.HistoryAll" = "Alla";
++"Ayu.HistoryEdited" = "Redigerat";
++"Ayu.HistoryNow" = "Nu";
++"Ayu.HistoryShowMessage" = "Visa i chatt";
++"Ayu.HistoryOpenChat" = "Öppna chatt";
++"Ayu.HistoryStopSaving" = "Sluta spara den här chatten";
++"Ayu.HistoryNoChats" = "Välj chattar för historiken. Inget sparas förrän du lägger till minst en.";
++"Ayu.HistoryEmptyInfo" = "Raderade och redigerade meddelanden visas här.";
+ "Ayu.AddAccountHelp" = "Du kan lägga till upp till 500 konton med olika telefonnummer.";
+ "Ayu.HeroGhostOn" = "Spökläget är på";
+ "Ayu.HeroGhostOff" = "Spökläget är av";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+index 9625d573..90cf14a6 100644
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Seçtiğin sohbetlerden silinen ve düzenlenen mesajlar, yalnızca bu cihazda saklanır.";
++"Ayu.HistoryAll" = "Tümü";
++"Ayu.HistoryEdited" = "Düzenlendi";
++"Ayu.HistoryNow" = "Şimdi";
++"Ayu.HistoryShowMessage" = "Sohbette göster";
++"Ayu.HistoryOpenChat" = "Sohbeti aç";
++"Ayu.HistoryStopSaving" = "Bu sohbeti kaydetmeyi durdur";
++"Ayu.HistoryNoChats" = "Geçmiş için sohbetleri seç. En az biri eklenene kadar hiçbir şey kaydedilmez.";
++"Ayu.HistoryEmptyInfo" = "Silinen ve düzenlenen mesajlar burada görünecek.";
+ "Ayu.AddAccountHelp" = "Farklı telefon numaralarıyla en fazla 500 hesap ekleyebilirsiniz.";
+ "Ayu.HeroGhostOn" = "Hayalet Modu açık";
+ "Ayu.HeroGhostOff" = "Hayalet Modu kapalı";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+index 99f54dfe..1c28734a 100644
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Видалені та змінені повідомлення з вибраних чатів. Зберігаються лише на цьому пристрої.";
++"Ayu.HistoryAll" = "Усі";
++"Ayu.HistoryEdited" = "Змінено";
++"Ayu.HistoryNow" = "Зараз";
++"Ayu.HistoryShowMessage" = "Показати в чаті";
++"Ayu.HistoryOpenChat" = "Відкрити чат";
++"Ayu.HistoryStopSaving" = "Не зберігати цей чат";
++"Ayu.HistoryNoChats" = "Виберіть чати для історії. Поки не додано хоча б один, нічого не зберігається.";
++"Ayu.HistoryEmptyInfo" = "Тут з’являться видалені та змінені повідомлення.";
+ "Ayu.AddAccountHelp" = "Можна додати до 500 акаунтів з різними номерами телефонів.";
+ "Ayu.HeroGhostOn" = "Режим привида увімкнено";
+ "Ayu.HeroGhostOff" = "Режим привида вимкнено";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+index 2e48e1ef..a194ce6f 100644
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Tanlangan chatlardan o‘chirilgan va tahrirlangan xabarlar, faqat shu qurilmada saqlanadi.";
++"Ayu.HistoryAll" = "Hammasi";
++"Ayu.HistoryEdited" = "Tahrirlangan";
++"Ayu.HistoryNow" = "Hozir";
++"Ayu.HistoryShowMessage" = "Chatda ko‘rsatish";
++"Ayu.HistoryOpenChat" = "Chatni ochish";
++"Ayu.HistoryStopSaving" = "Bu chatni saqlashni to‘xtatish";
++"Ayu.HistoryNoChats" = "Tarix uchun chatlarni tanlang. Kamida bittasi qo‘shilmaguncha hech narsa saqlanmaydi.";
++"Ayu.HistoryEmptyInfo" = "O‘chirilgan va tahrirlangan xabarlar shu yerda ko‘rinadi.";
+ "Ayu.AddAccountHelp" = "Turli telefon raqamlari bilan 500 tagacha akkaunt qo‘shishingiz mumkin.";
+ "Ayu.HeroGhostOn" = "Arvoh rejimi yoqilgan";
+ "Ayu.HeroGhostOff" = "Arvoh rejimi o‘chirilgan";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+index 381069b5..db5f7c43 100644
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "Tin nhắn đã xóa và đã sửa từ các cuộc trò chuyện được chọn, chỉ lưu trên thiết bị này.";
++"Ayu.HistoryAll" = "Tất cả";
++"Ayu.HistoryEdited" = "Đã sửa";
++"Ayu.HistoryNow" = "Hiện tại";
++"Ayu.HistoryShowMessage" = "Hiện trong trò chuyện";
++"Ayu.HistoryOpenChat" = "Mở trò chuyện";
++"Ayu.HistoryStopSaving" = "Ngừng lưu cuộc trò chuyện này";
++"Ayu.HistoryNoChats" = "Chọn các cuộc trò chuyện để lưu lịch sử. Không có gì được lưu cho đến khi bạn thêm ít nhất một.";
++"Ayu.HistoryEmptyInfo" = "Tin nhắn đã xóa và đã sửa sẽ hiển thị ở đây.";
+ "Ayu.AddAccountHelp" = "Bạn có thể thêm tối đa 500 tài khoản với các số điện thoại khác nhau.";
+ "Ayu.HeroGhostOn" = "Chế độ bóng ma đang bật";
+ "Ayu.HeroGhostOff" = "Chế độ bóng ma đang tắt";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+index fcc73d83..0915b2c5 100644
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "所选聊天中被删除和编辑的消息，仅保存在此设备上。";
++"Ayu.HistoryAll" = "全部";
++"Ayu.HistoryEdited" = "已编辑";
++"Ayu.HistoryNow" = "现在";
++"Ayu.HistoryShowMessage" = "在聊天中显示";
++"Ayu.HistoryOpenChat" = "打开聊天";
++"Ayu.HistoryStopSaving" = "停止保存此聊天";
++"Ayu.HistoryNoChats" = "请选择要保存历史的聊天。至少添加一个之前不会保存任何内容。";
++"Ayu.HistoryEmptyInfo" = "被删除和编辑的消息将显示在这里。";
+ "Ayu.AddAccountHelp" = "您最多可以添加 500 个使用不同手机号的账号。";
+ "Ayu.HeroGhostOn" = "幽灵模式已开启";
+ "Ayu.HeroGhostOff" = "幽灵模式已关闭";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+index 43c8df53..0eec5e11 100644
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -1,4 +1,13 @@
+ // AyuGram
++"Ayu.HistorySubtitle" = "所選聊天中被刪除與編輯的訊息，僅儲存在此裝置上。";
++"Ayu.HistoryAll" = "全部";
++"Ayu.HistoryEdited" = "已編輯";
++"Ayu.HistoryNow" = "現在";
++"Ayu.HistoryShowMessage" = "在聊天中顯示";
++"Ayu.HistoryOpenChat" = "開啟聊天";
++"Ayu.HistoryStopSaving" = "停止儲存此聊天";
++"Ayu.HistoryNoChats" = "請選擇要保存歷史的聊天。至少新增一個之前不會儲存任何內容。";
++"Ayu.HistoryEmptyInfo" = "被刪除與編輯的訊息將顯示在這裡。";
+ "Ayu.AddAccountHelp" = "您最多可以新增 500 個使用不同電話號碼的帳號。";
+ "Ayu.HeroGhostOn" = "幽靈模式已開啟";
+ "Ayu.HeroGhostOff" = "幽靈模式已關閉";

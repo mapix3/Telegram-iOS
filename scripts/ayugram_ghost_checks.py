@@ -8,7 +8,8 @@ NEW_KEYS = ['HeroGhostOn', 'HeroGhostOff', 'HeroHidden', 'GhostSubtitle', 'Ghost
             'ContentSection', 'IgnoreProtection', 'IgnoreProtectionInfo', 'AllowScreenshots', 'AllowScreenshotsInfo', 'ContentFooter',
             'SaveDeletedInfo', 'OpenHistory', 'ClientSection', 'LocalPremiumInfo', 'GhostEnable', 'GhostDisable',
             'GhostEnabledToast', 'GhostDisabledToast', 'ChatListBackground', 'ConversationBackground', 'ChooseVideo', 'ShowBackground',
-            'AddAccountHelp']
+            'AddAccountHelp', 'HistorySubtitle', 'HistoryAll', 'HistoryEdited', 'HistoryNow', 'HistoryShowMessage', 'HistoryOpenChat',
+            'HistoryStopSaving', 'HistoryNoChats', 'HistoryEmptyInfo']
 
 
 def check_strings(source: Path):
@@ -57,6 +58,15 @@ def check_sources(source: Path, variant: str):
     assert 'return .retry' not in validate, 'Local reads ahead of the server never restart validation forever'
     manager = (source / 'submodules/TelegramCore/Sources/State/ManagedSynchronizePeerReadStates.swift').read_text()
     assert 'strongSelf.queue.after(1.0' in manager, 'Read state retries back off'
+    history = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift').read_text()
+    cards = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift').read_text()
+    assert 'public func ayuGramHistoryController(context: AccountContext, messageId: MessageId? = nil)' in history, 'Message context menu keeps its entry point'
+    assert 'AyuGramHistoryHeroItem(' in history and 'filter.set(value)' in history, 'History summary filters records'
+    assert 'case let .day(' in history and 'AyuGramHistoryEmptyItem(' in history, 'Records are grouped by day with an empty state'
+    for token in ['final class AyuGramHistoryHeroItem', 'final class AyuGramHistoryEmptyItem', 'final class AyuGramHistoryCardItem', 'ayuGramPreviewCache']:
+        assert token in cards, token
+    for key in re.findall(r'i18n\("Ayu\.([A-Za-z]+)"', history + cards):
+        assert key in NEW_KEYS or key in ('History', 'SaveMedia', 'HistoryInfo', 'ClearHistory', 'EmptyHistory', 'BeforeEdit', 'Deleted'), key
     entry = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift').read_text()
     assert ('= true' in entry) == (variant == 'custom'), 'Appearance link matches the variant'
     if variant == 'custom':

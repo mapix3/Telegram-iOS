@@ -204,13 +204,27 @@ final class Queue {
     static func mainQueue() -> Queue { Queue() }
     func async(_ f: @escaping () -> Void) { f() }
 }
+struct CompatibilityCheckColors {
+    var fillColor: UIColor { .systemBlue }
+    var foregroundColor: UIColor { .white }
+}
 struct CompatibilityListTheme {
     var itemAccentColor: UIColor { .purple }
     var itemPrimaryTextColor: UIColor { .label }
     var itemSecondaryTextColor: UIColor { .secondaryLabel }
     var itemBlocksBackgroundColor: UIColor { .secondarySystemBackground }
+    var itemDestructiveColor: UIColor { .systemRed }
+    var itemBlocksSeparatorColor: UIColor { .separator }
+    var itemCheckColors = CompatibilityCheckColors()
 }
-struct CompatibilityTheme { var list = CompatibilityListTheme() }
+struct CompatibilityTheme { var list = CompatibilityListTheme(); var overallDarkAppearance = false }
+typealias PresentationTheme = CompatibilityTheme
+let UIScreenPixel: CGFloat = 1
+extension UIColor {
+    convenience init(rgb: UInt32) { self.init(red: CGFloat((rgb >> 16) & 0xff) / 255, green: CGFloat((rgb >> 8) & 0xff) / 255, blue: CGFloat(rgb & 0xff) / 255, alpha: 1) }
+    func withMultipliedAlpha(_ alpha: CGFloat) -> UIColor { withAlphaComponent(alpha) }
+    func mixedWith(_ other: UIColor, alpha: CGFloat) -> UIColor { self }
+}
 struct ItemListPresentationData { var theme = CompatibilityTheme(); var strings = PresentationStrings() }
 struct CompatibilityEngine { func ayuGramArchivedPhotoURL(_ name: String) -> URL? { nil } }
 struct AccountContext { var engine = CompatibilityEngine() }
@@ -222,4 +236,4 @@ func i18n(_ key: String, _ language: String) -> String { key }
     ui = output / 'HistoryUICompatibility.swift'
     ui.write_text(native)
     subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-ios13.0', '-sdk', sdk, '-typecheck', ui], check=True)
-    print('Archive cards, image/share and document previews typechecked with real UIKit and QuickLook')
+    print('History summary, empty state, archive cards, image/share and document previews typechecked with real UIKit and QuickLook')
