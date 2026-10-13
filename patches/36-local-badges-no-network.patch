@@ -1,0 +1,181 @@
+diff --git a/Swiftgram/SGSimpleSettings/Sources/AyuGramClientBadges.swift b/Swiftgram/SGSimpleSettings/Sources/AyuGramClientBadges.swift
+index 70f082b3..9d9755c8 100644
+--- a/Swiftgram/SGSimpleSettings/Sources/AyuGramClientBadges.swift
++++ b/Swiftgram/SGSimpleSettings/Sources/AyuGramClientBadges.swift
+@@ -1,154 +1,48 @@
+ import Foundation
+ 
+-private final class AyuGramBadgeRedirectDelegate: NSObject, URLSessionTaskDelegate {
+-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+-        completionHandler(nil)
+-    }
+-}
+-
++/// AyuGram badges, decided on the device: the owner's seal and your own member
++/// badge on the account you are signed in with. Nothing is sent over the network.
+ public final class AyuGramClientBadges {
+     public static let shared = AyuGramClientBadges()
+     public static let didChange = Notification.Name("AyuGram.ClientBadges.didChange")
+-    public static let baseURL = URL(string: "https://ayugram-sync.ayugram-status.workers.dev")!
+-    private struct Member: Codable { var telegramId: String; var registered: Bool }
+-    private struct Lookup: Decodable { var members: [Member] }
+-    private struct Cached: Codable { var registered: Bool; var checkedAt: TimeInterval; var generation: Int64 }
++    private static let ownerId: Int64 = 1272887902
+     private let lock = NSLock()
+-    private let defaults: UserDefaults
+-    private let session: URLSession
+-    private let cacheKey = "ayugram.client-badges.cache.v1"
+-    private var cache: [String: Cached] = [:]
+-    private var visible: [Int64: TimeInterval] = [:]
+     private var activeAccount: Int64?
+-    private var foreground = true
+-    private var nextRequestAt: TimeInterval = 0
+-    private var ownRegistrationAt: TimeInterval = 0
+-    private var retryDelay: TimeInterval = 5
+-    private var task: URLSessionDataTask?
+-    private var timer: DispatchSourceTimer?
+-    private var epoch: Int64 = 0
++    private var generations: [Int64: Int64] = [:]
++
++    public init() {}
+ 
+-    public init(defaults: UserDefaults = .standard, session: URLSession? = nil, startTimer: Bool = true) {
+-        self.defaults = defaults
+-        let configuration = URLSessionConfiguration.ephemeral
+-        configuration.timeoutIntervalForRequest = 15
+-        configuration.timeoutIntervalForResource = 20
+-        self.session = session ?? URLSession(configuration: configuration, delegate: AyuGramBadgeRedirectDelegate(), delegateQueue: nil)
+-        if let data = defaults.data(forKey: cacheKey), let cached = try? JSONDecoder().decode([String: Cached].self, from: data) {
+-            cache = cached.filter { key, value in
+-                guard let id = Int64(key), Self.valid(id) else { return false }
+-                return Date().timeIntervalSince1970 - value.checkedAt < 86400
+-            }
+-        }
+-        if startTimer {
+-            let timer = DispatchSource.makeTimerSource(queue: .main)
+-            timer.schedule(deadline: .now() + 5, repeating: 15)
+-            timer.setEventHandler { [weak self] in self?.refresh() }
+-            self.timer = timer
+-            timer.resume()
+-        }
+-    }
+-    deinit { timer?.cancel(); task?.cancel() }
+     private static func valid(_ id: Int64) -> Bool { id > 0 && id <= 4503599627370495 }
++
+     public func badge(peerId: Int64) -> String? {
+         guard Self.valid(peerId) else { return nil }
+-        if peerId == 1272887902 { return "owner" }
++        if peerId == Self.ownerId { return "owner" }
+         lock.lock(); defer { lock.unlock() }
+-        return activeAccount == peerId || cache[String(peerId)]?.registered == true ? "member" : nil
++        return activeAccount == peerId ? "member" : nil
+     }
++
++    /// Bumped whenever a peer's badge changes, so cached user models re-render.
+     public func generation(peerId: Int64) -> Int64 {
+         lock.lock(); defer { lock.unlock() }
+-        return cache[String(peerId)]?.generation ?? 0
+-    }
+-    public func observe(peerId: Int64, accountId: Int64) {
+-        guard Self.valid(peerId), Self.valid(accountId) else { return }
+-        lock.lock()
+-        visible[peerId] = Date().timeIntervalSince1970
+-        if visible.count > 256 { visible = Dictionary(uniqueKeysWithValues: visible.sorted { $0.value > $1.value }.prefix(256).map { ($0.key, $0.value) }) }
+-        lock.unlock()
+-        DispatchQueue.main.async { [weak self] in self?.refresh() }
++        return generations[peerId] ?? 0
+     }
++
++    public func observe(peerId: Int64, accountId: Int64) {}
++
+     public func setActiveAccount(_ id: Int64?) {
+         let id = id.flatMap { Self.valid($0) ? $0 : nil }
+         lock.lock()
+         guard activeAccount != id else { lock.unlock(); return }
+-        let previous = activeAccount
++        let changed = [activeAccount, id].compactMap { $0 }
+         activeAccount = id
+-        epoch += 1
+-        task?.cancel(); task = nil
+-        ownRegistrationAt = 0; nextRequestAt = 0; retryDelay = 5
+-        if let previous, var cached = cache[String(previous)] { cached.generation += 1; cache[String(previous)] = cached }
+-        if let id {
+-            let old = cache[String(id)]
+-            cache[String(id)] = Cached(registered: old?.registered ?? false, checkedAt: old?.checkedAt ?? 0, generation: (old?.generation ?? 0) + 1)
+-        }
++        for peerId in changed { generations[peerId, default: 0] += 1 }
+         lock.unlock()
+-        notify([previous, id].compactMap { $0 })
+-        refresh()
+-    }
+-    public func setForeground(_ value: Bool) {
+-        lock.lock(); foreground = value; lock.unlock()
+-        if value { refresh() }
+-    }
+-    private func notify(_ ids: [Int64]) {
+-        guard !ids.isEmpty else { return }
+         DispatchQueue.main.async {
+-            NotificationCenter.default.post(name: Self.didChange, object: self, userInfo: ["peerIds": ids])
+-        }
+-    }
+-    public func refresh() {
+-        lock.lock()
+-        let now = Date().timeIntervalSince1970
+-        guard foreground, let account = activeAccount, task == nil, now >= nextRequestAt else { lock.unlock(); return }
+-        visible = visible.filter { now - $0.value < 180 }
+-        let registering = now - ownRegistrationAt >= 3600
+-        let ids = registering ? [account] : Array(visible.keys.filter { now - (cache[String($0)]?.checkedAt ?? 0) >= 60 }.sorted().prefix(100))
+-        guard !ids.isEmpty else { lock.unlock(); return }
+-        let requestEpoch = epoch
+-        var request = URLRequest(url: Self.baseURL.appendingPathComponent(registering ? "v2/members/register" : "v2/members/lookup"))
+-        request.httpMethod = "POST"
+-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+-        let payload: [String: Any] = registering ? ["telegramId": String(account)] : ["ids": ids.map(String.init)]
+-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+-        let created = session.dataTask(with: request) { [weak self] data, response, _ in
+-            self?.complete(data: data, response: response, ids: ids, registering: registering, requestEpoch: requestEpoch)
+-        }
+-        task = created
+-        lock.unlock()
+-        created.resume()
+-    }
+-    private func complete(data: Data?, response: URLResponse?, ids: [Int64], registering: Bool, requestEpoch: Int64) {
+-        let result: [Member]?
+-        if let data, data.count <= 65536, (response as? HTTPURLResponse)?.statusCode == 200 {
+-            if registering { result = (try? JSONDecoder().decode(Member.self, from: data)).map { [$0] } }
+-            else { result = (try? JSONDecoder().decode(Lookup.self, from: data))?.members }
+-        } else { result = nil }
+-        lock.lock()
+-        guard requestEpoch == epoch else { lock.unlock(); return }
+-        task = nil
+-        let now = Date().timeIntervalSince1970
+-        let parsed = result?.compactMap { member -> (Int64, Member)? in
+-            guard let id = Int64(member.telegramId), Self.valid(id), ids.contains(id) else { return nil }
+-            return (id, member)
+-        }
+-        guard let parsed, parsed.count == ids.count, Set(parsed.map { $0.0 }) == Set(ids), !registering || parsed.allSatisfy({ $0.1.registered }) else {
+-            nextRequestAt = now + retryDelay
+-            retryDelay = min(300, retryDelay * 2)
+-            lock.unlock(); return
+-        }
+-        var changed: [Int64] = []
+-        for (id, member) in parsed {
+-            let old = cache[String(id)]
+-            let generation = (old?.generation ?? 0) + (old?.registered == member.registered ? 0 : 1)
+-            cache[String(id)] = Cached(registered: member.registered, checkedAt: now, generation: generation)
+-            if old?.registered != member.registered { changed.append(id) }
++            NotificationCenter.default.post(name: Self.didChange, object: self, userInfo: ["peerIds": changed])
+         }
+-        if registering { ownRegistrationAt = now }
+-        retryDelay = 5; nextRequestAt = now + 1
+-        if cache.count > 512 { cache = Dictionary(uniqueKeysWithValues: cache.sorted { $0.value.checkedAt > $1.value.checkedAt }.prefix(512).map { ($0.key, $0.value) }) }
+-        if let data = try? JSONEncoder().encode(cache) { defaults.set(data, forKey: cacheKey) }
+-        lock.unlock()
+-        notify(changed)
+     }
++
++    public func setForeground(_ value: Bool) {}
++
++    public func refresh() {}
+ }

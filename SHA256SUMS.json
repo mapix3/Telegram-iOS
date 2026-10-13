@@ -70,5 +70,6 @@
   "scripts/ayugram_sideload.py": "1a52f84b9d6530d154ba81acda71fd3ad7170f0c20bd44ff5a61ea291fa578fa",
   "scripts/ayugram-tests/test_sideload.py": "006376e69bffdc358d60455f194c2378532443981f565d175dbc01103a0ea842",
   "patches/34-history-retention-media-avatars.patch": "e047e0d00bc68a2ab461a94f3a97d1bdaa80299272e3f8a45409993e28d81e41",
-  "patches/35-history-timer-voice-round-avatars.patch": "0ddfb6ebbfb2e891a3814df20dddfa7a47c264f0bff42e22199f2ec26324d19f"
+  "patches/35-history-timer-voice-round-avatars.patch": "0ddfb6ebbfb2e891a3814df20dddfa7a47c264f0bff42e22199f2ec26324d19f",
+  "patches/36-local-badges-no-network.patch": "0773cc9de1a8f645bebaff8333f2b8f1efe4352d20f5951663f36b04faf23a25"
 }
