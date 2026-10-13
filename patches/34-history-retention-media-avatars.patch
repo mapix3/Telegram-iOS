@@ -1,0 +1,789 @@
+diff --git a/Swiftgram/SGSettingsUI/BUILD b/Swiftgram/SGSettingsUI/BUILD
+index 2bf06e59..a9e8d2dd 100644
+--- a/Swiftgram/SGSettingsUI/BUILD
++++ b/Swiftgram/SGSettingsUI/BUILD
+@@ -31,6 +31,7 @@ swift_library(
+         "//submodules/TelegramPresentationData:TelegramPresentationData",
+         "//submodules/TelegramUIPreferences:TelegramUIPreferences",
+         "//submodules/ItemListUI:ItemListUI",
++        "//submodules/AvatarNode:AvatarNode",
+         "//submodules/PresentationDataUtils:PresentationDataUtils",
+         "//submodules/OverlayStatusController:OverlayStatusController",
+         "//submodules/AccountContext:AccountContext",
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
+index e706fabb..bfb9285a 100644
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
+@@ -9,6 +9,7 @@ import TelegramCore
+ import TelegramPresentationData
+ import AccountContext
+ import ItemListUI
++import AvatarNode
+ import SGStrings
+ 
+ func ayuGramArchivedImage(_ url: URL, maximumPixels: Int) -> UIImage? {
+@@ -295,10 +296,12 @@ final class AyuGramHistoryCardItem: AyuGramHistoryBaseItem {
+     let context: AccountContext
+     let data: ItemListPresentationData
+     let record: AyuGramHistoryEntry
++    let peer: EnginePeer?
+     let openAuthor: () -> Void
+     let openChat: () -> Void
+     let openMedia: () -> Void
+-    init(context: AccountContext, data: ItemListPresentationData, record: AyuGramHistoryEntry, sectionId: ItemListSectionId, openAuthor: @escaping () -> Void, openChat: @escaping () -> Void, openMedia: @escaping () -> Void) {
++    init(context: AccountContext, data: ItemListPresentationData, record: AyuGramHistoryEntry, peer: EnginePeer?, sectionId: ItemListSectionId, openAuthor: @escaping () -> Void, openChat: @escaping () -> Void, openMedia: @escaping () -> Void) {
++        self.peer = peer
+         self.context = context
+         self.data = data
+         self.record = record
+@@ -356,6 +359,7 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+     private let card = UIView()
+     private let avatar = CAGradientLayer()
+     private let initials = UILabel()
++    private let avatarNode = AvatarNode(font: avatarPlaceholderFont(size: 16))
+     private let authorButton = UIButton(type: .custom)
+     private let author = UILabel()
+     private let chatTitle = UILabel()
+@@ -368,6 +372,7 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+     private let preview = UIImageView()
+     private let playBadge = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+     private let playIcon = UIImageView()
++    private let gifBadge = UILabel()
+     private let fileIcon = UIImageView()
+     private let fileTitle = UILabel()
+     private let mediaButton = UIButton(type: .custom)
+@@ -383,6 +388,8 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+         card.layer.cornerRadius = 18
+         card.layer.cornerCurve = .continuous
+         card.layer.addSublayer(avatar)
++        card.addSubview(avatarNode.view)
++        avatarNode.view.isUserInteractionEnabled = false
+         avatar.startPoint = CGPoint(x: 0.5, y: 0)
+         avatar.endPoint = CGPoint(x: 0.5, y: 1)
+         avatar.cornerRadius = 20
+@@ -411,6 +418,14 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+         playIcon.image = ayuGramSymbol("play.fill", size: 20)
+         playBadge.contentView.addSubview(playIcon)
+         preview.addSubview(playBadge)
++        gifBadge.text = "GIF"
++        gifBadge.font = UIFont.systemFont(ofSize: 11, weight: .bold)
++        gifBadge.textColor = .white
++        gifBadge.textAlignment = .center
++        gifBadge.backgroundColor = UIColor(white: 0, alpha: 0.5)
++        gifBadge.layer.cornerRadius = 6
++        gifBadge.clipsToBounds = true
++        preview.addSubview(gifBadge)
+         fileIcon.contentMode = .center
+         fileIcon.layer.cornerRadius = 10
+         fileIcon.layer.cornerCurve = .continuous
+@@ -460,6 +475,12 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+         avatar.frame = CGRect(x: 14, y: 14, width: 40, height: 40)
+         initials.text = ayuGramInitials(name)
+         initials.frame = avatar.frame
++        // The real profile photo (including a personal photo you set for a contact); initials until it loads or without a peer.
++        avatarNode.view.frame = avatar.frame
++        avatarNode.view.isHidden = item.peer == nil
++        if let peer = item.peer {
++            avatarNode.setPeer(context: item.context, theme: theme, peer: peer, synchronousLoad: false, displayDimensions: CGSize(width: 40, height: 40))
++        }
+ 
+         pillText.text = i18n(edited ? "Ayu.HistoryEdited" : "Ayu.Deleted", locale)
+         pillText.textColor = eventColor
+@@ -522,7 +543,8 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+         if let name = record.photoFileName, let url = item.context.engine.ayuGramArchivedPhotoURL(name), FileManager.default.fileExists(atPath: url.path) {
+             let kind = record.mediaKind ?? "photo"
+             let scale = UIScreen.main.scale
+-            if kind == "photo" || kind == "video" {
++            let moving = kind == "video" || kind == "gif"
++            if kind == "photo" || moving {
+                 let key = name as NSString
+                 var image = ayuGramPreviewCache.object(forKey: key)
+                 if image == nil && kind == "photo" {
+@@ -540,9 +562,11 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+                 preview.isHidden = false
+                 preview.frame = CGRect(x: 14, y: bottom, width: inner, height: height)
+                 playBadge.isHidden = kind != "video"
++                gifBadge.isHidden = kind != "gif"
++                gifBadge.frame = CGRect(x: 8, y: 8, width: 34, height: 20)
+                 playBadge.frame = CGRect(x: floor((inner - 48) / 2), y: floor((height - 48) / 2), width: 48, height: 48)
+                 playIcon.frame = CGRect(x: 2, y: 0, width: 48, height: 48)
+-                if kind == "video" && image == nil {
++                if moving && image == nil {
+                     let maximum = CGSize(width: inner * scale, height: height * scale)
+                     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+@@ -558,7 +582,7 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+                     }
+                 }
+                 mediaButton.frame = preview.frame
+-                mediaButton.accessibilityLabel = kind == "video" ? item.data.strings.Message_Video : item.data.strings.Settings_ViewPhoto
++                mediaButton.accessibilityLabel = kind == "gif" ? "GIF" : kind == "video" ? item.data.strings.Message_Video : item.data.strings.Settings_ViewPhoto
+                 bottom = preview.frame.maxY + 8
+             } else {
+                 fileIcon.isHidden = false
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+index a7382c86..d4c27f9d 100644
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+@@ -23,7 +23,7 @@ private enum HistoryEntry: ItemListNodeEntry {
+     case summary(AyuGramHistorySummary)
+     case empty(Int, String, Bool)
+     case day(Int, String, Int)
+-    case record(Int, AyuGramHistoryEntry)
++    case record(Int, AyuGramHistoryEntry, EnginePeer?)
+     case chat(Int, EnginePeer, Int)
+     var section: ItemListSectionId {
+         switch self {
+@@ -37,7 +37,7 @@ private enum HistoryEntry: ItemListNodeEntry {
+         switch self {
+         case let .setting(value): return value.stableId
+         case .summary: return 0
+-        case let .empty(id, _, _), let .day(id, _, _), let .record(id, _), let .chat(id, _, _): return id
++        case let .empty(id, _, _), let .day(id, _, _), let .record(id, _, _), let .chat(id, _, _): return id
+         }
+     }
+     static func < (lhs: HistoryEntry, rhs: HistoryEntry) -> Bool { lhs.stableId < rhs.stableId }
+@@ -51,8 +51,8 @@ private enum HistoryEntry: ItemListNodeEntry {
+             return AyuGramHistoryEmptyItem(data: presentationData, text: text, buttonTitle: canAddChats ? presentationData.strings.ChatListFolder_AddChats : nil, sectionId: section, action: { args.action(.selectChats) })
+         case let .day(_, text, count):
+             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, accessoryText: ItemListSectionHeaderAccessoryText(value: "\(count)", color: .generic), sectionId: section)
+-        case let .record(_, record):
+-            return AyuGramHistoryCardItem(context: args.context, data: presentationData, record: record, sectionId: section, openAuthor: { if let id = record.authorId { args.action(.author(id)) } }, openChat: { args.action(.chat(record.peerId, record.messageId)) }, openMedia: { if let name = record.photoFileName { args.action(.media(name, record.mediaKind ?? "photo")) } })
++        case let .record(_, record, peer):
++            return AyuGramHistoryCardItem(context: args.context, data: presentationData, record: record, peer: peer, sectionId: section, openAuthor: { if let id = record.authorId { args.action(.author(id)) } }, openChat: { args.action(.chat(record.peerId, record.messageId)) }, openMedia: { if let name = record.photoFileName { args.action(.media(name, record.mediaKind ?? "photo")) } })
+         case let .chat(_, peer, count):
+             return ItemListDisclosureItem(presentationData: presentationData, context: args.context, iconPeer: peer, title: peer.debugDisplayTitle, label: count > 0 ? "\(count)" : "", sectionId: section, style: .blocks, action: { args.action(.chatOptions(peer.id.toInt64())) })
+         }
+@@ -82,9 +82,24 @@ public func ayuGramHistoryController(context: AccountContext, messageId: Message
+             policy.set(context.engine.ayuGramSetHistoryPolicy(updated) |> mapToSignal { context.engine.ayuGramHistoryPolicy() })
+         })
+     }, action: { actionImpl?($0) })
+-    let signal = combineLatest(context.sharedContext.presentationData, records.get(), policy.get(), filter.get())
++    // Authors' (or, without an author, the chats') current peers for real avatars.
++    let peers = records.get()
++    |> mapToSignal { records -> Signal<[Int64: EnginePeer], NoError> in
++        let ids = Set(records.map { $0.authorId ?? $0.peerId })
++        return context.engine.data.subscribe(EngineDataMap(ids.map { TelegramEngine.EngineData.Item.Peer.Peer(id: PeerId($0)) }))
++        |> map { result -> [Int64: EnginePeer] in
++            var peers: [Int64: EnginePeer] = [:]
++            for (id, peer) in result {
++                if let peer {
++                    peers[id.toInt64()] = peer
++                }
++            }
++            return peers
++        }
++    }
++    let signal = combineLatest(context.sharedContext.presentationData, records.get(), policy.get(), filter.get(), peers)
+     |> deliverOnMainQueue
+-    |> map { presentationData, records, policyData, filterValue -> (ItemListControllerState, (ItemListNodeState, HistoryArguments)) in
++    |> map { presentationData, records, policyData, filterValue, peersById -> (ItemListControllerState, (ItemListNodeState, HistoryArguments)) in
+         let locale = presentationData.strings.baseLanguageCode
+         let records = records.filter { messageId == nil || ($0.peerId == messageId?.peerId.toInt64() && $0.messageId == messageId?.id) }
+         let (current, peers) = policyData
+@@ -110,7 +125,7 @@ public func ayuGramHistoryController(context: AccountContext, messageId: Message
+             while next < visible.count && calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(visible[next].timestamp))) == day { next += 1 }
+             entries.append(.day(10 + index * 2, historyDayTitle(visible[index].timestamp, locale: locale), next - index))
+             for position in index ..< next {
+-                entries.append(.record(10 + position * 2 + 1, visible[position]))
++                entries.append(.record(10 + position * 2 + 1, visible[position], peersById[visible[position].authorId ?? visible[position].peerId]))
+             }
+             index = next
+         }
+@@ -143,8 +158,9 @@ public func ayuGramHistoryController(context: AccountContext, messageId: Message
+         let data = context.sharedContext.currentPresentationData.with { $0 }
+         switch action {
+         case .selectChats:
+-            let _ = (context.engine.ayuGramHistoryPolicy() |> take(1) |> deliverOnMainQueue).startStandalone(next: { current, peers in
+-                let selection = context.sharedContext.makeContactMultiselectionController(ContactMultiselectionControllerParams(context: context, mode: .chatSelection(.init(title: data.strings.ChatListFolder_IncludeChatsTitle, searchPlaceholder: data.strings.ChatListFilter_AddChatsSearchPlaceholder, selectedChats: Set(current.selectedChats.map(PeerId.init)), additionalCategories: nil, chatListFilters: nil)), filters: [], isPeerEnabled: { $0.id.namespace != Namespaces.Peer.SecretChat }, alwaysEnabled: true, initialSelectedPeers: peers))
++            let _ = (context.engine.ayuGramHistoryPolicy() |> take(1) |> deliverOnMainQueue).startStandalone(next: { current, _ in
++                // selectedChats alone preselects; passing the peers again toggles each chat a second time and duplicates its token.
++                let selection = context.sharedContext.makeContactMultiselectionController(ContactMultiselectionControllerParams(context: context, mode: .chatSelection(.init(title: data.strings.ChatListFolder_IncludeChatsTitle, searchPlaceholder: data.strings.ChatListFilter_AddChatsSearchPlaceholder, selectedChats: Set(current.selectedChats.map(PeerId.init)), additionalCategories: nil, chatListFilters: nil)), filters: [], alwaysEnabled: true))
+                 selection.navigationPresentation = .modal
+                 let _ = (selection.result |> take(1) |> deliverOnMainQueue).startStandalone(next: { [weak selection] result in
+                     guard case let .result(ids, _) = result else { selection?.dismiss(); return }
+@@ -187,7 +203,7 @@ public func ayuGramHistoryController(context: AccountContext, messageId: Message
+             context.sharedContext.navigateToChat(accountId: context.account.id, peerId: PeerId(peer), messageId: MessageId(peerId: PeerId(peer), namespace: Namespaces.Message.Cloud, id: id))
+         case let .media(name, kind):
+             guard let url = context.engine.ayuGramArchivedPhotoURL(name), FileManager.default.fileExists(atPath: url.path) else { return }
+-            if kind == "video" {
++            if kind == "video" || (kind == "gif" && url.pathExtension.lowercased() != "gif") {
+                 let video = AVPlayerViewController()
+                 video.player = AVPlayer(url: url)
+                 controller.present(video, animated: true) { video.player?.play() }
+diff --git a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+index 31e2b5a6..b710c433 100644
+--- a/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/af.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Laat skermkiekies toe";
+ "Ayu.AllowScreenshotsInfo" = "Beskermde en geheime kletse verskyn op skermkiekies en opnames";
+ "Ayu.ContentFooter" = "Boodskappe uit beskermde kletse word as kopie sonder skrywer aangestuur; media word weer opgelaai. Die skermkiekie-instelling geld vir skerms wat weer oopgemaak word.";
+-"Ayu.SaveDeletedInfo" = "Geskrapte en gewysigde boodskappe in gekose kletse";
++"Ayu.SaveDeletedInfo" = "Bly in elke klets; gekose kletse verskyn ook in die boodskapgeskiedenis";
+ "Ayu.OpenHistory" = "Maak geskiedenis oop";
+ "Ayu.ClientSection" = "Kliënt";
+ "Ayu.LocalPremiumInfo" = "Premium-emoji en statusse net op hierdie toestel";
+diff --git a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+index 764ea04c..90f8eab7 100644
+--- a/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ar.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "السماح بلقطات الشاشة";
+ "Ayu.AllowScreenshotsInfo" = "تظهر المحادثات المحمية والسرية في لقطات الشاشة والتسجيلات";
+ "Ayu.ContentFooter" = "تُعاد توجيه رسائل المحادثات المحمية كنسخة دون اسم المرسل، ويُعاد رفع الوسائط. يُطبّق إعداد اللقطات على الشاشات المفتوحة من جديد.";
+-"Ayu.SaveDeletedInfo" = "الرسائل المحذوفة والمعدّلة في المحادثات المختارة";
++"Ayu.SaveDeletedInfo" = "تبقى في كل المحادثات، وتظهر المحادثات المختارة أيضًا في سجل الرسائل";
+ "Ayu.OpenHistory" = "فتح السجل";
+ "Ayu.ClientSection" = "التطبيق";
+ "Ayu.LocalPremiumInfo" = "رموز وحالات Premium على هذا الجهاز فقط";
+diff --git a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+index f6c2de60..2bae1061 100644
+--- a/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ca.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Permetre captures de pantalla";
+ "Ayu.AllowScreenshotsInfo" = "Els xats protegits i secrets apareixen a captures i gravacions";
+ "Ayu.ContentFooter" = "Els missatges de xats protegits es reenvien com a còpia sense autor; el contingut es torna a pujar. L’opció de captures s’aplica a pantalles obertes de nou.";
+-"Ayu.SaveDeletedInfo" = "Missatges eliminats i editats als xats triats";
++"Ayu.SaveDeletedInfo" = "Es conserven a tots els xats; els xats triats també surten a l’historial";
+ "Ayu.OpenHistory" = "Obrir l’historial";
+ "Ayu.ClientSection" = "Client";
+ "Ayu.LocalPremiumInfo" = "Emojis i estats Premium només en aquest dispositiu";
+diff --git a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+index 08af353d..386e8f91 100644
+--- a/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/cs.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Povolit snímky obrazovky";
+ "Ayu.AllowScreenshotsInfo" = "Chráněné a tajné chaty jsou vidět na snímcích a záznamech";
+ "Ayu.ContentFooter" = "Zprávy z chráněných chatů se přeposílají jako kopie bez autora; média se nahrají znovu. Nastavení snímků platí pro znovu otevřené obrazovky.";
+-"Ayu.SaveDeletedInfo" = "Smazané a upravené zprávy ve vybraných chatech";
++"Ayu.SaveDeletedInfo" = "Zůstávají v každém chatu; vybrané chaty jsou i v historii zpráv";
+ "Ayu.OpenHistory" = "Otevřít historii";
+ "Ayu.ClientSection" = "Klient";
+ "Ayu.LocalPremiumInfo" = "Prémiové emoji a statusy jen v tomto zařízení";
+diff --git a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+index 465d00e5..a9f3f5ac 100644
+--- a/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/da.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Tillad skærmbilleder";
+ "Ayu.AllowScreenshotsInfo" = "Beskyttede og hemmelige chats vises på skærmbilleder og optagelser";
+ "Ayu.ContentFooter" = "Beskeder fra beskyttede chats videresendes som kopi uden afsender; medier uploades igen. Indstillingen for skærmbilleder gælder for genåbnede skærme.";
+-"Ayu.SaveDeletedInfo" = "Slettede og redigerede beskeder i valgte chats";
++"Ayu.SaveDeletedInfo" = "Bevares i alle chats; valgte chats vises også i beskedhistorikken";
+ "Ayu.OpenHistory" = "Åbn historik";
+ "Ayu.ClientSection" = "Klient";
+ "Ayu.LocalPremiumInfo" = "Premium-emoji og statusser kun på denne enhed";
+diff --git a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+index ca33d80e..3e0d72f5 100644
+--- a/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/de.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Bildschirmfotos erlauben";
+ "Ayu.AllowScreenshotsInfo" = "Geschützte und geheime Chats erscheinen auf Bildschirmfotos und Aufnahmen";
+ "Ayu.ContentFooter" = "Nachrichten aus geschützten Chats werden als Kopie ohne Autor weitergeleitet, Medien werden neu hochgeladen. Die Bildschirmfoto-Einstellung gilt für neu geöffnete Bildschirme.";
+-"Ayu.SaveDeletedInfo" = "Gelöschte und bearbeitete Nachrichten in ausgewählten Chats";
++"Ayu.SaveDeletedInfo" = "Bleiben in jedem Chat; ausgewählte Chats erscheinen auch im Nachrichtenverlauf";
+ "Ayu.OpenHistory" = "Verlauf öffnen";
+ "Ayu.ClientSection" = "Client";
+ "Ayu.LocalPremiumInfo" = "Premium-Emojis und Status nur auf diesem Gerät";
+diff --git a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+index de7a76b3..fee0f0a6 100644
+--- a/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/el.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Να επιτρέπονται στιγμιότυπα";
+ "Ayu.AllowScreenshotsInfo" = "Οι προστατευμένες και μυστικές συνομιλίες φαίνονται σε στιγμιότυπα και εγγραφές";
+ "Ayu.ContentFooter" = "Τα μηνύματα από προστατευμένες συνομιλίες προωθούνται ως αντίγραφο χωρίς αποστολέα· τα πολυμέσα ανεβαίνουν ξανά. Η ρύθμιση στιγμιότυπων ισχύει για οθόνες που ανοίγουν ξανά.";
+-"Ayu.SaveDeletedInfo" = "Διαγραμμένα και επεξεργασμένα μηνύματα σε επιλεγμένες συνομιλίες";
++"Ayu.SaveDeletedInfo" = "Μένουν σε κάθε συνομιλία· οι επιλεγμένες εμφανίζονται και στο ιστορικό";
+ "Ayu.OpenHistory" = "Άνοιγμα ιστορικού";
+ "Ayu.ClientSection" = "Πρόγραμμα";
+ "Ayu.LocalPremiumInfo" = "Emoji και καταστάσεις Premium μόνο σε αυτή τη συσκευή";
+diff --git a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+index f57e4569..20f9d03b 100644
+--- a/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/en.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Allow screenshots";
+ "Ayu.AllowScreenshotsInfo" = "Protected and secret chats appear in screenshots and recordings";
+ "Ayu.ContentFooter" = "Messages from protected chats are forwarded as copies without the author; media is uploaded again. The screenshot setting applies to newly opened screens.";
+-"Ayu.SaveDeletedInfo" = "Deleted and edited messages in selected chats";
++"Ayu.SaveDeletedInfo" = "Kept in every chat; selected chats are also listed in Message history";
+ "Ayu.OpenHistory" = "Open history";
+ "Ayu.ClientSection" = "Client";
+ "Ayu.LocalPremiumInfo" = "Premium emoji and statuses on this device only";
+diff --git a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+index 6d727dec..991d8ebb 100644
+--- a/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/es.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Permitir capturas de pantalla";
+ "Ayu.AllowScreenshotsInfo" = "Los chats protegidos y secretos aparecen en capturas y grabaciones";
+ "Ayu.ContentFooter" = "Los mensajes de chats protegidos se reenvían como copia sin autor; el contenido multimedia se vuelve a subir. El ajuste de capturas se aplica a pantallas abiertas de nuevo.";
+-"Ayu.SaveDeletedInfo" = "Mensajes eliminados y editados en los chats elegidos";
++"Ayu.SaveDeletedInfo" = "Se conservan en todos los chats; los chats elegidos también aparecen en el historial";
+ "Ayu.OpenHistory" = "Abrir historial";
+ "Ayu.ClientSection" = "Cliente";
+ "Ayu.LocalPremiumInfo" = "Emojis y estados Premium solo en este dispositivo";
+diff --git a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+index c268e8ed..18116112 100644
+--- a/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fa.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "اجازهٔ اسکرین‌شات";
+ "Ayu.AllowScreenshotsInfo" = "گفتگوهای محافظت‌شده و مخفی در اسکرین‌شات و ضبط دیده می‌شوند";
+ "Ayu.ContentFooter" = "پیام‌های گفتگوهای محافظت‌شده بدون نام فرستنده به‌صورت کپی هدایت می‌شوند و رسانه دوباره بارگذاری می‌شود. تنظیم اسکرین‌شات برای صفحه‌های دوباره باز شده اعمال می‌شود.";
+-"Ayu.SaveDeletedInfo" = "پیام‌های حذف‌شده و ویرایش‌شده در گفتگوهای انتخابی";
++"Ayu.SaveDeletedInfo" = "در همه گفتگوها می‌مانند؛ گفتگوهای انتخابی در تاریخچه پیام‌ها هم هستند";
+ "Ayu.OpenHistory" = "باز کردن تاریخچه";
+ "Ayu.ClientSection" = "برنامه";
+ "Ayu.LocalPremiumInfo" = "ایموجی و وضعیت Premium فقط روی این دستگاه";
+diff --git a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+index f6c4091b..877c1140 100644
+--- a/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fi.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Salli kuvakaappaukset";
+ "Ayu.AllowScreenshotsInfo" = "Suojatut ja salaiset keskustelut näkyvät kuvakaappauksissa ja tallenteissa";
+ "Ayu.ContentFooter" = "Suojattujen keskustelujen viestit välitetään kopiona ilman lähettäjää; media ladataan uudelleen. Kuvakaappausasetus koskee uudelleen avattuja näkymiä.";
+-"Ayu.SaveDeletedInfo" = "Poistetut ja muokatut viestit valituissa keskusteluissa";
++"Ayu.SaveDeletedInfo" = "Säilyvät kaikissa keskusteluissa; valitut näkyvät myös viestihistoriassa";
+ "Ayu.OpenHistory" = "Avaa historia";
+ "Ayu.ClientSection" = "Sovellus";
+ "Ayu.LocalPremiumInfo" = "Premium-emojit ja tilat vain tällä laitteella";
+diff --git a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+index a78180cb..7c04b0f3 100644
+--- a/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/fr.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Autoriser les captures d’écran";
+ "Ayu.AllowScreenshotsInfo" = "Les chats protégés et secrets apparaissent sur les captures et enregistrements";
+ "Ayu.ContentFooter" = "Les messages des chats protégés sont transférés en copie sans auteur ; les médias sont renvoyés. Le réglage des captures s’applique aux écrans rouverts.";
+-"Ayu.SaveDeletedInfo" = "Messages supprimés et modifiés dans les chats choisis";
++"Ayu.SaveDeletedInfo" = "Conservés dans toutes les discussions ; celles choisies figurent aussi dans l’historique";
+ "Ayu.OpenHistory" = "Ouvrir l’historique";
+ "Ayu.ClientSection" = "Client";
+ "Ayu.LocalPremiumInfo" = "Emoji et statuts Premium sur cet appareil uniquement";
+diff --git a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+index e8b099b5..521dca50 100644
+--- a/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/he.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "לאפשר צילומי מסך";
+ "Ayu.AllowScreenshotsInfo" = "צ׳אטים מוגנים וסודיים מופיעים בצילומי מסך ובהקלטות";
+ "Ayu.ContentFooter" = "הודעות מצ׳אטים מוגנים מועברות כהעתק ללא שם השולח; המדיה מועלית מחדש. הגדרת צילומי המסך חלה על מסכים שנפתחים מחדש.";
+-"Ayu.SaveDeletedInfo" = "הודעות שנמחקו ונערכו בצ׳אטים שנבחרו";
++"Ayu.SaveDeletedInfo" = "נשמרות בכל הצ׳אטים; צ׳אטים נבחרים מופיעים גם בהיסטוריית ההודעות";
+ "Ayu.OpenHistory" = "פתיחת היסטוריה";
+ "Ayu.ClientSection" = "לקוח";
+ "Ayu.LocalPremiumInfo" = "אמוג׳י וסטטוסים של Premium במכשיר זה בלבד";
+diff --git a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+index 6f95e285..0b8c27ce 100644
+--- a/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hi.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "स्क्रीनशॉट की अनुमति दें";
+ "Ayu.AllowScreenshotsInfo" = "सुरक्षित और गुप्त चैट स्क्रीनशॉट और रिकॉर्डिंग में दिखती हैं";
+ "Ayu.ContentFooter" = "सुरक्षित चैट के संदेश लेखक के बिना कॉपी के रूप में फ़ॉरवर्ड होते हैं; मीडिया फिर से अपलोड होता है। स्क्रीनशॉट सेटिंग दोबारा खोली गई स्क्रीन पर लागू होती है।";
+-"Ayu.SaveDeletedInfo" = "चुनी गई चैट में हटाए और संपादित संदेश";
++"Ayu.SaveDeletedInfo" = "हर चैट में रहते हैं; चुनी गई चैट संदेश इतिहास में भी दिखती हैं";
+ "Ayu.OpenHistory" = "इतिहास खोलें";
+ "Ayu.ClientSection" = "क्लाइंट";
+ "Ayu.LocalPremiumInfo" = "प्रीमियम इमोजी और स्टेटस केवल इस डिवाइस पर";
+diff --git a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+index 3961a42a..0e1f7772 100644
+--- a/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/hu.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Képernyőképek engedélyezése";
+ "Ayu.AllowScreenshotsInfo" = "A védett és titkos csevegések látszanak a képernyőképeken és felvételeken";
+ "Ayu.ContentFooter" = "A védett csevegések üzenetei szerző nélküli másolatként továbbítódnak, a média újra feltöltődik. A képernyőkép-beállítás az újra megnyitott képernyőkre vonatkozik.";
+-"Ayu.SaveDeletedInfo" = "Törölt és szerkesztett üzenetek a kiválasztott csevegésekben";
++"Ayu.SaveDeletedInfo" = "Minden csevegésben megmaradnak; a kiválasztottak az üzenetelőzményekben is";
+ "Ayu.OpenHistory" = "Előzmények megnyitása";
+ "Ayu.ClientSection" = "Kliens";
+ "Ayu.LocalPremiumInfo" = "Prémium emojik és állapotok csak ezen az eszközön";
+diff --git a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+index c14de15f..860bf93f 100644
+--- a/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/id.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Izinkan tangkapan layar";
+ "Ayu.AllowScreenshotsInfo" = "Obrolan terlindungi dan rahasia terlihat di tangkapan dan rekaman layar";
+ "Ayu.ContentFooter" = "Pesan dari obrolan terlindungi diteruskan sebagai salinan tanpa pengirim; media diunggah ulang. Pengaturan tangkapan layar berlaku untuk layar yang dibuka ulang.";
+-"Ayu.SaveDeletedInfo" = "Pesan yang dihapus dan diedit di obrolan terpilih";
++"Ayu.SaveDeletedInfo" = "Tetap ada di setiap obrolan; obrolan pilihan juga tampil di riwayat pesan";
+ "Ayu.OpenHistory" = "Buka riwayat";
+ "Ayu.ClientSection" = "Klien";
+ "Ayu.LocalPremiumInfo" = "Emoji dan status Premium hanya di perangkat ini";
+diff --git a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+index 899bf62a..c5597f01 100644
+--- a/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/it.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Consenti screenshot";
+ "Ayu.AllowScreenshotsInfo" = "Le chat protette e segrete compaiono in screenshot e registrazioni";
+ "Ayu.ContentFooter" = "I messaggi delle chat protette vengono inoltrati come copia senza autore; i media vengono ricaricati. L’impostazione screenshot vale per le schermate riaperte.";
+-"Ayu.SaveDeletedInfo" = "Messaggi eliminati e modificati nelle chat scelte";
++"Ayu.SaveDeletedInfo" = "Restano in ogni chat; le chat scelte compaiono anche nella cronologia messaggi";
+ "Ayu.OpenHistory" = "Apri cronologia";
+ "Ayu.ClientSection" = "Client";
+ "Ayu.LocalPremiumInfo" = "Emoji e stati Premium solo su questo dispositivo";
+diff --git a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+index 9320c650..a1e3f848 100644
+--- a/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ja.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "スクリーンショットを許可";
+ "Ayu.AllowScreenshotsInfo" = "保護・シークレットチャットがスクリーンショットや録画に写ります";
+ "Ayu.ContentFooter" = "保護されたチャットのメッセージは送信者なしのコピーとして転送され、メディアは再アップロードされます。スクリーンショット設定は開き直した画面に適用されます。";
+-"Ayu.SaveDeletedInfo" = "選択したチャットの削除・編集されたメッセージ";
++"Ayu.SaveDeletedInfo" = "すべてのチャットに残り、選択したチャットはメッセージ履歴にも表示されます";
+ "Ayu.OpenHistory" = "履歴を開く";
+ "Ayu.ClientSection" = "クライアント";
+ "Ayu.LocalPremiumInfo" = "Premium絵文字とステータスはこの端末のみ";
+diff --git a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+index fbb8a75b..6346b9b6 100644
+--- a/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/km.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "អនុញ្ញាតរូបថតអេក្រង់";
+ "Ayu.AllowScreenshotsInfo" = "ជជែកដែលបានការពារ និងសម្ងាត់បង្ហាញក្នុងរូបថត និងការថតអេក្រង់";
+ "Ayu.ContentFooter" = "សារពីជជែកដែលបានការពារត្រូវបញ្ជូនបន្តជាច្បាប់ចម្លងគ្មានអ្នកនិពន្ធ មេឌៀត្រូវផ្ទុកឡើងម្តងទៀត។ ការកំណត់រូបថតអេក្រង់អនុវត្តចំពោះអេក្រង់ដែលបើកម្តងទៀត។";
+-"Ayu.SaveDeletedInfo" = "សារដែលបានលុប និងកែក្នុងជជែកដែលបានជ្រើស";
++"Ayu.SaveDeletedInfo" = "រក្សាទុកក្នុងការជជែកទាំងអស់ ហើយការជជែកដែលបានជ្រើសក៏មានក្នុងប្រវត្តិសារដែរ";
+ "Ayu.OpenHistory" = "បើកប្រវត្តិ";
+ "Ayu.ClientSection" = "កម្មវិធី";
+ "Ayu.LocalPremiumInfo" = "អ៊ីម៉ូជិ និងស្ថានភាព Premium តែលើឧបករណ៍នេះ";
+diff --git a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+index c7129700..621b85f8 100644
+--- a/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ko.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "스크린샷 허용";
+ "Ayu.AllowScreenshotsInfo" = "보호된 채팅과 비밀 채팅이 스크린샷과 녹화에 표시됩니다";
+ "Ayu.ContentFooter" = "보호된 채팅의 메시지는 작성자 없이 사본으로 전달되며 미디어는 다시 업로드됩니다. 스크린샷 설정은 다시 연 화면에 적용됩니다.";
+-"Ayu.SaveDeletedInfo" = "선택한 채팅의 삭제·수정된 메시지";
++"Ayu.SaveDeletedInfo" = "모든 채팅에 남고, 선택한 채팅은 메시지 기록에도 표시됩니다";
+ "Ayu.OpenHistory" = "기록 열기";
+ "Ayu.ClientSection" = "클라이언트";
+ "Ayu.LocalPremiumInfo" = "프리미엄 이모지와 상태는 이 기기에서만";
+diff --git a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+index ac92a0a2..dc408377 100644
+--- a/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ku.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Destûra wêneyên ekranê";
+ "Ayu.AllowScreenshotsInfo" = "Sohbetên parastî û veşartî di wêneyên ekranê de xuya dibin";
+ "Ayu.ContentFooter" = "Peyamên sohbetên parastî wek kopî bê nivîskar têne şandin; medya ji nû ve tê barkirin. Mîhenga wêneyên ekranê ji bo ekranên ji nû ve vebûyî derbas dibe.";
+-"Ayu.SaveDeletedInfo" = "Peyamên jêbirî û guhertî di sohbetên hilbijartî de";
++"Ayu.SaveDeletedInfo" = "Di hemû sohbetan de dimînin; sohbetên hilbijartî di dîroka peyaman de jî xuya dibin";
+ "Ayu.OpenHistory" = "Dîrokê veke";
+ "Ayu.ClientSection" = "Bername";
+ "Ayu.LocalPremiumInfo" = "Emojî û rewşên Premium tenê li ser vê amûrê";
+diff --git a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+index 77407cc0..3f7104d8 100644
+--- a/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/nl.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Schermafbeeldingen toestaan";
+ "Ayu.AllowScreenshotsInfo" = "Beveiligde en geheime chats verschijnen op schermafbeeldingen en opnames";
+ "Ayu.ContentFooter" = "Berichten uit beveiligde chats worden als kopie zonder auteur doorgestuurd; media wordt opnieuw geüpload. De instelling voor schermafbeeldingen geldt voor opnieuw geopende schermen.";
+-"Ayu.SaveDeletedInfo" = "Verwijderde en bewerkte berichten in gekozen chats";
++"Ayu.SaveDeletedInfo" = "Blijven in elke chat; gekozen chats staan ook in de berichtgeschiedenis";
+ "Ayu.OpenHistory" = "Geschiedenis openen";
+ "Ayu.ClientSection" = "Client";
+ "Ayu.LocalPremiumInfo" = "Premium-emoji en statussen alleen op dit apparaat";
+diff --git a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+index df504dae..bbcd075a 100644
+--- a/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/no.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Tillat skjermbilder";
+ "Ayu.AllowScreenshotsInfo" = "Beskyttede og hemmelige chatter vises på skjermbilder og opptak";
+ "Ayu.ContentFooter" = "Meldinger fra beskyttede chatter videresendes som kopi uten avsender; medier lastes opp på nytt. Innstillingen for skjermbilder gjelder for skjermer som åpnes på nytt.";
+-"Ayu.SaveDeletedInfo" = "Slettede og redigerte meldinger i valgte chatter";
++"Ayu.SaveDeletedInfo" = "Beholdes i alle chatter; valgte chatter vises også i meldingshistorikken";
+ "Ayu.OpenHistory" = "Åpne historikk";
+ "Ayu.ClientSection" = "Klient";
+ "Ayu.LocalPremiumInfo" = "Premium-emoji og statuser kun på denne enheten";
+diff --git a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+index 4ffec065..3d2081b6 100644
+--- a/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pl.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Zezwalaj na zrzuty ekranu";
+ "Ayu.AllowScreenshotsInfo" = "Chronione i tajne czaty są widoczne na zrzutach i nagraniach";
+ "Ayu.ContentFooter" = "Wiadomości z chronionych czatów są przekazywane jako kopia bez autora; multimedia są wysyłane ponownie. Ustawienie zrzutów dotyczy ponownie otwartych ekranów.";
+-"Ayu.SaveDeletedInfo" = "Usunięte i edytowane wiadomości w wybranych czatach";
++"Ayu.SaveDeletedInfo" = "Zostają w każdym czacie; wybrane czaty trafiają też do historii wiadomości";
+ "Ayu.OpenHistory" = "Otwórz historię";
+ "Ayu.ClientSection" = "Klient";
+ "Ayu.LocalPremiumInfo" = "Emoji i statusy Premium tylko na tym urządzeniu";
+diff --git a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+index 3cefba13..eb9570e7 100644
+--- a/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/pt.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Permitir capturas de tela";
+ "Ayu.AllowScreenshotsInfo" = "Chats protegidos e secretos aparecem em capturas e gravações";
+ "Ayu.ContentFooter" = "Mensagens de chats protegidos são encaminhadas como cópia sem autor; a mídia é enviada novamente. A opção de capturas vale para telas abertas de novo.";
+-"Ayu.SaveDeletedInfo" = "Mensagens apagadas e editadas nos chats escolhidos";
++"Ayu.SaveDeletedInfo" = "Mantidas em todos os chats; os chats escolhidos também aparecem no histórico";
+ "Ayu.OpenHistory" = "Abrir histórico";
+ "Ayu.ClientSection" = "Cliente";
+ "Ayu.LocalPremiumInfo" = "Emojis e status Premium apenas neste dispositivo";
+diff --git a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+index 53296c06..1e1b6ee4 100644
+--- a/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ro.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Permite capturi de ecran";
+ "Ayu.AllowScreenshotsInfo" = "Chaturile protejate și secrete apar în capturi și înregistrări";
+ "Ayu.ContentFooter" = "Mesajele din chaturi protejate sunt redirecționate ca o copie fără autor; fișierele media se încarcă din nou. Setarea pentru capturi se aplică ecranelor redeschise.";
+-"Ayu.SaveDeletedInfo" = "Mesaje șterse și editate în chaturile alese";
++"Ayu.SaveDeletedInfo" = "Rămân în toate chaturile; chaturile alese apar și în istoricul mesajelor";
+ "Ayu.OpenHistory" = "Deschide istoricul";
+ "Ayu.ClientSection" = "Client";
+ "Ayu.LocalPremiumInfo" = "Emoji și stări Premium doar pe acest dispozitiv";
+diff --git a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+index 379604c5..0bb718eb 100644
+--- a/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/ru.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Разрешить скриншоты";
+ "Ayu.AllowScreenshotsInfo" = "Защищённые и секретные чаты видны на снимках и записи экрана";
+ "Ayu.ContentFooter" = "Сообщения из защищённых чатов пересылаются копией без автора, медиа загружается заново. Настройка скриншотов применяется к заново открытым экранам.";
+-"Ayu.SaveDeletedInfo" = "Удалённые и изменённые сообщения в выбранных чатах";
++"Ayu.SaveDeletedInfo" = "Остаются во всех чатах; выбранные чаты также попадают в историю сообщений";
+ "Ayu.OpenHistory" = "Открыть историю";
+ "Ayu.ClientSection" = "Клиент";
+ "Ayu.LocalPremiumInfo" = "Premium-эмодзи и статусы только на этом устройстве";
+diff --git a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+index 00362975..cee2b164 100644
+--- a/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/si.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "තිර රූවලට ඉඩ දෙන්න";
+ "Ayu.AllowScreenshotsInfo" = "ආරක්ෂිත සහ රහස් කතාබහ තිර රූ සහ පටිගත කිරීම්වල පෙනේ";
+ "Ayu.ContentFooter" = "ආරක්ෂිත කතාබහවල පණිවිඩ කතුවරයා නොමැති පිටපතක් ලෙස යොමු වේ; මාධ්‍ය නැවත උඩුගත වේ. තිර රූ සැකසුම නැවත විවෘත කළ තිරවලට අදාළ වේ.";
+-"Ayu.SaveDeletedInfo" = "තෝරාගත් කතාබහවල මකා දැමූ සහ සංස්කරණය කළ පණිවිඩ";
++"Ayu.SaveDeletedInfo" = "සියලු කතාබස්වල රැඳේ; තෝරාගත් කතාබස් පණිවිඩ ඉතිහාසයේද පෙන්වයි";
+ "Ayu.OpenHistory" = "ඉතිහාසය විවෘත කරන්න";
+ "Ayu.ClientSection" = "සේවාලාභියා";
+ "Ayu.LocalPremiumInfo" = "Premium ඉමෝජි සහ තත්ත්ව මෙම උපාංගයේ පමණි";
+diff --git a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+index ab932f46..0b7a8a0f 100644
+--- a/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sk.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Povoliť snímky obrazovky";
+ "Ayu.AllowScreenshotsInfo" = "Chránené a tajné chaty sú viditeľné na snímkach a záznamoch";
+ "Ayu.ContentFooter" = "Správy z chránených chatov sa preposielajú ako kópia bez autora; médiá sa nahrajú znova. Nastavenie snímok platí pre znova otvorené obrazovky.";
+-"Ayu.SaveDeletedInfo" = "Odstránené a upravené správy vo vybraných chatoch";
++"Ayu.SaveDeletedInfo" = "Zostávajú v každom čete; vybrané čety sú aj v histórii správ";
+ "Ayu.OpenHistory" = "Otvoriť históriu";
+ "Ayu.ClientSection" = "Klient";
+ "Ayu.LocalPremiumInfo" = "Prémiové emoji a stavy len v tomto zariadení";
+diff --git a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+index 7fec6046..9c240b8a 100644
+--- a/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sr.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Дозволи снимке екрана";
+ "Ayu.AllowScreenshotsInfo" = "Заштићена и тајна ћаскања виде се на снимцима екрана";
+ "Ayu.ContentFooter" = "Поруке из заштићених ћаскања прослеђују се као копија без аутора; медији се поново отпремају. Подешавање снимака важи за поново отворене екране.";
+-"Ayu.SaveDeletedInfo" = "Обрисане и измењене поруке у изабраним ћаскањима";
++"Ayu.SaveDeletedInfo" = "Остају у сваком ћаскању; изабрана ћаскања су и у историји порука";
+ "Ayu.OpenHistory" = "Отвори историју";
+ "Ayu.ClientSection" = "Клијент";
+ "Ayu.LocalPremiumInfo" = "Premium емоџији и статуси само на овом уређају";
+diff --git a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+index 3984307d..d70f3d58 100644
+--- a/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/sv.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Tillåt skärmdumpar";
+ "Ayu.AllowScreenshotsInfo" = "Skyddade och hemliga chattar syns på skärmdumpar och inspelningar";
+ "Ayu.ContentFooter" = "Meddelanden från skyddade chattar vidarebefordras som kopia utan avsändare; media laddas upp igen. Inställningen för skärmdumpar gäller för skärmar som öppnas på nytt.";
+-"Ayu.SaveDeletedInfo" = "Raderade och redigerade meddelanden i valda chattar";
++"Ayu.SaveDeletedInfo" = "Sparas i alla chattar; valda chattar visas även i meddelandehistoriken";
+ "Ayu.OpenHistory" = "Öppna historik";
+ "Ayu.ClientSection" = "Klient";
+ "Ayu.LocalPremiumInfo" = "Premium-emoji och statusar endast på den här enheten";
+diff --git a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+index 90cf14a6..381f1a8a 100644
+--- a/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/tr.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Ekran görüntüsüne izin ver";
+ "Ayu.AllowScreenshotsInfo" = "Korumalı ve gizli sohbetler ekran görüntüsü ve kayıtlarda görünür";
+ "Ayu.ContentFooter" = "Korumalı sohbetlerden mesajlar yazarsız kopya olarak iletilir; medya yeniden yüklenir. Ekran görüntüsü ayarı yeniden açılan ekranlara uygulanır.";
+-"Ayu.SaveDeletedInfo" = "Seçili sohbetlerde silinen ve düzenlenen mesajlar";
++"Ayu.SaveDeletedInfo" = "Tüm sohbetlerde kalır; seçilen sohbetler mesaj geçmişinde de görünür";
+ "Ayu.OpenHistory" = "Geçmişi aç";
+ "Ayu.ClientSection" = "İstemci";
+ "Ayu.LocalPremiumInfo" = "Premium emoji ve durumlar yalnızca bu cihazda";
+diff --git a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+index 1c28734a..61317c6e 100644
+--- a/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uk.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Дозволити знімки екрана";
+ "Ayu.AllowScreenshotsInfo" = "Захищені й секретні чати видно на знімках і записі екрана";
+ "Ayu.ContentFooter" = "Повідомлення із захищених чатів пересилаються копією без автора, медіа завантажується знову. Налаштування знімків діє для щойно відкритих екранів.";
+-"Ayu.SaveDeletedInfo" = "Видалені та змінені повідомлення у вибраних чатах";
++"Ayu.SaveDeletedInfo" = "Залишаються в усіх чатах; вибрані чати також потрапляють в історію повідомлень";
+ "Ayu.OpenHistory" = "Відкрити історію";
+ "Ayu.ClientSection" = "Клієнт";
+ "Ayu.LocalPremiumInfo" = "Premium-емодзі та статуси лише на цьому пристрої";
+diff --git a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+index a194ce6f..8efbcde0 100644
+--- a/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/uz.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Skrinshotlarga ruxsat";
+ "Ayu.AllowScreenshotsInfo" = "Himoyalangan va maxfiy chatlar skrinshot va yozuvlarda ko‘rinadi";
+ "Ayu.ContentFooter" = "Himoyalangan chatlardagi xabarlar muallifsiz nusxa sifatida uzatiladi, media qayta yuklanadi. Skrinshot sozlamasi qayta ochilgan ekranlarga qo‘llanadi.";
+-"Ayu.SaveDeletedInfo" = "Tanlangan chatlardagi o‘chirilgan va tahrirlangan xabarlar";
++"Ayu.SaveDeletedInfo" = "Barcha chatlarda qoladi; tanlangan chatlar xabarlar tarixida ham ko‘rinadi";
+ "Ayu.OpenHistory" = "Tarixni ochish";
+ "Ayu.ClientSection" = "Mijoz";
+ "Ayu.LocalPremiumInfo" = "Premium emoji va holatlar faqat shu qurilmada";
+diff --git a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+index db5f7c43..1668a7f4 100644
+--- a/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/vi.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "Cho phép chụp màn hình";
+ "Ayu.AllowScreenshotsInfo" = "Cuộc trò chuyện được bảo vệ và bí mật hiện trong ảnh chụp và bản ghi màn hình";
+ "Ayu.ContentFooter" = "Tin nhắn từ cuộc trò chuyện được bảo vệ được chuyển tiếp dưới dạng bản sao không tác giả; phương tiện được tải lên lại. Cài đặt chụp màn hình áp dụng cho màn hình mở lại.";
+-"Ayu.SaveDeletedInfo" = "Tin nhắn đã xóa và đã sửa trong các cuộc trò chuyện đã chọn";
++"Ayu.SaveDeletedInfo" = "Giữ lại trong mọi cuộc trò chuyện; cuộc trò chuyện đã chọn cũng có trong lịch sử";
+ "Ayu.OpenHistory" = "Mở lịch sử";
+ "Ayu.ClientSection" = "Ứng dụng";
+ "Ayu.LocalPremiumInfo" = "Emoji và trạng thái Premium chỉ trên thiết bị này";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+index 0915b2c5..28a6d78c 100644
+--- a/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hans.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "允许截屏";
+ "Ayu.AllowScreenshotsInfo" = "受保护和私密聊天会出现在截屏和录屏中";
+ "Ayu.ContentFooter" = "受保护聊天的消息将以不含作者的副本转发，媒体会重新上传。截屏设置对重新打开的界面生效。";
+-"Ayu.SaveDeletedInfo" = "所选聊天中被删除和编辑的消息";
++"Ayu.SaveDeletedInfo" = "保留在所有聊天中；所选聊天也会显示在消息历史中";
+ "Ayu.OpenHistory" = "打开历史";
+ "Ayu.ClientSection" = "客户端";
+ "Ayu.LocalPremiumInfo" = "Premium 表情和状态仅在此设备上";
+diff --git a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+index 0eec5e11..38e4005a 100644
+--- a/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
++++ b/Swiftgram/SGStrings/Strings/zh-hant.lproj/SGLocalizable.strings
+@@ -28,7 +28,7 @@
+ "Ayu.AllowScreenshots" = "允許截圖";
+ "Ayu.AllowScreenshotsInfo" = "受保護和私密聊天會出現在截圖和螢幕錄影中";
+ "Ayu.ContentFooter" = "受保護聊天的訊息會以不含作者的副本轉傳，媒體會重新上傳。截圖設定會套用到重新開啟的畫面。";
+-"Ayu.SaveDeletedInfo" = "所選聊天中被刪除和編輯的訊息";
++"Ayu.SaveDeletedInfo" = "保留在所有聊天中；所選聊天也會顯示在訊息歷史中";
+ "Ayu.OpenHistory" = "開啟紀錄";
+ "Ayu.ClientSection" = "用戶端";
+ "Ayu.LocalPremiumInfo" = "Premium 表情符號和狀態僅限此裝置";
+diff --git a/submodules/TelegramCore/Sources/State/AccountStateManager.swift b/submodules/TelegramCore/Sources/State/AccountStateManager.swift
+index d4c91139..1c559bdc 100644
+--- a/submodules/TelegramCore/Sources/State/AccountStateManager.swift
++++ b/submodules/TelegramCore/Sources/State/AccountStateManager.swift
+@@ -1209,6 +1209,7 @@ public final class AccountStateManager {
+                 if events.delayNotificatonsUntil != nil {
+                     let _ = self.delayNotificatonsUntil.swap(events.delayNotificatonsUntil)
+                 }
++                ayuGramPrefetchHistoryMedia(postbox: self.postbox, ids: events.addedIncomingMessageIds)
+                 
+                 let signal = self.postbox.transaction { transaction -> [([Message], PeerGroupId, Bool, MessageHistoryThreadData?)] in
+                     var messageList: [([Message], PeerGroupId, Bool, MessageHistoryThreadData?)] = []
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+index ebd54a97..5de83c0d 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+@@ -68,6 +68,46 @@ private func pruneHistory(_ history: inout AyuGramHistory, transaction: Transact
+     }
+ }
+ 
++/// Downloads the photos, GIFs, videos and pictures of new messages in Message history
++/// chats right away, so a later deletion keeps them even if the chat was never opened.
++func ayuGramPrefetchHistoryMedia(postbox: Postbox, ids: [MessageId]) {
++    guard AyuGramSettings.shared.snapshot.messageHistory, !ids.isEmpty else { return }
++    let mediaBox = postbox.mediaBox
++    let _ = (postbox.transaction { transaction -> [(Message, Media, MediaResource, MediaResourceUserContentType)] in
++        let policy = transaction.getPreferencesEntry(key: ayuGramHistoryPolicyKey)?.get(AyuGramHistoryPolicy.self) ?? AyuGramHistoryPolicy()
++        let selected = Set(policy.selectedChats)
++        guard policy.savePhotos, !selected.isEmpty else { return [] }
++        var items: [(Message, Media, MediaResource, MediaResourceUserContentType)] = []
++        for id in ids where selected.contains(id.peerId.toInt64()) && ayuGramIsRetainable(transaction: transaction, id: id) {
++            guard let message = transaction.getMessage(id) else { continue }
++            for media in message.media {
++                if let image = media as? TelegramMediaImage, let representation = largestImageRepresentation(image.representations) {
++                    items.append((message, image, representation.resource, .image))
++                } else if let file = media as? TelegramMediaFile, !file.isSticker, !file.isVoice, let size = file.size, size <= 20 * 1024 * 1024,
++                          file.isVideo || file.isAnimated || file.mimeType.hasPrefix("image/") {
++                    items.append((message, file, file.resource, MediaResourceUserContentType(file: file)))
++                }
++            }
++        }
++        return items
++    }
++    |> deliverOnMainQueue).startStandalone(next: { items in
++        for (message, media, resource, contentType) in items {
++            let _ = fetchedMediaResource(mediaBox: mediaBox, userLocation: .peer(message.id.peerId), userContentType: contentType, reference: .media(media: .message(message: MessageReference(message), media: media), resource: resource)).startStandalone()
++        }
++    })
++}
++
++/// Messages Save Deleted Messages may keep: cloud messages outside secret chats,
++/// without secret or self-destructing media and not copy-protected.
++func ayuGramIsRetainable(transaction: Transaction, id: MessageId) -> Bool {
++    guard id.namespace == Namespaces.Message.Cloud, id.peerId.namespace != Namespaces.Peer.SecretChat,
++          let message = transaction.getMessage(id), !message.containsSecretMedia,
++          !message.isCopyProtected(),
++          !message.attributes.contains(where: { $0 is AutoremoveTimeoutMessageAttribute || $0 is AutoclearTimeoutMessageAttribute }) else { return false }
++    return !message.text.isEmpty || !message.media.isEmpty
++}
++
+ @discardableResult
+ func ayuGramRecordHistory(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], event: String) -> Set<MessageId> {
+     guard AyuGramSettings.shared.snapshot.messageHistory else { return [] }
+@@ -108,7 +148,8 @@ func ayuGramRecordHistory(transaction: Transaction, mediaBox: MediaBox, ids: [Me
+                     if let path = mediaBox.completedResourcePath(file.resource) {
+                         source = path
+                         resourceId = file.resource.id.stringRepresentation
+-                        kind = file.isVideo ? "video" : "file"
++                        // Pictures sent as files and GIFs are shown inline like photos and videos.
++                        kind = file.isAnimated ? "gif" : file.isVideo ? "video" : file.mimeType.hasPrefix("image/") ? "photo" : "file"
+                         mediaTitle = file.fileName
+                         let suffix = URL(fileURLWithPath: file.fileName ?? "").pathExtension
+                         fileExtension = !suffix.isEmpty && suffix.count <= 10 && suffix.allSatisfy({ $0.isLetter || $0.isNumber }) ? suffix : (file.isVideo ? "mp4" : "bin")
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
+index b80be0c5..f49489b1 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
+@@ -1,5 +1,6 @@
+ import Foundation
+ import Postbox
++import SGSimpleSettings
+ 
+ func ayuGramDeleteRemoteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], manualAddMessageThreadStatsDifference: ((MessageThreadKey, Int, Int) -> Void)? = nil) {
+     let ids = ids.filter { transaction.getMessage($0)?.ayuHistory?.deletedAt == nil }
+@@ -7,7 +8,9 @@ func ayuGramDeleteRemoteMessages(transaction: Transaction, mediaBox: MediaBox, i
+     let recorded = ayuGramRecordHistory(transaction: transaction, mediaBox: mediaBox, ids: ids, event: "deleted")
+     let policy = transaction.getPreferencesEntry(key: applicationSpecificPreferencesKey(0x415956))?.get(AyuGramHistoryPolicy.self) ?? AyuGramHistoryPolicy()
+     var retained: [StoreMessage] = []
+-    for id in ids where recorded.contains(id) {
++    // Every chat keeps its deleted messages; only the selected chats are also listed in Message history.
++    let keepAll = AyuGramSettings.shared.snapshot.messageHistory
++    for id in ids where recorded.contains(id) || (keepAll && ayuGramIsRetainable(transaction: transaction, id: id)) {
+         guard let message = transaction.getMessage(id) else { continue }
+         var attributes = message.attributes.filter { !($0 is AyuHistoryMessageAttribute) }
+         attributes.append(AyuHistoryMessageAttribute(originalText: message.ayuHistory?.originalText ?? message.text, editedAt: message.ayuHistory?.editedAt, deletedAt: message.ayuHistory?.deletedAt ?? Int32(Date().timeIntervalSince1970)))

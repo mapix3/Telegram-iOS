@@ -231,6 +231,13 @@ extension UIColor {
 struct ItemListPresentationData { var theme = CompatibilityTheme(); var strings = PresentationStrings() }
 struct CompatibilityEngine { func ayuGramArchivedPhotoURL(_ name: String) -> URL? { nil } }
 struct AccountContext { var engine = CompatibilityEngine() }
+struct EnginePeer: Equatable {}
+final class AvatarNode {
+    let view = UIView()
+    init(font: UIFont) {}
+    func setPeer(context: AccountContext, theme: PresentationTheme, peer: EnginePeer?, synchronousLoad: Bool, displayDimensions: CGSize) {}
+}
+func avatarPlaceholderFont(size: CGFloat) -> UIFont { .systemFont(ofSize: size) }
 func i18n(_ key: String, _ language: String) -> String { key }
 '''
     native += re.sub(r'^import \w+\n', '', card, flags=re.M)

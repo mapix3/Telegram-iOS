@@ -67,6 +67,13 @@ def check_sources(source: Path, variant: str):
         assert token in cards, token
     for key in re.findall(r'i18n\("Ayu\.([A-Za-z]+)"', history + cards):
         assert key in NEW_KEYS or key in ('History', 'SaveMedia', 'HistoryInfo', 'ClearHistory', 'EmptyHistory', 'BeforeEdit', 'Deleted'), key
+    kept = (source / 'submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift').read_text()
+    assert 'recorded.contains(id) || (keepAll && ayuGramIsRetainable(transaction: transaction, id: id))' in kept, 'Deleted messages stay in every chat, not only the history chats'
+    assert 'avatarNode.setPeer(context: item.context' in cards and 'peersById[' in history, 'History cards show real avatars'
+    assert 'initialSelectedPeers' not in history, 'The chat picker preselects once; initialSelectedPeers toggles chats again and duplicates tokens'
+    manager = (source / 'submodules/TelegramCore/Sources/State/AccountStateManager.swift').read_text()
+    assert 'ayuGramPrefetchHistoryMedia(postbox: self.postbox, ids: events.addedIncomingMessageIds)' in manager, 'Media in history chats is downloaded on arrival'
+    assert 'kind = file.isAnimated ? "gif"' in (source / 'submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift').read_text(), 'GIFs and pictures sent as files are previewed'
     delegate = (source / 'submodules/TelegramUI/Sources/AppDelegate.swift').read_text()
     assert 'let maybeAppGroupUrl = sgAppGroupContainerURL(appGroupName)' in delegate, 'Sideloaded installs without the app group still start'
     group = (source / 'Swiftgram/SGAppGroupIdentifier/Sources/SGAppGroupIdentifier.swift').read_text()
