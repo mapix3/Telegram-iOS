@@ -135,7 +135,7 @@ def build(source, ci, output, env):
     number = 100000 + int(env.get('GITHUB_RUN_NUMBER', '1')) * 100 + int(env.get('GITHUB_RUN_ATTEMPT', '1'))
     manifest = {'source_repository': 'Swiftgram/Telegram-iOS', 'source_commit': head,
                 'ci_commit': env.get('GITHUB_SHA'), 'requested_stage': stage,
-                'configuration': configuration, 'signing': 'unsigned; requires separate signing',
+                'configuration': configuration, 'signing': 'ad-hoc with app group entitlements; requires re-signing to install',
                 'build_intermediate': build_intermediate, 'variant': variant,
                 'xcode': xcode, 'versions': versions, 'build_number': number, 'stages': [],
                 'status': 'running'}
@@ -262,6 +262,11 @@ def build(source, ci, output, env):
                 entry['branding_verified'] = True
             target = output / ('AyuGram-' + (variant if name == 'history' else name) + '-unsigned.ipa')
             shutil.copyfile(ipa, target)
+            target.chmod(0o644)
+            # Sideloading tools read the app group from the binaries; embed it for the app and every extension.
+            from ayugram_sideload import embed_sideload_entitlements
+            entry['extensions'] = embed_sideload_entitlements(target, config['team_id'])
+            entry['app'] = verify_ipa(target, config['bundle_id'])
             entry.update(status='success', ipa=target.name,
                          sha256=hashlib.sha256(target.read_bytes()).hexdigest())
             save_manifest(manifest_path, manifest)

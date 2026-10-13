@@ -4,7 +4,7 @@
   "docs/AYUGRAM-CLIENT-EXTRAS.md": "8cddef7ec3653265fe8976f158351c2088df0ffed40f673c163392d4882565f3",
   "docs/AYUGRAM-FOLLOWUP.md": "b5bc1c071c5bc4c877280674d988a41d09380e6f8e25c4346d1f355ac07cad80",
   "docs/AYUGRAM-VALIDATION.md": "9cd67a51a8abc8a1e2f01bfaa99906bb5704824e4fa990974765cc701448859c",
-  "docs/REFINEMENTS.md": "762cec01846f6e1ea36f68a8d77182094abab61c773dac8de5e3c106a12fde00",
+  "docs/REFINEMENTS.md": "30a185e05b1d8b185cd63130a4bd096767df651126c8bf86f145391ef038f042",
   "docs/SHARED-PROFILES.md": "5056a8be983c2ff583d18616025071fb2c88ceae1c1dc69efa1a19973c696c99",
   "patches/01-privacy.patch": "40052ab7abc609ae5f6b4e6e6477baf703b25562ad2b071d5ac35e1a74df8723",
   "patches/02-history.patch": "f4b1c0ee9dad85b8f6a8129a5c20916b0be3266e46012221ccc2e9dc534f6687",
@@ -39,7 +39,7 @@
   "scripts/ayugram-tests/test_ci.py": "260c3041a68be10030b15f65618d0b7e1092d3bfb1c6826b17e87b7caaa70005",
   "scripts/ayugram-tests/test_history_checks.py": "673352610d1ae5dfec24ae232d1e4344dca64d6d8864d2568564d9ebec69ab5f",
   "scripts/ayugram_branding.py": "1df06b46cb79d28436a3792949da286266a059797afd0e0ba8736cd99dab55f1",
-  "scripts/ayugram_ci.py": "e283dec959fc9fbe3f343ecea2b99d2ab1fe16d92481f7fb9b93416f67f5c8c8",
+  "scripts/ayugram_ci.py": "627936717af4907b69295c8ab95aad12bf9a9afb6508396741be666d99552724",
   "scripts/ayugram_compatibility.py": "f1c313a408e18482edb80983ba1fcc9f25d3c862ba78a8e4d2039b685046a8fa",
   "scripts/ayugram_emoji_checks.py": "ab5e45e8af81512ba00cd6d74b0f9b9ec8f62817fabc20c95a59c02c352d222b",
   "scripts/ayugram_history_checks.py": "c59436dfcb162d3e20b5c0c61cb2e2338081c6f3eb10cb5dae82c4ee759a9fc4",
@@ -66,5 +66,7 @@
   "patches/30-wallpaper-main-thread-layer-custom.patch": "b462c04b6d2364b8e9592cb262a4d0bca4d2066f2a68b2cdc68b63ec438193ea",
   "patches/31-ghost-read-state-loop.patch": "d68a3d366cc3b455d9d5ccf52a20fed5a747acd24cfb418328f9989cd0b6a7a2",
   "patches/32-message-history-redesign.patch": "697d6df951a48e297f6ab2f72eb1c50611b8a2365dc959b38f030dac220dd8a5",
-  "patches/33-sideload-app-group-fallback.patch": "94c618db812c18fd539f28651a68413124bd0c387486eb0cb6bba027cc74dced"
+  "patches/33-sideload-app-group-fallback.patch": "94c618db812c18fd539f28651a68413124bd0c387486eb0cb6bba027cc74dced",
+  "scripts/ayugram_sideload.py": "1a52f84b9d6530d154ba81acda71fd3ad7170f0c20bd44ff5a61ea291fa578fa",
+  "scripts/ayugram-tests/test_sideload.py": "006376e69bffdc358d60455f194c2378532443981f565d175dbc01103a0ea842"
 }
