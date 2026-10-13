@@ -1,0 +1,240 @@
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
+index bfb9285a..582f1b37 100644
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryCardItem.swift
+@@ -450,7 +450,14 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+ 
+     @objc private func openChat() { item?.openChat() }
+     @objc private func openAuthor() { item?.openAuthor() }
+-    @objc private func openMedia() { item?.openMedia() }
++    @objc private func openMedia() {
++        // Voice messages (and ones archived as .bin before their kind was known) play in the chat.
++        if item?.record.mediaKind == "voice" || item?.record.photoFileName?.hasSuffix(".bin") == true {
++            item?.openChat()
++        } else {
++            item?.openMedia()
++        }
++    }
+ 
+     override func layoutHistory(_ baseItem: AyuGramHistoryBaseItem, params: ListViewItemLayoutParams) -> ListViewItemNodeLayout {
+         guard let item = baseItem as? AyuGramHistoryCardItem else { preconditionFailure() }
+@@ -476,8 +483,9 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+         initials.text = ayuGramInitials(name)
+         initials.frame = avatar.frame
+         // The real profile photo (including a personal photo you set for a contact); initials until it loads or without a peer.
+-        avatarNode.view.frame = avatar.frame
+-        avatarNode.view.isHidden = item.peer == nil
++        // The node's own frame sizes its content; setting only the view's frame left it zero-sized.
++        avatarNode.frame = avatar.frame
++        avatarNode.isHidden = item.peer == nil
+         if let peer = item.peer {
+             avatarNode.setPeer(context: item.context, theme: theme, peer: peer, synchronousLoad: false, displayDimensions: CGSize(width: 40, height: 40))
+         }
+@@ -543,7 +551,8 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+         if let name = record.photoFileName, let url = item.context.engine.ayuGramArchivedPhotoURL(name), FileManager.default.fileExists(atPath: url.path) {
+             let kind = record.mediaKind ?? "photo"
+             let scale = UIScreen.main.scale
+-            let moving = kind == "video" || kind == "gif"
++            let round = kind == "round"
++            let moving = kind == "video" || kind == "gif" || round
+             if kind == "photo" || moving {
+                 let key = name as NSString
+                 var image = ayuGramPreviewCache.object(forKey: key)
+@@ -554,20 +563,25 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+                 let height: CGFloat
+                 if kind == "photo", let image, image.size.width > 0 {
+                     height = min(260, max(120, inner * image.size.height / image.size.width))
++                } else if round {
++                    height = min(200, inner)
+                 } else {
+                     height = min(220, floor(inner * 9 / 16))
+                 }
+                 preview.image = image
+                 preview.backgroundColor = eventColor.withMultipliedAlpha(0.12)
+                 preview.isHidden = false
+-                preview.frame = CGRect(x: 14, y: bottom, width: inner, height: height)
+-                playBadge.isHidden = kind != "video"
++                // A round video is a circle; everything else fills the card width.
++                preview.frame = round ? CGRect(x: 14 + floor((inner - height) / 2), y: bottom, width: height, height: height) : CGRect(x: 14, y: bottom, width: inner, height: height)
++                preview.layer.cornerRadius = round ? height / 2 : 12
++                let previewWidth = preview.frame.width
++                playBadge.isHidden = kind != "video" && !round
+                 gifBadge.isHidden = kind != "gif"
+                 gifBadge.frame = CGRect(x: 8, y: 8, width: 34, height: 20)
+-                playBadge.frame = CGRect(x: floor((inner - 48) / 2), y: floor((height - 48) / 2), width: 48, height: 48)
++                playBadge.frame = CGRect(x: floor((previewWidth - 48) / 2), y: floor((height - 48) / 2), width: 48, height: 48)
+                 playIcon.frame = CGRect(x: 2, y: 0, width: 48, height: 48)
+                 if moving && image == nil {
+-                    let maximum = CGSize(width: inner * scale, height: height * scale)
++                    let maximum = CGSize(width: previewWidth * scale, height: height * scale)
+                     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+                         generator.appliesPreferredTrackTransform = true
+@@ -582,7 +596,7 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+                     }
+                 }
+                 mediaButton.frame = preview.frame
+-                mediaButton.accessibilityLabel = kind == "gif" ? "GIF" : kind == "video" ? item.data.strings.Message_Video : item.data.strings.Settings_ViewPhoto
++                mediaButton.accessibilityLabel = kind == "gif" ? "GIF" : round ? item.data.strings.Message_VideoMessage : kind == "video" ? item.data.strings.Message_Video : item.data.strings.Settings_ViewPhoto
+                 bottom = preview.frame.maxY + 8
+             } else {
+                 fileIcon.isHidden = false
+@@ -590,7 +604,14 @@ private final class AyuGramHistoryCardNode: AyuGramHistoryBaseNode {
+                 fileIcon.backgroundColor = accent.withMultipliedAlpha(dark ? 0.2 : 0.12)
+                 fileIcon.tintColor = accent
+                 fileIcon.frame = CGRect(x: 14, y: bottom, width: 44, height: 44)
+-                fileTitle.text = record.mediaTitle ?? item.data.strings.Message_File
++                if kind == "voice" {
++                    // Voice messages are Opus, which AVFoundation cannot play; they open in the chat's own player.
++                    fileIcon.image = ayuGramSymbol("waveform", size: 18)
++                    fileTitle.text = item.data.strings.Message_Audio + (record.mediaTitle.map { " · " + $0 } ?? "")
++                } else {
++                    fileIcon.image = ayuGramSymbol("doc.fill", size: 18)
++                    fileTitle.text = record.mediaTitle ?? item.data.strings.Message_File
++                }
+                 fileTitle.textColor = primary
+                 fileTitle.frame = CGRect(x: 68, y: bottom, width: inner - 54, height: 44)
+                 mediaButton.frame = CGRect(x: 14, y: bottom, width: inner, height: 44)
+diff --git a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+index 94abfccd..26cb7e1a 100644
+--- a/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
++++ b/Swiftgram/SGSettingsUI/Sources/AyuGramHistoryController.swift
+@@ -203,7 +203,7 @@ public func ayuGramHistoryController(context: AccountContext, messageId: Message
+             context.sharedContext.navigateToChat(accountId: context.account.id, peerId: PeerId(peer), messageId: MessageId(peerId: PeerId(peer), namespace: Namespaces.Message.Cloud, id: id))
+         case let .media(name, kind):
+             guard let url = context.engine.ayuGramArchivedPhotoURL(name), FileManager.default.fileExists(atPath: url.path) else { return }
+-            if kind == "video" || (kind == "gif" && url.pathExtension.lowercased() != "gif") {
++            if kind == "video" || kind == "round" || (kind == "gif" && url.pathExtension.lowercased() != "gif") {
+                 let video = AVPlayerViewController()
+                 video.player = AVPlayer(url: url)
+                 controller.present(video, animated: true) { video.player?.play() }
+diff --git a/submodules/TelegramCore/Sources/State/ManagedAutoremoveMessageOperations.swift b/submodules/TelegramCore/Sources/State/ManagedAutoremoveMessageOperations.swift
+index f40bad06..4e9f4152 100644
+--- a/submodules/TelegramCore/Sources/State/ManagedAutoremoveMessageOperations.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedAutoremoveMessageOperations.swift
+@@ -82,6 +82,10 @@ func managedAutoremoveMessageOperations(network: Network, postbox: Postbox, isRe
+                     Logger.shared.log("Autoremove", "Performing autoremove for \(entry.messageId), isRemove: \(isRemove)")
+ 
+                     if let message = transaction.getMessage(entry.messageId) {
++                        // One-time and timer media expire locally; archive them in Message history first.
++                        if message.id.peerId.namespace != Namespaces.Peer.SecretChat {
++                            ayuGramRecordHistory(transaction: transaction, mediaBox: postbox.mediaBox, ids: [message.id], event: "deleted")
++                        }
+                         if message.id.peerId.namespace == Namespaces.Peer.SecretChat || isRemove {
+                             _internal_deleteMessages(transaction: transaction, mediaBox: postbox.mediaBox, ids: [entry.messageId])
+                         } else {
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+index 5de83c0d..02b06754 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift
+@@ -78,13 +78,13 @@ func ayuGramPrefetchHistoryMedia(postbox: Postbox, ids: [MessageId]) {
+         let selected = Set(policy.selectedChats)
+         guard policy.savePhotos, !selected.isEmpty else { return [] }
+         var items: [(Message, Media, MediaResource, MediaResourceUserContentType)] = []
+-        for id in ids where selected.contains(id.peerId.toInt64()) && ayuGramIsRetainable(transaction: transaction, id: id) {
++        for id in ids where selected.contains(id.peerId.toInt64()) && ayuGramIsHistoryCandidate(transaction: transaction, id: id) {
+             guard let message = transaction.getMessage(id) else { continue }
+             for media in message.media {
+                 if let image = media as? TelegramMediaImage, let representation = largestImageRepresentation(image.representations) {
+                     items.append((message, image, representation.resource, .image))
+-                } else if let file = media as? TelegramMediaFile, !file.isSticker, !file.isVoice, let size = file.size, size <= 20 * 1024 * 1024,
+-                          file.isVideo || file.isAnimated || file.mimeType.hasPrefix("image/") {
++                } else if let file = media as? TelegramMediaFile, !file.isSticker, let size = file.size, size <= 20 * 1024 * 1024,
++                          file.isVideo || file.isAnimated || file.isVoice || file.isInstantVideo || file.mimeType.hasPrefix("image/") {
+                     items.append((message, file, file.resource, MediaResourceUserContentType(file: file)))
+                 }
+             }
+@@ -98,16 +98,40 @@ func ayuGramPrefetchHistoryMedia(postbox: Postbox, ids: [MessageId]) {
+     })
+ }
+ 
+-/// Messages Save Deleted Messages may keep: cloud messages outside secret chats,
+-/// without secret or self-destructing media and not copy-protected.
+-func ayuGramIsRetainable(transaction: Transaction, id: MessageId) -> Bool {
++/// A playable extension for files without a usable name; a voice message without one was saved as .bin.
++private func ayuGramFileExtension(_ file: TelegramMediaFile) -> String {
++    if file.isVoice { return "ogg" }
++    if file.isVideo || file.isInstantVideo || file.isAnimated { return "mp4" }
++    switch file.mimeType.lowercased() {
++    case "image/jpeg", "image/jpg": return "jpg"
++    case "image/png": return "png"
++    case "image/gif": return "gif"
++    case "image/webp": return "webp"
++    case "image/heic": return "heic"
++    case "audio/mpeg", "audio/mp3": return "mp3"
++    case "audio/ogg", "audio/opus": return "ogg"
++    case "audio/mp4", "audio/m4a", "audio/x-m4a": return "m4a"
++    case "application/pdf": return "pdf"
++    default: return "bin"
++    }
++}
++
++/// Messages Message history may archive: cloud messages outside secret chats that are
++/// not copy-protected, including one-time and timer photos, videos, voice and round messages.
++func ayuGramIsHistoryCandidate(transaction: Transaction, id: MessageId) -> Bool {
+     guard id.namespace == Namespaces.Message.Cloud, id.peerId.namespace != Namespaces.Peer.SecretChat,
+-          let message = transaction.getMessage(id), !message.containsSecretMedia,
+-          !message.isCopyProtected(),
+-          !message.attributes.contains(where: { $0 is AutoremoveTimeoutMessageAttribute || $0 is AutoclearTimeoutMessageAttribute }) else { return false }
++          let message = transaction.getMessage(id), !message.isCopyProtected() else { return false }
+     return !message.text.isEmpty || !message.media.isEmpty
+ }
+ 
++/// Messages Save Deleted Messages keeps in chats outside Message history: history
++/// candidates without secret or self-destructing media.
++func ayuGramIsRetainable(transaction: Transaction, id: MessageId) -> Bool {
++    guard ayuGramIsHistoryCandidate(transaction: transaction, id: id), let message = transaction.getMessage(id), !message.containsSecretMedia,
++          !message.attributes.contains(where: { $0 is AutoremoveTimeoutMessageAttribute || $0 is AutoclearTimeoutMessageAttribute }) else { return false }
++    return true
++}
++
+ @discardableResult
+ func ayuGramRecordHistory(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], event: String) -> Set<MessageId> {
+     guard AyuGramSettings.shared.snapshot.messageHistory else { return [] }
+@@ -118,11 +142,8 @@ func ayuGramRecordHistory(transaction: Transaction, mediaBox: MediaBox, ids: [Me
+     let now = Int32(Date().timeIntervalSince1970)
+     var recorded = Set<MessageId>()
+     for id in ids {
+-        guard selected.contains(id.peerId.toInt64()), id.namespace == Namespaces.Message.Cloud,
+-              id.peerId.namespace != Namespaces.Peer.SecretChat,
+-              let message = transaction.getMessage(id), !message.containsSecretMedia,
+-              !message.isCopyProtected(),
+-              !message.attributes.contains(where: { $0 is AutoremoveTimeoutMessageAttribute || $0 is AutoclearTimeoutMessageAttribute }) else { continue }
++        guard selected.contains(id.peerId.toInt64()), ayuGramIsHistoryCandidate(transaction: transaction, id: id),
++              let message = transaction.getMessage(id) else { continue }
+         if event == "deleted", message.ayuHistory?.deletedAt != nil {
+             recorded.insert(id)
+             continue
+@@ -148,11 +169,15 @@ func ayuGramRecordHistory(transaction: Transaction, mediaBox: MediaBox, ids: [Me
+                     if let path = mediaBox.completedResourcePath(file.resource) {
+                         source = path
+                         resourceId = file.resource.id.stringRepresentation
+-                        // Pictures sent as files and GIFs are shown inline like photos and videos.
+-                        kind = file.isAnimated ? "gif" : file.isVideo ? "video" : file.mimeType.hasPrefix("image/") ? "photo" : "file"
++                        // Pictures sent as files, GIFs, round videos and voice messages are shown as such, not as files.
++                        kind = file.isInstantVideo ? "round" : file.isVoice ? "voice" : file.isAnimated ? "gif" : file.isVideo ? "video" : file.mimeType.hasPrefix("image/") ? "photo" : "file"
+                         mediaTitle = file.fileName
++                        if file.isVoice || file.isInstantVideo, let duration = file.duration {
++                            let seconds = Int(duration.rounded())
++                            mediaTitle = String(format: "%d:%02d", seconds / 60, seconds % 60)
++                        }
+                         let suffix = URL(fileURLWithPath: file.fileName ?? "").pathExtension
+-                        fileExtension = !suffix.isEmpty && suffix.count <= 10 && suffix.allSatisfy({ $0.isLetter || $0.isNumber }) ? suffix : (file.isVideo ? "mp4" : "bin")
++                        fileExtension = !suffix.isEmpty && suffix.count <= 10 && suffix.allSatisfy({ $0.isLetter || $0.isNumber }) ? suffix : ayuGramFileExtension(file)
+                         break
+                     }
+                 }
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
+index f49489b1..9445d9c7 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramRetainedMessages.swift
+@@ -12,7 +12,8 @@ func ayuGramDeleteRemoteMessages(transaction: Transaction, mediaBox: MediaBox, i
+     let keepAll = AyuGramSettings.shared.snapshot.messageHistory
+     for id in ids where recorded.contains(id) || (keepAll && ayuGramIsRetainable(transaction: transaction, id: id)) {
+         guard let message = transaction.getMessage(id) else { continue }
+-        var attributes = message.attributes.filter { !($0 is AyuHistoryMessageAttribute) }
++        // A kept copy of a one-time or timer message must not expire again.
++        var attributes = message.attributes.filter { !($0 is AyuHistoryMessageAttribute || $0 is AutoremoveTimeoutMessageAttribute || $0 is AutoclearTimeoutMessageAttribute) }
+         attributes.append(AyuHistoryMessageAttribute(originalText: message.ayuHistory?.originalText ?? message.text, editedAt: message.ayuHistory?.editedAt, deletedAt: message.ayuHistory?.deletedAt ?? Int32(Date().timeIntervalSince1970)))
+         var flags = StoreMessageFlags(message.flags)
+         flags.insert(.AyuLocallyDeleted)

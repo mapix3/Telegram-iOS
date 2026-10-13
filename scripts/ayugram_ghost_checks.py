@@ -73,7 +73,12 @@ def check_sources(source: Path, variant: str):
     assert 'initialSelectedPeers' not in history, 'The chat picker preselects once; initialSelectedPeers toggles chats again and duplicates tokens'
     manager = (source / 'submodules/TelegramCore/Sources/State/AccountStateManager.swift').read_text()
     assert 'ayuGramPrefetchHistoryMedia(postbox: self.postbox, ids: events.addedIncomingMessageIds)' in manager, 'Media in history chats is downloaded on arrival'
-    assert 'kind = file.isAnimated ? "gif"' in (source / 'submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift').read_text(), 'GIFs and pictures sent as files are previewed'
+    assert 'file.isAnimated ? "gif"' in (source / 'submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift').read_text(), 'GIFs and pictures sent as files are previewed'
+    autoremove = (source / 'submodules/TelegramCore/Sources/State/ManagedAutoremoveMessageOperations.swift').read_text()
+    assert 'ayuGramRecordHistory(transaction: transaction, mediaBox: postbox.mediaBox, ids: [message.id], event: "deleted")' in autoremove, 'One-time and timer media are archived before they expire'
+    core = (source / 'submodules/TelegramCore/Sources/TelegramEngine/Messages/AyuGramMessageHistory.swift').read_text()
+    assert 'if file.isVoice { return "ogg" }' in core and 'file.isInstantVideo ? "round" : file.isVoice ? "voice"' in core, 'Voice and round messages keep a playable type'
+    assert 'avatarNode.frame = avatar.frame' in cards, 'The avatar node is sized through its own frame'
     delegate = (source / 'submodules/TelegramUI/Sources/AppDelegate.swift').read_text()
     assert 'let maybeAppGroupUrl = sgAppGroupContainerURL(appGroupName)' in delegate, 'Sideloaded installs without the app group still start'
     group = (source / 'Swiftgram/SGAppGroupIdentifier/Sources/SGAppGroupIdentifier.swift').read_text()

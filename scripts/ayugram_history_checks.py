@@ -234,6 +234,8 @@ struct AccountContext { var engine = CompatibilityEngine() }
 struct EnginePeer: Equatable {}
 final class AvatarNode {
     let view = UIView()
+    var frame = CGRect.zero
+    var isHidden = false
     init(font: UIFont) {}
     func setPeer(context: AccountContext, theme: PresentationTheme, peer: EnginePeer?, synchronousLoad: Bool, displayDimensions: CGSize) {}
 }
