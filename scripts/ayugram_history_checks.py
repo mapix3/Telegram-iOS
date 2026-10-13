@@ -197,6 +197,9 @@ class ListViewItemNode {
     var contentSize = CGSize.zero
     var insets = UIEdgeInsets.zero
     init(layerBacked: Bool) {}
+    // Mirrors Display's ListViewItemNode members that subclasses could shadow by accident.
+    func tapped() {}
+    func selected() {}
 }
 enum NoError: Error {}
 final class Signal<T, E: Error> {}

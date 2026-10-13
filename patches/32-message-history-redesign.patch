@@ -289,11 +289,11 @@ index 19521026..494be14f 100644
 +        button.layer.cornerRadius = 12
 +        button.layer.cornerCurve = .continuous
 +        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
-+        button.addTarget(self, action: #selector(tapped), for: .touchUpInside)
++        button.addTarget(self, action: #selector(emptyButtonTapped), for: .touchUpInside)
 +        for child in [icon, title, text, button] { view.addSubview(child) }
 +    }
 +
-+    @objc private func tapped() { action?() }
++    @objc private func emptyButtonTapped() { action?() }
 +
 +    override func layoutHistory(_ item: AyuGramHistoryBaseItem, params: ListViewItemLayoutParams) -> ListViewItemNodeLayout {
 +        guard let item = item as? AyuGramHistoryEmptyItem else { preconditionFailure() }

@@ -42,7 +42,7 @@
   "scripts/ayugram_ci.py": "627936717af4907b69295c8ab95aad12bf9a9afb6508396741be666d99552724",
   "scripts/ayugram_compatibility.py": "f1c313a408e18482edb80983ba1fcc9f25d3c862ba78a8e4d2039b685046a8fa",
   "scripts/ayugram_emoji_checks.py": "ab5e45e8af81512ba00cd6d74b0f9b9ec8f62817fabc20c95a59c02c352d222b",
-  "scripts/ayugram_history_checks.py": "c59436dfcb162d3e20b5c0c61cb2e2338081c6f3eb10cb5dae82c4ee759a9fc4",
+  "scripts/ayugram_history_checks.py": "79acc6f218a7dd3407c23e73a4623cadba34d96a72e6fdb97062e21a7b9cb985",
   "scripts/ayugram_profile_checks.py": "f44f8fc2937e881a0ffa0b20cce7631d85d3640c10fb23eabc0f5f1835497a1e",
   "scripts/ayugram_receipt_checks.py": "872921ae908cc0ca320ec292e10d8652e03173feba610568d97897a1e0241ca0",
   "scripts/ayugram_receipt_regressions.py": "a8b89537db6f3c5961400647bcbf3b7937c3b457701659e1590dd9dc3f2924f0",
@@ -65,7 +65,7 @@
   "patches/29-chat-list-shade-and-video-pacing-custom.patch": "30386f2f759cfb20de239d8f12b5478a8afe71504417b9543565749241bab6e4",
   "patches/30-wallpaper-main-thread-layer-custom.patch": "b462c04b6d2364b8e9592cb262a4d0bca4d2066f2a68b2cdc68b63ec438193ea",
   "patches/31-ghost-read-state-loop.patch": "d68a3d366cc3b455d9d5ccf52a20fed5a747acd24cfb418328f9989cd0b6a7a2",
-  "patches/32-message-history-redesign.patch": "697d6df951a48e297f6ab2f72eb1c50611b8a2365dc959b38f030dac220dd8a5",
+  "patches/32-message-history-redesign.patch": "74bb1e99f455736ab0c6e3c4701a4c4522dfab9b222e8ddea1e71a811737c8ca",
   "patches/33-sideload-app-group-fallback.patch": "94c618db812c18fd539f28651a68413124bd0c387486eb0cb6bba027cc74dced",
   "scripts/ayugram_sideload.py": "1a52f84b9d6530d154ba81acda71fd3ad7170f0c20bd44ff5a61ea291fa578fa",
   "scripts/ayugram-tests/test_sideload.py": "006376e69bffdc358d60455f194c2378532443981f565d175dbc01103a0ea842"
