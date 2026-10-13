@@ -1,0 +1,108 @@
+diff --git a/Swiftgram/SGAppGroupIdentifier/Sources/SGAppGroupIdentifier.swift b/Swiftgram/SGAppGroupIdentifier/Sources/SGAppGroupIdentifier.swift
+index 90859ac8..43e5f4c4 100644
+--- a/Swiftgram/SGAppGroupIdentifier/Sources/SGAppGroupIdentifier.swift
++++ b/Swiftgram/SGAppGroupIdentifier/Sources/SGAppGroupIdentifier.swift
+@@ -20,6 +20,22 @@ public func sgBaseBundleIdentifier() -> String {
+     return baseBundleId
+ }
+ 
++/// The shared app group container. A sideloaded install is usually signed
++/// without the `group.<bundle id>` app group, so the system returns nil; the
++/// main app then keeps its data in a private Library directory instead of
++/// refusing to start. Extensions get nil and keep their existing handling.
++public func sgAppGroupContainerURL(_ identifier: String = sgAppGroupIdentifier()) -> URL? {
++    if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {
++        return url
++    }
++    guard !Bundle.main.bundlePath.hasSuffix(".appex"), let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first else {
++        return nil
++    }
++    let url = library.appendingPathComponent("AppGroupFallback", isDirectory: true)
++    try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: nil)
++    return url
++}
++
+ public func sgAppGroupIdentifier() -> String {
+     let result: String = "group.\(sgBaseBundleIdentifier())"
+     
+diff --git a/Swiftgram/SGDBReset/Sources/File.swift b/Swiftgram/SGDBReset/Sources/File.swift
+index 42e66104..158ae9f2 100644
+--- a/Swiftgram/SGDBReset/Sources/File.swift
++++ b/Swiftgram/SGDBReset/Sources/File.swift
+@@ -7,7 +7,7 @@ private let dbResetKey = "sg_db_reset"
+ private let dbHardResetKey = "sg_db_hard_reset"
+ 
+ private func sgDefaultDataPath() -> String? {
+-    guard let appGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: sgAppGroupIdentifier()) else {
++    guard let appGroupUrl = sgAppGroupContainerURL() else {
+         return nil
+     }
+     return (appGroupUrl.path as NSString).appendingPathComponent("telegram-data")
+diff --git a/Swiftgram/SGLogging/BUILD b/Swiftgram/SGLogging/BUILD
+index 49839697..eeb45c43 100644
+--- a/Swiftgram/SGLogging/BUILD
++++ b/Swiftgram/SGLogging/BUILD
+@@ -11,7 +11,8 @@ swift_library(
+     ],
+     deps = [
+         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
+-        "//submodules/ManagedFile:ManagedFile"
++        "//submodules/ManagedFile:ManagedFile",
++        "//Swiftgram/SGAppGroupIdentifier:SGAppGroupIdentifier",
+     ],
+     visibility = [
+         "//visibility:public",
+diff --git a/Swiftgram/SGLogging/Sources/SGLogger.swift b/Swiftgram/SGLogging/Sources/SGLogger.swift
+index a3c8a09b..a9b469c7 100644
+--- a/Swiftgram/SGLogging/Sources/SGLogger.swift
++++ b/Swiftgram/SGLogging/Sources/SGLogger.swift
+@@ -1,6 +1,7 @@
+ import Foundation
+ import SwiftSignalKit
+ import ManagedFile
++import SGAppGroupIdentifier
+ 
+ private let queue = DispatchQueue(label: "app.swiftgram.ios.trace", qos: .utility)
+ 
+@@ -43,7 +44,7 @@ public class SGLogger {
+                 return SGLogger(rootPath: "", basePath: "")
+             }
+             let appGroupName = "group.\(baseAppBundleId)"
+-            let maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
++            let maybeAppGroupUrl = sgAppGroupContainerURL(appGroupName)
+             guard let appGroupUrl = maybeAppGroupUrl else {
+                 print("Can't setup logger (2)!")
+                 return SGLogger(rootPath: "", basePath: "")
+diff --git a/submodules/TelegramUI/Sources/AppDelegate.swift b/submodules/TelegramUI/Sources/AppDelegate.swift
+index 2e2f85d0..e8246993 100644
+--- a/submodules/TelegramUI/Sources/AppDelegate.swift
++++ b/submodules/TelegramUI/Sources/AppDelegate.swift
+@@ -9,6 +9,7 @@ import SGActionRequestHandlerSanitizer
+ import SGGHSettings
+ import SGAPIWebSettings
+ import SGLogging
++import SGAppGroupIdentifier
+ import SGStrings
+ import SGSimpleSettings
+ import UIKit
+@@ -303,7 +304,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+         let appGroupName = "group.\(baseAppBundleId)"
+ 
+         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
+-        configuration.sharedContainerIdentifier = appGroupName
++        // Without the app group entitlement (sideloaded installs) the shared container does not exist.
++        if FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName) != nil {
++            configuration.sharedContainerIdentifier = appGroupName
++        }
+         configuration.isDiscretionary = false
+         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
+         self.urlSessions.append(session)
+@@ -547,7 +551,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+         
+         let baseAppBundleId = Bundle.main.bundleIdentifier!
+         let appGroupName = "group.\(baseAppBundleId)"
+-        let maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
++        let maybeAppGroupUrl = sgAppGroupContainerURL(appGroupName)
+         
+         let buildConfig = BuildConfig(baseAppBundleId: baseAppBundleId)
+         self.buildConfig = buildConfig

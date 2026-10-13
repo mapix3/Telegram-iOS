@@ -67,6 +67,10 @@ def check_sources(source: Path, variant: str):
         assert token in cards, token
     for key in re.findall(r'i18n\("Ayu\.([A-Za-z]+)"', history + cards):
         assert key in NEW_KEYS or key in ('History', 'SaveMedia', 'HistoryInfo', 'ClearHistory', 'EmptyHistory', 'BeforeEdit', 'Deleted'), key
+    delegate = (source / 'submodules/TelegramUI/Sources/AppDelegate.swift').read_text()
+    assert 'let maybeAppGroupUrl = sgAppGroupContainerURL(appGroupName)' in delegate, 'Sideloaded installs without the app group still start'
+    group = (source / 'Swiftgram/SGAppGroupIdentifier/Sources/SGAppGroupIdentifier.swift').read_text()
+    assert 'public func sgAppGroupContainerURL(' in group and '".appex"' in group, 'Only the main app falls back to a private container'
     entry = (source / 'Swiftgram/SGSettingsUI/Sources/AyuGramAppearanceEntry.swift').read_text()
     assert ('= true' in entry) == (variant == 'custom'), 'Appearance link matches the variant'
     if variant == 'custom':
